@@ -1,0 +1,8 @@
+{
+  "name": "FruitWoodWar",
+  "version": "1.0.0",
+  "description": "果林大战 - 城堡战争H5游戏",
+  "main": "index.js",
+  "devDependencies": {},
+  "dependencies": {}
+}
