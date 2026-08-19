@@ -1,0 +1,126 @@
+/**
+ * FloatingText —— 伤害跳字 / 金币提示 等浮动文字系统
+ *
+ * 职责：
+ *  - 在指定位置生成浮动文字，自动上升并淡出
+ *  - 支持不同颜色（伤害=红、治疗=绿、金币=黄）
+ *  - 使用对象池复用节点，避免频繁创建/销毁
+ *  - 纯表现层，不影响游戏数据
+ *
+ * 设计规范（来自 01-玩法设计总纲 §全龄化）：
+ *  - "数字清晰：伤害跳字用大号气泡"
+ *  - "兵被打败 = 弹飞 + 变星星/果粒消散，禁止血腥"
+ */
+
+import { Node, Label, Color, UITransform, Size, Vec2, UIOpacity } from 'cc';
+import { NodePool } from './node-pool';
+
+/** 浮动文字配置 */
+interface FloatConfig {
+    text: string;
+    x: number;
+    y: number;
+    color: Color;
+    fontSize: number;
+    /** 动画时长（秒） */
+    duration: number;
+}
+
+export class FloatingText {
+
+    /** 活跃浮动文字列表 */
+    private active: Array<{ node: Node; elapsed: number; config: FloatConfig }> = [];
+    /** 对象池 */
+    private pool: NodePool = new NodePool();
+
+    private container: Node;
+    private layer: number;
+
+    constructor(container: Node, layer: number) {
+        this.container = container;
+        this.layer = layer;
+    }
+
+    /** 在指定位置显示浮动文字 */
+    show(text: string, x: number, y: number, color: Color = Color.WHITE, fontSize: number = 16, duration: number = 0.8) {
+        const config: FloatConfig = { text, x, y, color, fontSize, duration };
+        const node = this.pool.acquire('float', () => this.createNode());
+        node.parent = this.container;
+        node.setPosition(x, y, 0);
+        node.active = true;
+
+        const label = node.getComponent(Label)!;
+        label.string = text;
+        label.fontSize = fontSize;
+        label.color = color;
+
+        const opacity = node.getComponent(UIOpacity)!;
+        opacity.opacity = 255;
+
+        this.active.push({ node, elapsed: 0, config });
+    }
+
+    /** 显示伤害数字（红色） */
+    showDamage(damage: number, x: number, y: number) {
+        this.show('-' + Math.floor(damage), x, y, new Color(255, 80, 80), 14, 0.6);
+    }
+
+    /** 显示金币获取（金色） */
+    showGold(amount: number, x: number, y: number) {
+        this.show('+' + amount + '金', x, y, new Color(255, 215, 94), 14, 0.8);
+    }
+
+    /** 显示治疗（绿色） */
+    showHeal(amount: number, x: number, y: number) {
+        this.show('+' + Math.floor(amount), x, y, new Color(100, 255, 100), 14, 0.6);
+    }
+
+    /** 每帧更新：驱动浮动动画 */
+    update(dt: number) {
+        for (let i = this.active.length - 1; i >= 0; i--) {
+            const item = this.active[i];
+            item.elapsed += dt;
+            const progress = item.elapsed / item.config.duration;
+
+            if (progress >= 1) {
+                // 动画结束，回收节点
+                this.pool.release(item.node, 'float');
+                this.active.splice(i, 1);
+                continue;
+            }
+
+            // 上升 + 淡出
+            const yOffset = progress * 40; // 上升 40px
+            item.node.setPosition(item.config.x, item.config.y + yOffset, 0);
+            const opacity = item.node.getComponent(UIOpacity);
+            if (opacity) {
+                opacity.opacity = Math.floor(255 * (1 - progress));
+            }
+        }
+    }
+
+    /** 清理所有浮动文字 */
+    clear() {
+        for (const item of this.active) {
+            this.pool.release(item.node, 'float');
+        }
+        this.active.length = 0;
+        this.pool.clearAll();
+    }
+
+    // ==================== 内部 ====================
+
+    private createNode(): Node {
+        const node = new Node();
+        node.layer = this.layer;
+        const ut = node.addComponent(UITransform);
+        ut.contentSize = new Size(100, 30);
+        ut.anchorPoint = new Vec2(0.5, 0.5);
+        const label = node.addComponent(Label);
+        label.fontSize = 16;
+        label.color = Color.WHITE;
+        label.lineHeight = 20;
+        node.addComponent(UIOpacity);
+        return node;
+    }
+}

@@ -1,0 +1,238 @@
+/**
+ * 卡牌系统（M3：27 张卡牌效果全部实装，增益只作用于玩家方）
+ *
+ * 触发：第 5/15/20 波暂停，从玩家阵营卡池抽 3 选 1。
+ * 效果类型：永久增益 / 即时效果 / 召唤 / 临时 buff（攻速、攻击、速度、回血）/ 周期效果（果雨）
+ * / 被动触发（反伤、狼群、流血、死亡爆炸、处决、击杀回血）。
+ */
+
+import { CARD_CONFIG } from '../../config/card-config';
+import { FACTION_CONFIG } from '../../config/faction-config';
+import { GAME_CONFIG } from '../../config/game-config';
+import { nextEntityId } from '../game-state';
+import type { CardConfig, CommandResult, GameState, TempBuff } from '../types';
+import type { RandomSource } from '../random';
+
+/** 果雨周期（秒） */
+const RAIN_INTERVAL = 5;
+/** 果雨单次伤害 */
+const RAIN_DAMAGE = 100;
+/** 果雨持续到对局结束（用大数表示"永久"） */
+const RAIN_DURATION = 9999;
+
+/** 若当前波次命中卡牌触发点则进入暂停并抽 3 张卡；返回是否触发 */
+export function triggerCardChoiceIfDue(state: GameState, random: RandomSource): boolean {
+    const wave = state.wave;
+    if (GAME_CONFIG.cardTriggerWaves.includes(wave) && !state.cards.triggeredWaves[wave]) {
+        state.cards.triggeredWaves[wave] = true;
+        drawOffers(state, random);
+        state.phase = 'card-pause';
+        return true;
+    }
+    return false;
+}
+
+/** 从玩家阵营卡池中不重复抽取 3 张 */
+function drawOffers(state: GameState, random: RandomSource): void {
+    const pool = [...CARD_CONFIG[state.factions[state.playerSide]]];
+    const offers: CardConfig[] = [];
+    for (let i = 0; i < 3 && pool.length > 0; i++) {
+        offers.push(pool.splice(random.int(pool.length), 1)[0]);
+    }
+    state.cards.offers = offers;
+}
+
+/** 处理选卡命令：应用效果并恢复对战 */
+export function chooseCard(state: GameState, cardId: string, _random: RandomSource): CommandResult {
+    const card = state.cards.offers.find(c => c.id === cardId);
+    if (!card) {
+        return { ok: false };
+    }
+    state.cards.offers = [];
+    applyCardEffect(state, cardId);
+    state.phase = 'playing';
+    return { ok: true };
+}
+
+/** 构造临时 buff 的便捷方法 */
+function tempBuff(side: TempBuff['side'], type: TempBuff['type'], mult: number, dur: number): TempBuff {
+    return { side, type, mult, damage: 0, interval: 0, tickTimer: 0, dur };
+}
+
+/** 卡牌效果结算：全部只作用于玩家方（红方） */
+function applyCardEffect(state: GameState, cardId: string): void {
+    const buff = state.buffs.red; // 玩家方增益
+    const redUnits = () => state.units.filter(u => u.side === 'red');
+    const blueUnits = () => state.units.filter(u => u.side === 'blue');
+
+    switch (cardId) {
+        // ================= 水果王国 =================
+        case 'heal': // 全体治疗 30%
+            redUnits().forEach(u => {
+                u.hp = Math.min(u.maxHp, u.hp + u.maxHp * 0.3);
+            });
+            break;
+        case 'atkUp': // 全体攻击 +25% 永久
+            buff.atk *= 1.25;
+            break;
+        case 'splash': // 攻击附带 60% 溅射
+            buff.splashMult *= 1.6;
+            break;
+        case 'sunburst': // 10 秒内攻速翻倍
+            state.tempBuffs.push(tempBuff('red', 'attackSpeedMult', 2, 10));
+            break;
+        case 'tropical': // 全场敌方 -200
+            blueUnits().forEach(u => {
+                u.hp -= 200;
+            });
+            break;
+        case 'fruitRage': // 攻击 +35% 攻速 +20% 永久
+            buff.atk *= 1.35;
+            buff.attackSpeed *= 1.2;
+            break;
+        case 'shield': // 全体获得 150 护盾
+            redUnits().forEach(u => {
+                u.shield += 150;
+            });
+            break;
+        case 'regen': // 10 秒内持续回血（每秒 3% 最大血量）
+            state.tempBuffs.push(tempBuff('red', 'regen', 0.03, 10));
+            break;
+        case 'rain': // 每 5 秒对随机敌人造成 100 伤害（持续到对局结束）
+            state.tempBuffs.push({ side: 'red', type: 'rain', mult: 0, damage: RAIN_DAMAGE, interval: RAIN_INTERVAL, tickTimer: RAIN_INTERVAL, dur: RAIN_DURATION });
+            break;
+        // ================= 绿木林 =================
+        case 'rootNet': // 敌人减速 40% 持续 8 秒
+            blueUnits().forEach(u => {
+                u.slowMult = 0.6;
+                u.slowDur = 8;
+            });
+            break;
+        case 'hpUp': // 全体血量 +30% 永久（作用于新出单位）
+            buff.hp *= 1.3;
+            break;
+        case 'spore': // 全场敌方 -150（灰盒简化：无释放位置概念）
+            blueUnits().forEach(u => {
+                u.hp -= 150;
+            });
+            break;
+        case 'vine': // 敌人定身 3 秒
+            blueUnits().forEach(u => {
+                u.stunDur = 3;
+            });
+            break;
+        case 'bark': // 全体减伤 20% 永久
+            buff.damageReduce *= 0.8;
+            break;
+        case 'bloom': // 召唤 3 个树人
+            for (let i = 0; i < 3; i++) {
+                state.units.push({
+                    id: nextEntityId(state),
+                    side: 'red',
+                    type: 'tank',
+                    level: 1,
+                    x: -300 + Math.random() * 100,
+                    y: -50 + Math.random() * 60 - 30,
+                    hp: 200,
+                    maxHp: 200,
+                    atk: 15,
+                    speed: 30,
+                    range: 50,
+                    atkSpeed: 0.8,
+                    atkCd: 0,
+                    firstStrikeDone: true, // 树人不享受冲锋首击
+                    shield: 0,
+                    stunDur: 0,
+                    slowMult: 1,
+                    slowDur: 0,
+                    bleedDps: 0,
+                    bleedDur: 0,
+                });
+            }
+            break;
+        case 'thorn': // 受击反弹 20% 伤害
+            buff.thorn = 0.2;
+            break;
+        case 'growth': // 出兵速度 +30% 永久（仅己方工厂）
+            buff.waveIntervalMult *= 0.7;
+            break;
+        case 'forest': // 水晶回血 500
+        {
+            const rc = state.crystals.find(c => c.side === 'red');
+            if (rc) rc.hp = Math.min(rc.maxHp, rc.hp + 500);
+            break;
+        }
+        // ================= 动物庄园 =================
+        case 'crit': // 全体暴击率 +30%
+            buff.crit += 0.3;
+            break;
+        case 'bloodlust': // 击杀回血 20%
+            buff.lifeOnKill = 0.2;
+            break;
+        case 'frenzy': // 攻击 +40% 攻速 +30% 永久
+            buff.atk *= 1.4;
+            buff.attackSpeed *= 1.3;
+            break;
+        case 'howl': // 10 秒内攻击 +50%
+            state.tempBuffs.push(tempBuff('red', 'atkMult', 1.5, 10));
+            break;
+        case 'pack': // 每有一个友军攻击 +5%
+            buff.packBonus = 0.05;
+            break;
+        case 'predator': // 对低血量敌人伤害 +100%
+            buff.execute = true;
+            break;
+        case 'stampede': // 全体加速 50% 持续 10 秒
+            state.tempBuffs.push(tempBuff('red', 'speedMult', 1.5, 10));
+            break;
+        case 'claw': // 攻击附带流血（3 秒内造成 20% 伤害）
+            buff.bleed = 0.2;
+            break;
+        case 'survival': // 死亡时对周围敌人造成 150 伤害
+            buff.deathExplode = 150;
+            break;
+        default:
+            // 不应到达：所有卡牌已有专属分支
+            buff.atk *= 1.1;
+            break;
+    }
+}
+
+/**
+ * 推进临时 buff：回血 / 果雨周期效果生效，计时衰减。
+ * 由引擎每帧调用。
+ */
+export function stepTempBuffs(state: GameState, dt: number, random: RandomSource): void {
+    for (let i = state.tempBuffs.length - 1; i >= 0; i--) {
+        const tb = state.tempBuffs[i];
+        tb.dur -= dt;
+
+        // 持续回血：每秒回复 mult 比例最大血量
+        if (tb.type === 'regen') {
+            for (const u of state.units) {
+                if (u.side === tb.side && u.hp > 0) {
+                    u.hp = Math.min(u.maxHp, u.hp + u.maxHp * tb.mult * dt);
+                }
+            }
+        }
+
+        // 果雨：每 interval 秒对随机敌人造成 damage 伤害
+        if (tb.type === 'rain') {
+            tb.tickTimer -= dt;
+            if (tb.tickTimer <= 0) {
+                tb.tickTimer += tb.interval;
+                const enemies = state.units.filter(u => u.side !== tb.side && u.hp > 0);
+                if (enemies.length > 0) {
+                    enemies[random.int(enemies.length)].hp -= tb.damage;
+                }
+            }
+        }
+
+        if (tb.dur <= 0) state.tempBuffs.splice(i, 1);
+    }
+}
+
+/** 供表现层显示卡牌面板副标题：如"第 5 波 · 水果王国" */
+export function getCardPanelSubtitle(state: GameState): string {
+    return `第 ${state.wave} 波 · ${FACTION_CONFIG[state.factions[state.playerSide]].name}`;
+}
