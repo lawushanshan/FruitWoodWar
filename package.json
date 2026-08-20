@@ -2,7 +2,17 @@
   "name": "FruitWoodWar",
   "version": "1.0.0",
   "description": "果林大战 - 城堡战争H5游戏",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.check.json --noEmit"
+  },
   "main": "index.js",
-  "devDependencies": {},
-  "dependencies": {}
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
+  },
+  "creator": {
+    "version": "3.8.8"
+  },
+  "uuid": "7b85af8c-45a2-45b5-9b87-ad09477f74ce"
 }

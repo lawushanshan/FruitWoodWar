@@ -1,37 +1,31 @@
-import { _decorator, Component, Node, Label, Color, UITransform, Size, Vec2, Sprite, SpriteFrame, Texture2D, ImageAsset, Layers, Button, EventHandler, tween, Vec3, UIOpacity, BlockInputEvents, Canvas, Camera, ClearFlags } from 'cc';
+import { _decorator, Component, Node, Label, Color, UITransform, Size, Vec2, Sprite, SpriteFrame, Texture2D, ImageAsset, Layers, Button, EventHandler, tween, Vec3, UIOpacity, BlockInputEvents, Canvas, Camera, gfx } from 'cc';
+import {
+    BUILDING_TYPES,
+    DIFFICULTIES,
+    FACTIONS,
+    FACTORY_OUTPUT,
+    GAME_CONFIG,
+    UNIT_TYPES,
+    BuildingId,
+    FactionId,
+    UnitRoleId,
+    getBuildingCost,
+    getFactoryOutput,
+    isFactoryId,
+} from './config/GameConfig';
+import {
+    calculateDamage,
+    distance,
+    getCounterMultiplier,
+    getFirstStrikeMultiplier,
+    getTargetDamageMultiplier,
+    isInRange,
+} from './core/CombatRules';
 const { ccclass, property } = _decorator;
 
-// ==================== 配置 ====================
-const CFG = {
-    WAVE_INT: 20, SALARY_INT: 15, SALARY: 50, START_GOLD: 200,
-    CRYSTAL_HP: 5000, UNIT_CAP: 60, RAZE_BOUNTY: 50,
-};
+// 卡牌暂时保留在表现层；数值与兵种已抽到 config/GameConfig.ts。
 
-const FACTIONS: Record<string, any> = {
-    fruit:  { name:'水果王国', passive:'阳光生长·出兵快11%', price:0.95, hp:0.78, atk:0.9,  speed:1.0,  waveInt:18, countBonus:0, first:2,   color:'#ff7043' },
-    wood:   { name:'绿木林',   passive:'生生不息·每厂每波+1兵', price:1.1,  hp:1.45, atk:1.0, speed:0.8,  waveInt:20, countBonus:1, first:2,   color:'#66bb6a' },
-    animal: { name:'动物庄园', passive:'野性力量·攻击+45%', price:1.0,  hp:0.95, atk:1.45, speed:1.35, waveInt:20, countBonus:0, first:2.5, color:'#ffca28' },
-};
-
-const UNITS: Record<string, any> = {
-    tank:   { name:'坦克',   hp:280, atk:22, spd:0.7, range:55,  atkSpd:1.0, cost:150, icon:'🛡️' },
-    ranged: { name:'远程',   hp:120, atk:30, spd:0.9, range:180, atkSpd:1.2, cost:130, icon:'🏹' },
-    aoe:    { name:'AOE',    hp:160, atk:18, spd:0.8, range:130, atkSpd:0.9, cost:180, icon:'✨' },
-    rush:   { name:'冲锋',   hp:90,  atk:26, spd:1.5, range:50,  atkSpd:1.5, cost:160, icon:'' },
-    siege:  { name:'攻城',   hp:400, atk:45, spd:0.5, range:220, atkSpd:0.6, cost:200, icon:'🪨' },
-};
-
-const BUILDINGS: Record<string, any> = {
-    tank:    { name:'坦克厂',   hp:800,  cost:150, icon:'🛡️' },
-    ranged:  { name:'远程厂',   hp:800,  cost:130, icon:'🏹' },
-    aoe:     { name:'AOE厂',    hp:800,  cost:180, icon:'✨' },
-    rush:    { name:'冲锋厂',   hp:800,  cost:160, icon:'⚡' },
-    siege:   { name:'攻城厂',   hp:800,  cost:200, icon:'🪨' },
-    tower:   { name:'防御塔',   hp:600,  cost:120, range:200, atk:25, atkSpd:1.0, icon:'🗼' },
-    academy: { name:'战争学院', hp:500,  cost:200, icon:'️' },
-};
-
-const CARDS: Record<string, any[]> = {
+const CARDS: Record<FactionId, any[]> = {
     fruit: [
         { id:'heal', name:'鲜榨回复', icon:'🍹', desc:'全体治疗30%血量', rarity:'rare' },
         { id:'atkUp', name:'果香四溢', icon:'🌺', desc:'全体攻击+25%永久', rarity:'epic' },
@@ -95,8 +89,9 @@ export class GameManager extends Component {
     private cardPanel: Node | null = null;
     private buildBar: Node | null = null;
     private toastLabel: Label | null = null;
-    private selectedFaction: string = 'fruit';
-    private selectedDifficulty: string = 'normal';
+    private selectedFaction: FactionId = 'fruit';
+    private selectedDifficulty: keyof typeof DIFFICULTIES = 'normal';
+    private buildCostLabels: Map<BuildingId, Label> = new Map();
     private buildMode: string | null = null;
 
     onLoad() {
@@ -120,7 +115,7 @@ export class GameManager extends Component {
             cam.projection = 0; // ORTHO
             cam.orthoHeight = 360;
             cam.priority = 1073741824;
-            cam.clearFlags = ClearFlags.SOLID_COLOR;
+            cam.clearFlags = gfx.ClearFlagBit.COLOR;
             cam.clearColor = new Color(13, 20, 24, 255);
         }
 
@@ -209,8 +204,8 @@ export class GameManager extends Component {
         this.popLabel = makeLabel('👥 0/60', -380, -22, new Color(255, 255, 255));
         this.killsLabel = makeLabel(' 0', -220, -22, new Color(255, 255, 255));
         this.waveLabel = makeLabel('🌊 第 0 波', 200, -22, new Color(255, 255, 255));
-        this.hpRedLabel = makeLabel('🔴 5000', 400, -22, new Color(255, 138, 122));
-        this.hpBlueLabel = makeLabel('🔵 5000', 560, -22, new Color(122, 184, 255));
+        this.hpRedLabel = makeLabel('🔴 ' + GAME_CONFIG.crystalHealth, 400, -22, new Color(255, 138, 122));
+        this.hpBlueLabel = makeLabel('🔵 ' + GAME_CONFIG.crystalHealth, 560, -22, new Color(122, 184, 255));
     }
 
     private createBuildBar() {
@@ -225,19 +220,19 @@ export class GameManager extends Component {
         bg.parent = this.buildBar;
         bg.setPosition(0, 38, 0);
 
-        const types = Object.keys(BUILDINGS);
+        const types = Object.keys(BUILDING_TYPES) as BuildingId[];
         const startX = -420;
         const gap = 96;
 
         types.forEach((type, i) => {
-            const b = BUILDINGS[type];
-            const btn = this.createBuildButton(b.icon, b.name, b.cost, type);
+            const btn = this.createBuildButton(type);
             btn.parent = this.buildBar;
             btn.setPosition(startX + i * gap, 38, 0);
         });
     }
 
-    private createBuildButton(icon: string, name: string, cost: number, type: string): Node {
+    private createBuildButton(type: BuildingId): Node {
+        const building = BUILDING_TYPES[type];
         const btn = new Node('BuildBtn_' + type);
         btn.layer = this.uiLayer;
         const ut = btn.addComponent(UITransform);
@@ -253,7 +248,7 @@ export class GameManager extends Component {
         const icUt = iconLabel.addComponent(UITransform);
         icUt.contentSize = new Size(60, 24);
         const icLabel = iconLabel.addComponent(Label);
-        icLabel.string = icon;
+        icLabel.string = building.icon;
         icLabel.fontSize = 20;
         icLabel.color = Color.WHITE;
         iconLabel.setPosition(0, 10, 0);
@@ -264,7 +259,7 @@ export class GameManager extends Component {
         const nmUt = nameLabel.addComponent(UITransform);
         nmUt.contentSize = new Size(80, 16);
         const nmLabel = nameLabel.addComponent(Label);
-        nmLabel.string = name;
+        nmLabel.string = building.name;
         nmLabel.fontSize = 12;
         nmLabel.color = new Color(223, 233, 240);
         nameLabel.setPosition(0, -8, 0);
@@ -275,10 +270,11 @@ export class GameManager extends Component {
         const csUt = costLabel.addComponent(UITransform);
         csUt.contentSize = new Size(60, 14);
         const csLabel = costLabel.addComponent(Label);
-        csLabel.string = cost + '金';
+        csLabel.string = getBuildingCost(type, this.selectedFaction) + '金';
         csLabel.fontSize = 11;
         csLabel.color = new Color(255, 215, 94);
         costLabel.setPosition(0, -22, 0);
+        this.buildCostLabels.set(type, csLabel);
 
         // 点击事件
         const button = btn.addComponent(Button);
@@ -293,6 +289,12 @@ export class GameManager extends Component {
         button.clickEvents = [clickHandler];
 
         return btn;
+    }
+
+    private refreshBuildBar() {
+        this.buildCostLabels.forEach((label, type) => {
+            label.string = getBuildingCost(type, this.selectedFaction) + '金';
+        });
     }
 
     private createStartPanel() {
@@ -598,19 +600,20 @@ export class GameManager extends Component {
 
     // ==================== UI事件 ====================
     onFactionClick(event: Event, faction: string) {
-        this.selectedFaction = faction;
+        if (!FACTIONS[faction as FactionId]) return;
+        this.selectedFaction = faction as FactionId;
+        this.refreshBuildBar();
         this.showToast('选择了：' + FACTIONS[faction].name);
     }
 
     onDiffClick(event: Event) {
-        const diffs = ['easy', 'normal', 'hard'];
-        const names = ['简单', '普通', '困难'];
+        const diffs = ['easy', 'normal', 'hard'] as const;
         const idx = diffs.indexOf(this.selectedDifficulty);
         this.selectedDifficulty = diffs[(idx + 1) % 3];
         // 更新难度显示
         const diffNode = this.startPanel?.children.find(c => c.getComponent(Label));
         // 简化：直接toast
-        this.showToast('难度：' + names[(idx + 1) % 3]);
+        this.showToast('难度：' + DIFFICULTIES[this.selectedDifficulty].name);
     }
 
     onStartClick(event: Event) {
@@ -620,29 +623,31 @@ export class GameManager extends Component {
         this.G.difficulty = this.selectedDifficulty;
         this.G.phase = 'playing';
         this.gameRunning = true;
-        this.createFactory('red', -400, -50);
-        this.createFactory('blue', 400, -50);
+        this.createFactory('red', -400, -50, 'tank');
+        this.createFactory('blue', 400, -50, 'tank');
         this.showToast('游戏开始！阵营：' + FACTIONS[this.selectedFaction].name);
     }
 
     onBuildClick(event: Event, type: string) {
         if (!this.gameRunning) return;
-        const b = BUILDINGS[type];
-        if (!b) return;
+        if (!(type in BUILDING_TYPES)) return;
+        const building = BUILDING_TYPES[type as BuildingId];
+        const cost = getBuildingCost(type as BuildingId, this.G.playerFaction);
         const gold = this.G.gold[this.G.playerSide];
-        if (gold < b.cost) {
-            this.showToast('金币不足！需要 ' + b.cost + ' 金');
+        if (gold < cost) {
+            this.showToast('金币不足！需要 ' + cost + ' 金');
             return;
         }
-        this.G.gold[this.G.playerSide] -= b.cost;
+        this.G.gold[this.G.playerSide] -= cost;
 
         if (type === 'tower') {
             // 造塔
             this.G.towers.push({
                 kind: 'tower', type: 'tower', side: 'red',
                 x: -300 + Math.random() * 100, y: -50 + Math.random() * 40 - 20,
-                hp: b.hp, maxHp: b.hp,
-                range: b.range, atk: b.atk, atkSpd: b.atkSpd, atkCd: 0,
+                hp: building.health, maxHp: building.health,
+                range: building.rangePixels, atk: building.attack,
+                atkSpd: building.attacksPerSecond, atkCd: 0,
             });
         } else if (type === 'academy') {
             // 学院 - 全军强化
@@ -654,12 +659,12 @@ export class GameManager extends Component {
             this.G.buildings.push({
                 kind: 'building', type: 'factory', unitType: type, side: 'red',
                 x: -350 + Math.random() * 100, y: -50 + Math.random() * 60 - 30,
-                hp: b.hp, maxHp: b.hp,
-                waveTimer: FACTIONS[this.G.playerFaction].waveInt,
+                hp: building.health, maxHp: building.health,
+                waveTimer: FACTIONS[this.G.playerFaction].waveIntervalSeconds,
                 level: 1,
             });
         }
-        this.showToast('建造了 ' + b.name + '！');
+        this.showToast('建造了 ' + building.name + '！');
     }
 
     onAgainClick(event: Event) {
@@ -697,13 +702,15 @@ export class GameManager extends Component {
             playerFaction: this.selectedFaction,
             aiFaction: this.getAIFaction(),
             difficulty: this.selectedDifficulty,
-            gold: { red: CFG.START_GOLD, blue: CFG.START_GOLD },
-            salaryTimer: { red: CFG.SALARY_INT, blue: CFG.SALARY_INT },
-            wave: 0, waveTimer: CFG.WAVE_INT,
+            elapsed: 0,
+            gold: { red: GAME_CONFIG.startingGold, blue: GAME_CONFIG.startingGold },
+            salaryTimer: { red: GAME_CONFIG.salaryIntervalSeconds, blue: GAME_CONFIG.salaryIntervalSeconds },
+            wave: 0, waveTimer: GAME_CONFIG.waveIntervalSeconds,
             units: [] as any[], buildings: [] as any[],
             towers: [] as any[], crystals: [] as any[],
             kills: { red: 0, blue: 0 },
             permBuff: { atk: 1, hp: 1, as: 1, dr: 1, crit: 0, splashMult: 1, waveInt: 1 },
+            aiBuildTimer: DIFFICULTIES[this.selectedDifficulty].buildIntervalSeconds,
             tempBuffs: [] as any[],
             cardTriggered: { 5: false, 15: false, 20: false },
             crystalNodes: [] as Node[],
@@ -714,11 +721,11 @@ export class GameManager extends Component {
 
         this.G.crystals.push({
             kind: 'crystal', side: 'red', x: -500, y: 0,
-            hp: CFG.CRYSTAL_HP, maxHp: CFG.CRYSTAL_HP,
+            hp: GAME_CONFIG.crystalHealth, maxHp: GAME_CONFIG.crystalHealth,
         });
         this.G.crystals.push({
             kind: 'crystal', side: 'blue', x: 500, y: 0,
-            hp: CFG.CRYSTAL_HP, maxHp: CFG.CRYSTAL_HP,
+            hp: GAME_CONFIG.crystalHealth, maxHp: GAME_CONFIG.crystalHealth,
         });
     }
 
@@ -728,23 +735,30 @@ export class GameManager extends Component {
         return factions[(idx + 1) % factions.length];
     }
 
-    createFactory(side: string, x: number, y: number) {
+    createFactory(side: string, x: number, y: number, unitType: UnitRoleId = 'tank') {
         const faction = side === 'red' ? this.G.playerFaction : this.G.aiFaction;
-        const fConf = FACTIONS[faction];
+        const building = BUILDING_TYPES[unitType];
         this.G.buildings.push({
-            kind: 'building', type: 'factory', side, x, y,
-            hp: 800 * fConf.hp, maxHp: 800 * fConf.hp,
-            waveTimer: fConf.waveInt, level: 1,
+            kind: 'building', type: 'factory', unitType, side, x, y,
+            hp: building.health,
+            maxHp: building.health,
+            waveTimer: FACTIONS[faction].waveIntervalSeconds,
+            level: 1,
         });
     }
 
     gameStep(dt: number) {
+        this.G.elapsed += dt;
+
         // 工资
         for (const side of ['red', 'blue']) {
             this.G.salaryTimer[side] -= dt;
             if (this.G.salaryTimer[side] <= 0) {
-                this.G.gold[side] += CFG.SALARY;
-                this.G.salaryTimer[side] = CFG.SALARY_INT;
+                const incomeMultiplier = side === 'blue'
+                    ? DIFFICULTIES[this.G.difficulty].incomeMultiplier
+                    : 1;
+                this.G.gold[side] += GAME_CONFIG.salaryGold * incomeMultiplier;
+                this.G.salaryTimer[side] = GAME_CONFIG.salaryIntervalSeconds;
             }
         }
 
@@ -752,7 +766,7 @@ export class GameManager extends Component {
         this.G.waveTimer -= dt;
         if (this.G.waveTimer <= 0) {
             this.G.wave++;
-            this.G.waveTimer = CFG.WAVE_INT;
+            this.G.waveTimer = GAME_CONFIG.waveIntervalSeconds;
             this.onWave();
         }
 
@@ -763,7 +777,7 @@ export class GameManager extends Component {
                 this.waveSpawn(b);
                 const faction = b.side === 'red' ? this.G.playerFaction : this.G.aiFaction;
                 const fConf = FACTIONS[faction];
-                b.waveTimer = fConf.waveInt * (this.G.permBuff.waveInt || 1);
+                b.waveTimer = fConf.waveIntervalSeconds * (this.G.permBuff.waveInt || 1);
             }
         }
 
@@ -786,27 +800,43 @@ export class GameManager extends Component {
         // AI造兵
         this.aiThink(dt);
 
+        // 决战时刻：防止优势方只守不攻导致僵局
+        if (this.G.elapsed >= GAME_CONFIG.suddenDeathStartTimeSeconds) {
+            const fraction = GAME_CONFIG.suddenDeathHealthFractionPerSecond * dt;
+            for (const crystal of this.G.crystals) {
+                crystal.hp = Math.max(0, crystal.hp - crystal.maxHp * fraction);
+            }
+        }
+
         // 胜负
         this.checkWinCondition();
     }
 
     private aiThink(dt: number) {
-        // 简单AI：攒钱造兵工厂
-        const aiGold = this.G.gold.blue;
-        const types = Object.keys(BUILDINGS);
-        const cheapType = types.reduce((a, b) => BUILDINGS[a].cost < BUILDINGS[b].cost ? a : b);
-        const cost = BUILDINGS[cheapType].cost;
+        this.G.aiBuildTimer -= dt;
+        if (this.G.aiBuildTimer > 0) return;
 
-        if (aiGold >= cost && this.G.buildings.filter((b: any) => b.side === 'blue').length < 5) {
-            this.G.gold.blue -= cost;
-            this.G.buildings.push({
-                kind: 'building', type: 'factory', side: 'blue',
-                x: 350 + Math.random() * 100, y: -50 + Math.random() * 60 - 30,
-                hp: 800, maxHp: 800,
-                waveTimer: FACTIONS[this.G.aiFaction].waveInt,
-                level: 1,
-            });
+        const factoryTypes = Object.keys(FACTORY_OUTPUT[this.G.aiFaction]) as UnitRoleId[];
+        const affordableTypes = factoryTypes
+            .filter(type => this.G.gold.blue >= getBuildingCost(type, this.G.aiFaction));
+        const type = affordableTypes.reduce((a, b) =>
+            getBuildingCost(a, this.G.aiFaction) <= getBuildingCost(b, this.G.aiFaction) ? a : b);
+
+        if (!type || this.G.buildings.filter((b: any) => b.side === 'blue').length >= 5) {
+            this.G.aiBuildTimer = DIFFICULTIES[this.G.difficulty].buildIntervalSeconds;
+            return;
         }
+
+        this.G.gold.blue -= getBuildingCost(type, this.G.aiFaction);
+        this.G.buildings.push({
+            kind: 'building', type: 'factory', unitType: type, side: 'blue',
+            x: 350 + Math.random() * 100, y: -50 + Math.random() * 60 - 30,
+            hp: BUILDING_TYPES[type].health,
+            maxHp: BUILDING_TYPES[type].health,
+            waveTimer: FACTIONS[this.G.aiFaction].waveIntervalSeconds,
+            level: 1,
+        });
+        this.G.aiBuildTimer = DIFFICULTIES[this.G.difficulty].buildIntervalSeconds;
     }
 
     updateUnit(u: any, dt: number) {
@@ -819,24 +849,24 @@ export class GameManager extends Component {
         const target = this.findTarget(u);
         if (target) {
             const dx = target.x - u.x, dy = target.y - u.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist <= u.range) {
+            const dist = distance(u, target);
+            if (isInRange(u, target, u.range)) {
                 if (u.atkCd <= 0) {
                     this.attack(u, target);
                     u.atkCd = 1 / (u.atkSpd * (this.G.permBuff.as || 1));
                 }
             } else {
-                u.x += (dx / dist) * u.spd * spdMult * 60 * dt;
-                u.y += (dy / dist) * u.spd * spdMult * 60 * dt;
+                u.x += (dx / dist) * u.spd * spdMult * dt;
+                u.y += (dy / dist) * u.spd * spdMult * dt;
             }
         } else {
             const crystal = this.G.crystals.find((c: any) => c.side !== u.side);
             if (crystal) {
                 const dx = crystal.x - u.x, dy = crystal.y - u.y;
-                const dist = Math.sqrt(dx * dx + dy * dy);
+                const dist = distance(u, crystal);
                 if (dist > 1) {
-                    u.x += (dx / dist) * u.spd * spdMult * 60 * dt;
-                    u.y += (dy / dist) * u.spd * spdMult * 60 * dt;
+                    u.x += (dx / dist) * u.spd * spdMult * dt;
+                    u.y += (dy / dist) * u.spd * spdMult * dt;
                 }
             }
         }
@@ -845,63 +875,101 @@ export class GameManager extends Component {
     findTarget(u: any): any {
         let nearest: any = null, minDist = Infinity;
         for (const e of this.G.units.filter((e: any) => e.side !== u.side)) {
-            const d = Math.abs(e.x - u.x) + Math.abs(e.y - u.y);
-            if (d < minDist && d < 300) { minDist = d; nearest = e; }
+            const d = distance(u, e);
+            if (d < minDist && d <= GAME_CONFIG.unitAggroRangePixels) { minDist = d; nearest = e; }
         }
         for (const b of this.G.buildings.filter((b: any) => b.side !== u.side)) {
-            const d = Math.abs(b.x - u.x) + Math.abs(b.y - u.y);
-            if (d < minDist && d < 300) { minDist = d; nearest = b; }
+            const d = distance(u, b);
+            if (d < minDist && d <= GAME_CONFIG.unitAggroRangePixels) { minDist = d; nearest = b; }
         }
         for (const t of this.G.towers.filter((t: any) => t.side !== u.side)) {
-            const d = Math.abs(t.x - u.x) + Math.abs(t.y - u.y);
-            if (d < minDist && d < 300) { minDist = d; nearest = t; }
+            const d = distance(u, t);
+            if (d < minDist && d <= GAME_CONFIG.unitAggroRangePixels) { minDist = d; nearest = t; }
         }
         const crystal = this.G.crystals.find((c: any) => c.side !== u.side);
         if (crystal) {
-            const d = Math.abs(crystal.x - u.x) + Math.abs(crystal.y - u.y);
+            const d = distance(u, crystal);
             if (d < minDist) nearest = crystal;
         }
         return nearest;
     }
 
     attack(attacker: any, target: any) {
-        let dmg = attacker.atk * (this.G.permBuff.atk || 1);
-        if (Math.random() < (this.G.permBuff.crit || 0)) dmg *= 2;
-        if (this.G.permBuff.execute && target.hp < target.maxHp * 0.3) dmg *= 2;
-        if (target.shield && target.shield > 0) {
-            const sd = Math.min(target.shield, dmg);
-            target.shield -= sd; dmg -= sd;
-        }
-        dmg *= (target.dr || 1) * (this.G.permBuff.dr || 1);
-        target.hp -= dmg;
+        const attackerRole = attacker.type as UnitRoleId;
+        const attackerFaction = attacker.side === 'red'
+            ? this.G.playerFaction
+            : this.G.aiFaction;
+        const firstStrikeMultiplier = getFirstStrikeMultiplier(
+            attackerRole,
+            attackerFaction,
+            attacker.hasStruck === true,
+        );
+        if (attacker.kind === 'unit') attacker.hasStruck = true;
+
+        const counterMultiplier = target.kind === 'unit'
+            ? getCounterMultiplier(attackerRole, target.type)
+            : 1;
+        const executeMultiplier = this.G.permBuff.execute && target.hp < target.maxHp * 0.3 ? 2 : 1;
+        const result = calculateDamage({
+            attack: attacker.atk * executeMultiplier,
+            attackMultiplier: this.G.permBuff.atk || 1,
+            counterMultiplier,
+            firstStrikeMultiplier,
+            targetMultiplier: getTargetDamageMultiplier(attackerRole, target.kind),
+            criticalChance: this.G.permBuff.crit || 0,
+            damageReduction: (target.dr || 1) * (this.G.permBuff.dr || 1),
+            shield: target.shield || 0,
+        });
+
+        if (target.shield) target.shield -= result.shieldConsumed;
+        target.hp -= result.damage;
         if (target.hp < 0) target.hp = 0;
 
-        if (this.G.permBuff.splashMult > 1) {
-            const sd = dmg * 0.5 * (this.G.permBuff.splashMult - 1);
+        const splashMultiplier = attacker.type === 'aoe' ? 0.6 : (this.G.permBuff.splashMult - 1) * 0.5;
+        if (splashMultiplier > 0) {
+            const splashDamage = result.damage * splashMultiplier;
+            const splashRadius = attacker.type === 'aoe'
+                ? UNIT_TYPES.aoe.splashRadiusPixels
+                : 80;
             for (const e of this.G.units.filter((e: any) => e.side !== attacker.side && e !== target)) {
-                if (Math.abs(e.x - target.x) + Math.abs(e.y - target.y) < 80) e.hp -= sd;
+                if (!isInRange(target, e, splashRadius)) continue;
+                e.hp = Math.max(0, e.hp - splashDamage);
+                this.awardKill(attacker.side, e, attacker);
             }
         }
 
-        if (target.hp <= 0) {
-            this.G.kills[attacker.side]++;
-            if (this.G.permBuff.lifeOnKill)
-                attacker.hp = Math.min(attacker.maxHp, attacker.hp + attacker.maxHp * this.G.permBuff.lifeOnKill);
-        }
+        this.awardKill(attacker.side, target, attacker);
     }
 
     updateTower(t: any, dt: number) {
         if (t.atkCd > 0) { t.atkCd -= dt; return; }
         let target: any = null, minDist = Infinity;
         for (const u of this.G.units.filter((u: any) => u.side !== t.side)) {
-            const d = Math.abs(u.x - t.x) + Math.abs(u.y - t.y);
+            const d = distance(t, u);
             if (d < t.range && d < minDist) { minDist = d; target = u; }
         }
         if (target) {
             target.hp -= t.atk;
             if (target.hp < 0) target.hp = 0;
             t.atkCd = 1 / t.atkSpd;
-            if (target.hp <= 0) this.G.kills[t.side]++;
+            if (target.hp <= 0) {
+                this.awardKill(t.side, target);
+            }
+        }
+    }
+
+    private awardKill(side: string, target: any, attacker?: any) {
+        if (target.hp > 0) return;
+
+        this.G.kills[side]++;
+        if (target.kind === 'unit') {
+            this.G.gold[side] += UNIT_TYPES[target.type as UnitRoleId].bounty;
+        } else if (target.kind === 'building') {
+            this.G.gold[side] += GAME_CONFIG.razeBounty;
+        }
+
+        if (attacker?.kind === 'unit' && this.G.permBuff.lifeOnKill) {
+            attacker.hp = Math.min(attacker.maxHp, attacker.hp + attacker.maxHp * this.G.permBuff.lifeOnKill);
         }
     }
 
@@ -917,26 +985,30 @@ export class GameManager extends Component {
         const faction = side === 'red' ? this.G.playerFaction : this.G.aiFaction;
         const fConf = FACTIONS[faction];
 
-        // 如果有指定兵种类型
-        const unitType = factory.unitType || Object.keys(UNITS)[Math.floor(Math.random() * 5)];
-        const uConf = UNITS[unitType] || UNITS.tank;
+        const unitType = (factory.unitType || 'tank') as UnitRoleId;
+        const uConf = UNIT_TYPES[unitType] || UNIT_TYPES.tank;
 
-        let count = Math.floor(factory.level * fConf.first) + fConf.countBonus;
+        let count = getFactoryOutput(unitType, faction);
+        if (Math.random() < fConf.factoryBonusChance) count += fConf.factoryBonusCount;
+        count = Math.floor(count * factory.level);
         const pop = this.G.units.filter((u: any) => u.side === side).length;
-        if (pop + count > CFG.UNIT_CAP) count = Math.max(0, CFG.UNIT_CAP - pop);
+        if (pop + count > GAME_CONFIG.unitCapPerSide) {
+            count = Math.max(0, GAME_CONFIG.unitCapPerSide - pop);
+        }
 
         for (let i = 0; i < count; i++) {
             this.G.units.push({
                 kind: 'unit', side, type: unitType,
                 x: factory.x + (side === 'red' ? 40 : -40) + Math.random() * 30,
                 y: factory.y + Math.random() * 60 - 30,
-                hp: uConf.hp * fConf.hp * (this.G.permBuff.hp || 1),
-                maxHp: uConf.hp * fConf.hp * (this.G.permBuff.hp || 1),
-                atk: uConf.atk * fConf.atk * (this.G.permBuff.atk || 1),
-                spd: uConf.spd * fConf.speed,
-                range: uConf.range,
-                atkSpd: uConf.atkSpd * (this.G.permBuff.as || 1),
+                hp: uConf.health * fConf.healthMultiplier * (this.G.permBuff.hp || 1),
+                maxHp: uConf.health * fConf.healthMultiplier * (this.G.permBuff.hp || 1),
+                atk: uConf.attack * fConf.attackMultiplier * (this.G.permBuff.atk || 1),
+                spd: uConf.speedPixelsPerSecond * fConf.speedMultiplier,
+                range: uConf.rangePixels,
+                atkSpd: uConf.attacksPerSecond * (this.G.permBuff.as || 1),
                 atkCd: 0,
+                hasStruck: false,
             });
         }
     }
@@ -1149,8 +1221,13 @@ export class GameManager extends Component {
     checkWinCondition() {
         const rc = this.G.crystals.find((c: any) => c.side === 'red');
         const bc = this.G.crystals.find((c: any) => c.side === 'blue');
-        if (rc && rc.hp <= 0) this.endGame('blue');
-        else if (bc && bc.hp <= 0) this.endGame('red');
+        if (rc && rc.hp <= 0 && bc && bc.hp <= 0) {
+            this.endGame(this.G.kills.red >= this.G.kills.blue ? 'red' : 'blue');
+        } else if (rc && rc.hp <= 0) {
+            this.endGame('blue');
+        } else if (bc && bc.hp <= 0) {
+            this.endGame('red');
+        }
     }
 
     endGame(winner: string) {
@@ -1263,7 +1340,7 @@ export class GameManager extends Component {
         if (this.waveLabel) this.waveLabel.string = ' 第 ' + this.G.wave + ' 波';
         if (this.popLabel) {
             const pop = this.G.units.filter((u: any) => u.side === this.G.playerSide).length;
-            this.popLabel.string = ' ' + pop + '/' + CFG.UNIT_CAP;
+            this.popLabel.string = ' ' + pop + '/' + GAME_CONFIG.unitCapPerSide;
         }
         if (this.killsLabel) this.killsLabel.string = '⚔ ' + this.G.kills[this.G.playerSide];
         const rc = this.G.crystals.find((c: any) => c.side === 'red');
