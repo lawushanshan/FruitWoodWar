@@ -76,6 +76,23 @@ const RARITY_COLORS: Record<string, Color> = {
     legendary: new Color(255, 215, 94),
 };
 
+// 兵种定位 emoji（灰盒阶段用 emoji 区分 15 个兵种）
+const UNIT_EMOJI: Record<UnitRoleId, string> = {
+    tank: '🛡️',
+    ranged: '🏹',
+    aoe: '✨',
+    rush: '⚡',
+    siege: '🏰',
+};
+
+// 阵营大本营 emoji（水果=黄金菠萝王座 / 绿木=世界树苗 / 动物=百兽图腾）
+const FACTION_EMOJI: Record<FactionId, string> = {
+    fruit: '🍍',
+    wood: '🌳',
+    animal: '🦁',
+};
+
+
 @ccclass('GameManager')
 export class GameManager extends Component {
 
@@ -104,6 +121,8 @@ export class GameManager extends Component {
     private buildMode: string | null = null;
     private buildZoneNode: Node | null = null;
     private lastDt: number = 0;
+    private riverWaves: Node[] = [];
+    private mapAnimT: number = 0;
     private researchBtn: Node | null = null;
     private upgradePanel: Node | null = null;
     private upgradeInfoLabel: Label | null = null;
@@ -147,10 +166,22 @@ export class GameManager extends Component {
     }
 
     update(dt: number) {
+        this.mapAnimT += dt;
+        this.animateMap();
         if (!this.gameRunning) return;
         this.gameStep(dt);
         this.syncVisuals();
         this.updateUI();
+    }
+
+    /** 地图细节动画：河道波纹左右流动 */
+    private animateMap() {
+        if (this.riverWaves.length === 0) return;
+        const t = this.mapAnimT;
+        this.riverWaves.forEach((w, i) => {
+            const y = w.position.y;
+            w.setPosition(Math.sin(t * 1.6 + i * 0.9) * 26, y, 0);
+        });
     }
 
     // ==================== 创建游戏容器 ====================
@@ -183,17 +214,25 @@ export class GameManager extends Component {
         road.name = 'MainRoad';
         road.parent = this.gameContainer;
         road.setPosition(0, 0, 0);
+        // 主道中央虚线（提示路径）
+        for (let x = -600; x <= 600; x += 80) {
+            const dash = this.createColorNode(new Color(140, 170, 130, 90), 40, 5);
+            dash.parent = this.gameContainer;
+            dash.setPosition(x, 0, 0);
+        }
 
         // 河道（垂直，覆盖主道以外的部分）
         const river = this.createColorNode(new Color(28, 70, 120, 235), RIVER_HALF_X * 2, 720);
         river.name = 'River';
         river.parent = this.gameContainer;
         river.setPosition(0, 0, 0);
-        // 河道波纹装饰
+        // 河道波纹装饰（会流动）
+        this.riverWaves = [];
         for (let i = 0; i < 5; i++) {
-            const wave = this.createColorNode(new Color(70, 130, 190, 120), 80, 4);
+            const wave = this.createColorNode(new Color(70, 130, 190, 130), 80, 4);
             wave.parent = river;
             wave.setPosition(0, 240 - i * 120, 0);
+            this.riverWaves.push(wave);
         }
 
         // 桥（主道跨河段）
@@ -205,6 +244,12 @@ export class GameManager extends Component {
         const railCol = new Color(140, 108, 74);
         const railT = this.createColorNode(railCol, RIVER_HALF_X * 2 + 10, 4); railT.parent = bridge; railT.setPosition(0, ROAD_HALF_Y - 2, 0);
         const railB = this.createColorNode(railCol, RIVER_HALF_X * 2 + 10, 4); railB.parent = bridge; railB.setPosition(0, -ROAD_HALF_Y + 2, 0);
+        // 桥面木板纹理（竖向木板）
+        for (let x = -50; x <= 50; x += 20) {
+            const plank = this.createColorNode(new Color(130, 100, 66, 140), 4, ROAD_HALF_Y * 2 - 10);
+            plank.parent = bridge;
+            plank.setPosition(x, 0, 0);
+        }
 
         // 建造区边框（上下两条，主道隔开）
         const borderCol = new Color(120, 170, 255, 190);
@@ -1236,6 +1281,7 @@ export class GameManager extends Component {
             this.G.unitNodes.forEach(n => { if (n && n.isValid) n.destroy(); });
             this.G.projectiles?.forEach((p: any) => { if (p.node?.isValid) p.node.destroy(); });
             this.G.effects?.forEach((e: any) => { if (e.node?.isValid) e.node.destroy(); });
+            this.G.floatTexts?.forEach((f: any) => { if (f.node?.isValid) f.node.destroy(); });
         }
 
         this.G = {
@@ -1260,6 +1306,7 @@ export class GameManager extends Component {
             unitNodes: [] as Node[],
             projectiles: [] as any[],
             effects: [] as any[],
+            floatTexts: [] as any[],
             // M2 系统状态
             academies: { red: 0, blue: 0 },
             researchLayers: { red: 0, blue: 0 },
@@ -1368,7 +1415,8 @@ export class GameManager extends Component {
         // 更新塔
         for (const t of this.G.towers) this.updateTower(t, dt);
 
-        // 清理死亡
+        // 清理死亡（先发射全龄化消亡特效：兵变星星/果粒，建筑碎裂，无血腥）
+        this.emitDeathEffects();
         this.G.units = this.G.units.filter((u: any) => u.hp > 0);
         this.G.buildings = this.G.buildings.filter((b: any) => b.hp > 0);
         this.G.towers = this.G.towers.filter((t: any) => t.hp > 0);
@@ -1605,6 +1653,23 @@ export class GameManager extends Component {
         this.G.effects.push({ node, t: 0, dur, size });
     }
 
+    /** 浮字：伤害跳字 / 死亡星星，上飘 + 淡出 */
+    private spawnFloatText(x: number, y: number, text: string, color: Color, size: number = 16) {
+        if (!this.gameContainer) return;
+        const node = new Node('FloatText');
+        node.layer = this.uiLayer;
+        node.parent = this.gameContainer;
+        const ut = node.addComponent(UITransform);
+        ut.contentSize = new Size(80, 24);
+        const label = node.addComponent(Label);
+        label.string = text;
+        label.fontSize = size;
+        label.lineHeight = size + 4;
+        label.color = color;
+        node.setPosition(x, y, 0);
+        this.G.floatTexts.push({ node, x, y, t: 0, dur: 0.6, size });
+    }
+
     /** 每帧更新弹道与特效 */
     private updateProjectilesAndEffects(dt: number) {
         if (!this.G.projectiles) return;
@@ -1644,6 +1709,20 @@ export class GameManager extends Component {
                 const sf = this.getColorSpriteFrame(c, Math.max(2, Math.round(base * scale)), Math.max(2, Math.round(base * scale)));
                 if (sf) sp.spriteFrame = sf;
             }
+        }
+        // 浮字：上飘 + 淡出
+        for (let i = this.G.floatTexts.length - 1; i >= 0; i--) {
+            const f = this.G.floatTexts[i];
+            f.t += dt;
+            const k = f.t / f.dur;
+            if (k >= 1) {
+                if (f.node.isValid) f.node.destroy();
+                this.G.floatTexts.splice(i, 1);
+                continue;
+            }
+            f.node.setPosition(f.x, f.y + k * 40, 0);
+            const op = f.node.getComponent(UIOpacity) || f.node.addComponent(UIOpacity);
+            op.opacity = Math.round(255 * (1 - k));
         }
     }
 
@@ -1742,6 +1821,20 @@ export class GameManager extends Component {
         target.hp -= result.damage;
         if (target.hp < 0) target.hp = 0;
 
+        // 伤害跳字（暴击放大加感叹号）
+        if (result.damage > 0) {
+            const isCrit = result.critical;
+            const color = isCrit
+                ? new Color(255, 210, 60)
+                : (attacker.side === 'red' ? new Color(255, 220, 220) : new Color(200, 230, 255));
+            this.spawnFloatText(
+                target.x, target.y + 10,
+                (isCrit ? '暴击 ' : '') + Math.round(result.damage),
+                color,
+                isCrit ? 20 : 15,
+            );
+        }
+
         const splashMultiplier = attacker.type === 'aoe' ? 0.6 : (this.G.permBuff.splashMult - 1) * 0.5;
         if (splashMultiplier > 0) {
             const splashDamage = result.damage * splashMultiplier;
@@ -1770,6 +1863,7 @@ export class GameManager extends Component {
             this.spawnProjectile(t, target);
             target.hp -= t.atk;
             if (target.hp < 0) target.hp = 0;
+            this.spawnFloatText(target.x, target.y + 8, String(t.atk), new Color(255, 230, 200), 13);
             t.atkCd = 1 / t.atkSpd;
             if (target.hp <= 0) {
                 this.awardKill(t.side, target);
@@ -2140,6 +2234,39 @@ export class GameManager extends Component {
         }
     }
 
+    /** 全龄化死亡特效：单位 → 弹飞星星/果粒消散；建筑/塔 → 彩色碎裂；水晶 → 大爆闪（由结算处理） */
+    private emitDeathEffects() {
+        if (!this.gameContainer) return;
+        const star = new Color(255, 240, 150);
+        // 单位：在死亡点撒一圈"果粒/星星"扩散，并飘一个 ⭐
+        for (const u of this.G.units) {
+            if (u.hp > 0) continue;
+            for (let i = 0; i < 4; i++) {
+                const a = (Math.PI * 2 * i) / 4 + Math.random() * 0.6;
+                const r = 14 + Math.random() * 10;
+                this.spawnEffect(u.x + Math.cos(a) * r, u.y + Math.sin(a) * r, star, 8, 0.35);
+            }
+            this.spawnFloatText(u.x, u.y + 6, '⭐', star, 16);
+        }
+        // 建筑/塔：碎裂（橙红颗粒）
+        const debris = new Color(255, 180, 100);
+        for (const b of this.G.buildings) {
+            if (b.hp > 0) continue;
+            for (let i = 0; i < 5; i++) {
+                const a = (Math.PI * 2 * i) / 5 + Math.random() * 0.5;
+                const r = 18 + Math.random() * 14;
+                this.spawnEffect(b.x + Math.cos(a) * r, b.y + Math.sin(a) * r, debris, 10, 0.4);
+            }
+        }
+        for (const t of this.G.towers) {
+            if (t.hp > 0) continue;
+            for (let i = 0; i < 4; i++) {
+                const a = (Math.PI * 2 * i) / 4;
+                this.spawnEffect(t.x + Math.cos(a) * 14, t.y + Math.sin(a) * 14, debris, 9, 0.35);
+            }
+        }
+    }
+
     // ==================== 视觉同步 ====================
     private syncVisuals() {
         if (!this.gameContainer) return;
@@ -2147,6 +2274,47 @@ export class GameManager extends Component {
         this.syncBuildings();
         this.syncTowers();
         this.syncUnits();
+    }
+
+    /** 生成一个"底色块 + emoji 图标"的实体视觉节点 */
+    private makeEmojiVisual(emoji: string, color: Color, size: number): Node {
+        const node = new Node('Entity');
+        node.layer = this.uiLayer;
+        const ut = node.addComponent(UITransform);
+        ut.contentSize = new Size(size, size);
+        const bg = this.createColorNode(color, size, size);
+        bg.name = 'Bg';
+        bg.parent = node;
+        const icon = new Node('Icon');
+        icon.layer = this.uiLayer;
+        icon.parent = node;
+        const iUt = icon.addComponent(UITransform);
+        iUt.contentSize = new Size(size, size);
+        const label = icon.addComponent(Label);
+        label.string = emoji;
+        label.fontSize = Math.max(12, size - 6);
+        label.lineHeight = size;
+        label.color = Color.WHITE;
+        icon.setPosition(0, 0, 0);
+        return node;
+    }
+
+    /** 更新实体视觉：底色颜色/尺寸 + emoji + 字号 */
+    private updateEmojiVisual(node: Node, emoji: string, color: Color, size: number) {
+        const bg = node.getChildByName('Bg');
+        if (bg) {
+            const sp = bg.getComponent(Sprite);
+            if (sp) { const sf = this.getColorSpriteFrame(color, size, size); if (sf) sp.spriteFrame = sf; }
+        }
+        const icon = node.getChildByName('Icon');
+        if (icon) {
+            const label = icon.getComponent(Label);
+            if (label) { label.string = emoji; label.fontSize = Math.max(12, size - 6); label.lineHeight = size; }
+            const iUt = icon.getComponent(UITransform);
+            if (iUt) iUt.contentSize = new Size(size, size);
+        }
+        const ut = node.getComponent(UITransform);
+        if (ut) ut.contentSize = new Size(size, size);
     }
 
     /** 给实体节点挂一个血条（bg + fg），fg 用 scale.x 表示血量比例 */
@@ -2191,7 +2359,7 @@ export class GameManager extends Component {
 
     private syncCrystals() {
         while (this.G.crystalNodes.length < this.G.crystals.length) {
-            const node = this.createColorNode(new Color(100, 100, 100), 60, 60);
+            const node = this.makeEmojiVisual('🏛️', new Color(100, 100, 100), 60);
             node.parent = this.gameContainer;
             const bar = this.attachHpBar(node, 56);
             bar.setPosition(0, 38, 0);
@@ -2201,17 +2369,18 @@ export class GameManager extends Component {
         for (let i = 0; i < this.G.crystals.length; i++) {
             const c = this.G.crystals[i];
             const node = this.G.crystalNodes[i];
-            const color = c.side === 'red' ? new Color(255, 100, 100) : new Color(100, 150, 255);
+            const color = c.side === 'red' ? new Color(255, 130, 80) : new Color(90, 150, 255);
+            const faction = c.side === 'red' ? this.G.playerFaction : this.G.aiFaction;
+            const emoji = FACTION_EMOJI[faction as FactionId] || '🏛️';
             node.setPosition(c.x, c.y, 0);
-            const sprite = node.getComponent(Sprite);
-            if (sprite) { const sf = this.getColorSpriteFrame(color, 60, 60); if (sf) sprite.spriteFrame = sf; }
+            this.updateEmojiVisual(node, emoji, color, 60);
             this.updateHpBar(node, c.hp, c.maxHp);
         }
     }
 
     private syncBuildings() {
         while (this.G.buildingNodes.length < this.G.buildings.length) {
-            const node = this.createColorNode(new Color(100, 100, 100), 40, 40);
+            const node = this.makeEmojiVisual('🏭', new Color(100, 100, 100), 40);
             node.parent = this.gameContainer;
             const bar = this.attachHpBar(node, 36);
             bar.setPosition(0, 30, 0);
@@ -2223,20 +2392,23 @@ export class GameManager extends Component {
             const node = this.G.buildingNodes[i];
             let color = b.side === 'red' ? new Color(200, 100, 100) : new Color(100, 150, 200);
             let size = 40;
-            if (b.type === 'factory') size = 40 + ((b.level || 1) - 1) * 8; // 精英厂更大
-            if (b.type === 'academy') { color = new Color(170, 120, 220); size = 52; }
-            if (b.type === 'auraTower') { color = new Color(80, 200, 220); size = 44; }
+            let emoji = '🏭';
+            if (b.type === 'factory') {
+                size = 40 + ((b.level || 1) - 1) * 8; // 精英厂更大
+                emoji = UNIT_EMOJI[b.unitType as UnitRoleId] || '🏭';
+            }
+            if (b.type === 'academy') { color = new Color(170, 120, 220); size = 52; emoji = '🎓'; }
+            if (b.type === 'auraTower') { color = new Color(80, 200, 220); size = 44; emoji = '🌀'; }
             if (this.selectedFactory && b === this.selectedFactory) color = new Color(255, 220, 90);
             node.setPosition(b.x, b.y, 0);
-            const sprite = node.getComponent(Sprite);
-            if (sprite) { const sf = this.getColorSpriteFrame(color, size, size); if (sf) sprite.spriteFrame = sf; }
+            this.updateEmojiVisual(node, emoji, color, size);
             this.updateHpBar(node, b.hp, b.maxHp);
         }
     }
 
     private syncTowers() {
         while (this.G.towerNodes.length < this.G.towers.length) {
-            const node = this.createColorNode(new Color(100, 100, 100), 30, 30);
+            const node = this.makeEmojiVisual('🗼', new Color(100, 100, 100), 30);
             node.parent = this.gameContainer;
             const bar = this.attachHpBar(node, 28);
             bar.setPosition(0, 22, 0);
@@ -2248,18 +2420,28 @@ export class GameManager extends Component {
             const node = this.G.towerNodes[i];
             const color = t.side === 'red' ? new Color(220, 120, 120) : new Color(120, 170, 220);
             node.setPosition(t.x, t.y, 0);
-            const sprite = node.getComponent(Sprite);
-            if (sprite) { const sf = this.getColorSpriteFrame(color, 30, 30); if (sf) sprite.spriteFrame = sf; }
+            this.updateEmojiVisual(node, '🗼', color, 30);
             this.updateHpBar(node, t.hp, t.maxHp);
         }
     }
 
     private syncUnits() {
         while (this.G.unitNodes.length < this.G.units.length) {
-            const node = this.createColorNode(new Color(100, 100, 100), 16, 16);
+            const node = this.makeEmojiVisual('🛡️', new Color(100, 100, 100), 16);
             node.parent = this.gameContainer;
             const bar = this.attachHpBar(node, 18);
             bar.setPosition(0, 14, 0);
+            // 精英★角标（Lv2/Lv3 显示）
+            const badge = new Node('StarBadge');
+            badge.layer = this.uiLayer;
+            badge.parent = node;
+            const bUt = badge.addComponent(UITransform);
+            bUt.contentSize = new Size(18, 14);
+            const bLabel = badge.addComponent(Label);
+            bLabel.fontSize = 12;
+            bLabel.lineHeight = 14;
+            bLabel.color = new Color(255, 215, 60);
+            badge.active = false;
             this.G.unitNodes.push(node);
         }
         while (this.G.unitNodes.length > this.G.units.length) { const n = this.G.unitNodes.pop()!; if (n.isValid) n.destroy(); }
@@ -2267,11 +2449,24 @@ export class GameManager extends Component {
             const u = this.G.units[i];
             const node = this.G.unitNodes[i];
             const color = u.side === 'red' ? new Color(255, 150, 150) : new Color(150, 200, 255);
-            const size = 16 + ((u.level || 1) - 1) * 5; // 精英兵（★/★★）体型更大
+            const size = 18 + ((u.level || 1) - 1) * 6; // 精英兵（★/★★）体型更大
+            const emoji = UNIT_EMOJI[u.type as UnitRoleId] || '🛡️';
             node.setPosition(u.x, u.y, 0);
-            const sprite = node.getComponent(Sprite);
-            if (sprite) { const sf = this.getColorSpriteFrame(color, size, size); if (sf) sprite.spriteFrame = sf; }
+            this.updateEmojiVisual(node, emoji, color, size);
             this.updateHpBar(node, u.hp, u.maxHp);
+            // 精英角标
+            const badge = node.getChildByName('StarBadge');
+            if (badge) {
+                const lvl = u.level || 1;
+                if (lvl > 1) {
+                    badge.active = true;
+                    const bLabel = badge.getComponent(Label);
+                    if (bLabel) bLabel.string = lvl >= 3 ? '★★' : '★';
+                    badge.setPosition(size * 0.42, size * 0.42, 0);
+                } else {
+                    badge.active = false;
+                }
+            }
         }
     }
 

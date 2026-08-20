@@ -227,7 +227,7 @@ export const BUILDING_TYPES: Record<BuildingId, BuildingConfig> = {
         rangePixels: 0, attack: 0, attacksPerSecond: 0,
     },
     academy: {
-        id: 'academy', name: '战争学院', icon: '️', health: 1000, cost: 200,
+        id: 'academy', name: '战争学院', icon: '🎓', health: 1000, cost: 200,
         rangePixels: 0, attack: 0, attacksPerSecond: 0,
     },
 };
