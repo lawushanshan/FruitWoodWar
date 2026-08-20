@@ -1,9 +1,17 @@
-import { _decorator, Component, Node, Label, Color, UITransform, Size, Vec2, Sprite, SpriteFrame, Texture2D, ImageAsset, Layers, Button, EventHandler, tween, Vec3, UIOpacity, BlockInputEvents, Canvas, Camera, gfx } from 'cc';
+import { _decorator, Component, Node, Label, Color, UITransform, Size, Vec2, Sprite, SpriteFrame, Texture2D, ImageAsset, Layers, Button, EventHandler, tween, Vec3, UIOpacity, BlockInputEvents, Canvas, Camera, gfx, Widget } from 'cc';
 import {
+    ACADEMY_LEVELS,
+    ARMY_RESEARCH,
+    AURA_TOWER,
+    BASE_TOWER,
     BUILDING_TYPES,
+    CARD_RARITY_WEIGHTS,
+    COMEBACK,
     DIFFICULTIES,
+    ELITE_BOUNTY_MULTIPLIERS,
     FACTIONS,
     FACTORY_OUTPUT,
+    FACTORY_UPGRADES,
     GAME_CONFIG,
     UNIT_TYPES,
     BuildingId,
@@ -11,6 +19,7 @@ import {
     UnitRoleId,
     getBuildingCost,
     getFactoryOutput,
+    getFactoryPrice,
     isFactoryId,
 } from './config/GameConfig';
 import {
@@ -91,8 +100,17 @@ export class GameManager extends Component {
     private toastLabel: Label | null = null;
     private selectedFaction: FactionId = 'fruit';
     private selectedDifficulty: keyof typeof DIFFICULTIES = 'normal';
-    private buildCostLabels: Map<BuildingId, Label> = new Map();
+    private buildCostLabels: Map<BuildingId | 'research', Label> = new Map();
     private buildMode: string | null = null;
+    private buildZoneNode: Node | null = null;
+    private lastDt: number = 0;
+    private researchBtn: Node | null = null;
+    private upgradePanel: Node | null = null;
+    private upgradeInfoLabel: Label | null = null;
+    private upgradeCostLabel: Label | null = null;
+    private tutorialPanel: Node | null = null;
+    private recordLabel: Label | null = null;
+    private selectedFactory: any = null;
 
     onLoad() {
         // 确保 Canvas 节点有 UITransform + Canvas 组件
@@ -149,10 +167,67 @@ export class GameManager extends Component {
         bg.parent = this.gameContainer;
         bg.setPosition(0, 0, 0);
 
-        // 兵线区域
-        const lane = this.createColorNode(new Color(34, 48, 58), 1280, 200);
-        lane.parent = this.gameContainer;
-        lane.setPosition(0, -50, 0);
+        // ==== 地图布局常量 ====
+        // 河：垂直居中，x ∈ [-60, 60]；主道（桥）：水平，y ∈ [-45, 45]，横穿全图
+        const RIVER_HALF_X = 60;
+        const ROAD_HALF_Y = 45;
+
+        // 己方建造区高亮底色（左侧半场，先画，主道/河会覆盖其上）
+        const zone = this.createColorNode(new Color(80, 140, 255, 22), 530, 660);
+        zone.name = 'BuildZone';
+        zone.parent = this.gameContainer;
+        zone.setPosition(-355, 0, 0);
+
+        // 兵线主道（横贯全图的水平路）
+        const road = this.createColorNode(new Color(52, 62, 46), 1280, ROAD_HALF_Y * 2);
+        road.name = 'MainRoad';
+        road.parent = this.gameContainer;
+        road.setPosition(0, 0, 0);
+
+        // 河道（垂直，覆盖主道以外的部分）
+        const river = this.createColorNode(new Color(28, 70, 120, 235), RIVER_HALF_X * 2, 720);
+        river.name = 'River';
+        river.parent = this.gameContainer;
+        river.setPosition(0, 0, 0);
+        // 河道波纹装饰
+        for (let i = 0; i < 5; i++) {
+            const wave = this.createColorNode(new Color(70, 130, 190, 120), 80, 4);
+            wave.parent = river;
+            wave.setPosition(0, 240 - i * 120, 0);
+        }
+
+        // 桥（主道跨河段）
+        const bridge = this.createColorNode(new Color(110, 84, 56), RIVER_HALF_X * 2, ROAD_HALF_Y * 2);
+        bridge.name = 'Bridge';
+        bridge.parent = this.gameContainer;
+        bridge.setPosition(0, 0, 0);
+        // 桥栏
+        const railCol = new Color(140, 108, 74);
+        const railT = this.createColorNode(railCol, RIVER_HALF_X * 2 + 10, 4); railT.parent = bridge; railT.setPosition(0, ROAD_HALF_Y - 2, 0);
+        const railB = this.createColorNode(railCol, RIVER_HALF_X * 2 + 10, 4); railB.parent = bridge; railB.setPosition(0, -ROAD_HALF_Y + 2, 0);
+
+        // 建造区边框（上下两条，主道隔开）
+        const borderCol = new Color(120, 170, 255, 190);
+        const bt = this.createColorNode(borderCol, 530, 3); bt.parent = this.gameContainer; bt.setPosition(-355, 330, 0);
+        const bb = this.createColorNode(borderCol, 530, 3); bb.parent = this.gameContainer; bb.setPosition(-355, -330, 0);
+        const bl = this.createColorNode(borderCol, 3, 660); bl.parent = this.gameContainer; bl.setPosition(-620, 0, 0);
+        const br = this.createColorNode(borderCol, 3, 660); br.parent = this.gameContainer; br.setPosition(-90, 0, 0);
+        // 建造区标题
+        const zTitle = new Node();
+        zTitle.layer = this.uiLayer;
+        zTitle.parent = this.gameContainer;
+        const ztUt = zTitle.addComponent(UITransform);
+        ztUt.contentSize = new Size(200, 20);
+        const ztLabel = zTitle.addComponent(Label);
+        ztLabel.string = '己方建造区（主道/河道除外）';
+        ztLabel.fontSize = 14;
+        ztLabel.color = new Color(159, 208, 255, 230);
+        ztLabel.lineHeight = 18;
+        zTitle.setPosition(-355, 308, 0);
+        this.buildZoneNode = zone;
+
+        // 点击游戏区选择己方兵工厂（升级入口）
+        this.gameContainer.on(Node.EventType.TOUCH_END, this.onGameTouch, this);
     }
 
     // ==================== 创建UI ====================
@@ -169,6 +244,8 @@ export class GameManager extends Component {
         this.createStartPanel();
         this.createEndPanel();
         this.createCardPanel();
+        this.createUpgradePanel();
+        this.createTutorialPanel();
         this.createToast();
     }
 
@@ -179,6 +256,12 @@ export class GameManager extends Component {
         const ut = bar.addComponent(UITransform);
         ut.contentSize = new Size(1280, 44);
         ut.anchorPoint = new Vec2(0.5, 1);
+
+        // 对齐到屏幕顶部（否则默认停在屏幕中心）
+        const widget = bar.addComponent(Widget);
+        widget.isAlignTop = true;
+        widget.isAlignHorizontalCenter = true;
+        widget.top = 0;
 
         const bg = this.createColorNode(new Color(34, 48, 58), 1280, 44);
         bg.parent = bar;
@@ -216,23 +299,38 @@ export class GameManager extends Component {
         ut.contentSize = new Size(1280, 76);
         ut.anchorPoint = new Vec2(0.5, 0);
 
+        // 对齐到屏幕底部（否则默认停在屏幕中心）
+        const widget = this.buildBar.addComponent(Widget);
+        widget.isAlignBottom = true;
+        widget.isAlignHorizontalCenter = true;
+        widget.bottom = 0;
+
         const bg = this.createColorNode(new Color(34, 48, 58), 1280, 76);
         bg.parent = this.buildBar;
         bg.setPosition(0, 38, 0);
 
         const types = Object.keys(BUILDING_TYPES) as BuildingId[];
-        const startX = -420;
-        const gap = 96;
+        const startX = -450;
+        const gap = 92;
 
         types.forEach((type, i) => {
             const btn = this.createBuildButton(type);
             btn.parent = this.buildBar;
             btn.setPosition(startX + i * gap, 38, 0);
         });
+
+        // 全军强化研究按钮（需战争学院 Lv2，动态显示）
+        const researchBtn = this.createBuildButton('research');
+        researchBtn.parent = this.buildBar;
+        researchBtn.setPosition(startX + types.length * gap, 38, 0);
+        researchBtn.active = false;
+        this.researchBtn = researchBtn;
     }
 
-    private createBuildButton(type: BuildingId): Node {
-        const building = BUILDING_TYPES[type];
+    private createBuildButton(type: BuildingId | 'research'): Node {
+        const building = type === 'research'
+            ? { name: '全军强化', icon: '⚔️' }
+            : BUILDING_TYPES[type];
         const btn = new Node('BuildBtn_' + type);
         btn.layer = this.uiLayer;
         const ut = btn.addComponent(UITransform);
@@ -270,7 +368,7 @@ export class GameManager extends Component {
         const csUt = costLabel.addComponent(UITransform);
         csUt.contentSize = new Size(60, 14);
         const csLabel = costLabel.addComponent(Label);
-        csLabel.string = getBuildingCost(type, this.selectedFaction) + '金';
+        csLabel.string = this.getBuildCostText(type) ?? '';
         csLabel.fontSize = 11;
         csLabel.color = new Color(255, 215, 94);
         costLabel.setPosition(0, -22, 0);
@@ -284,7 +382,7 @@ export class GameManager extends Component {
         const clickHandler = new EventHandler();
         clickHandler.target = this.node;
         clickHandler.component = 'GameManager';
-        clickHandler.handler = 'onBuildClick';
+        clickHandler.handler = type === 'research' ? 'onResearchClick' : 'onBuildClick';
         clickHandler.customEventData = type;
         button.clickEvents = [clickHandler];
 
@@ -292,9 +390,36 @@ export class GameManager extends Component {
     }
 
     private refreshBuildBar() {
+        if (!this.G || !this.G.gold) return;
         this.buildCostLabels.forEach((label, type) => {
-            label.string = getBuildingCost(type, this.selectedFaction) + '金';
+            const text = this.getBuildCostText(type);
+            if (text !== null) label.string = text;
         });
+        if (this.researchBtn) {
+            this.researchBtn.active = (this.G.academies?.red ?? 0) >= 2;
+        }
+    }
+
+    private getBuildCostText(type: BuildingId | 'research'): string | null {
+        if (type === 'research') {
+            if (!this.G || !this.G.researchCosts) return null;
+            return this.G.researchCosts.red + '金';
+        }
+        if (type === 'academy') {
+            const lvl = this.G.academies ? this.G.academies.red : 0;
+            if (lvl >= 2) return '已满级';
+            return ACADEMY_LEVELS[(lvl + 1) as 1 | 2].cost + '金';
+        }
+        if (type === 'auraTower') {
+            return this.G.auraBuilt && this.G.auraBuilt.red ? '已建造' : AURA_TOWER.cost + '金';
+        }
+        if (isFactoryId(type)) {
+            const owned = this.G.buildings
+                ? this.G.buildings.filter((b: any) => b.side === 'red' && b.unitType === type).length
+                : 0;
+            return getFactoryPrice(type, this.selectedFaction, owned) + '金';
+        }
+        return getBuildingCost(type, this.selectedFaction) + '金';
     }
 
     private createStartPanel() {
@@ -363,10 +488,17 @@ export class GameManager extends Component {
         dbUt.contentSize = new Size(160, 40);
         const dbBg = this.createColorNode(new Color(46, 65, 82), 160, 40);
         dbBg.parent = diffBtn;
-        const dbLabel = diffBtn.addComponent(Label);
+        // 文字必须是子节点（在背景之后创建），否则会被背景色块盖住
+        const dbTextNode = new Node();
+        dbTextNode.layer = this.uiLayer;
+        dbTextNode.parent = diffBtn;
+        const dbtUt = dbTextNode.addComponent(UITransform);
+        dbtUt.contentSize = new Size(160, 40);
+        const dbLabel = dbTextNode.addComponent(Label);
         dbLabel.string = '切换难度';
         dbLabel.fontSize = 16;
         dbLabel.color = Color.WHITE;
+        dbLabel.lineHeight = 20;
         diffBtn.setPosition(0, -120, 0);
 
         const dbButton = diffBtn.addComponent(Button);
@@ -385,7 +517,13 @@ export class GameManager extends Component {
         sbUt.contentSize = new Size(200, 50);
         const sbBg = this.createColorNode(new Color(63, 109, 51), 200, 50);
         sbBg.parent = startBtn;
-        const sbLabel = startBtn.addComponent(Label);
+        // 文字必须是子节点（在背景之后创建），否则会被背景色块盖住
+        const sbTextNode = new Node();
+        sbTextNode.layer = this.uiLayer;
+        sbTextNode.parent = startBtn;
+        const sbtUt = sbTextNode.addComponent(UITransform);
+        sbtUt.contentSize = new Size(200, 50);
+        const sbLabel = sbTextNode.addComponent(Label);
         sbLabel.string = '开始游戏';
         sbLabel.fontSize = 24;
         sbLabel.color = Color.WHITE;
@@ -399,6 +537,136 @@ export class GameManager extends Component {
         sHandler.component = 'GameManager';
         sHandler.handler = 'onStartClick';
         sButton.clickEvents = [sHandler];
+
+        // 本地战绩（存档）
+        const recNode = new Node();
+        recNode.layer = this.uiLayer;
+        recNode.parent = this.startPanel;
+        const rcUt = recNode.addComponent(UITransform);
+        rcUt.contentSize = new Size(500, 30);
+        this.recordLabel = recNode.addComponent(Label);
+        this.recordLabel.string = '';
+        this.recordLabel.fontSize = 16;
+        this.recordLabel.color = new Color(159, 208, 255);
+        this.recordLabel.lineHeight = 22;
+        recNode.setPosition(0, -262, 0);
+    }
+
+    private createUpgradePanel() {
+        const panel = new Node('UpgradePanel');
+        panel.layer = this.uiLayer;
+        panel.parent = this.uiContainer;
+        const ut = panel.addComponent(UITransform);
+        ut.contentSize = new Size(440, 150);
+        ut.anchorPoint = new Vec2(0.5, 0.5);
+        const bg = this.createColorNode(new Color(20, 30, 40, 235), 440, 150);
+        bg.parent = panel;
+
+        const infoNode = new Node();
+        infoNode.layer = this.uiLayer;
+        infoNode.parent = panel;
+        const iUt = infoNode.addComponent(UITransform);
+        iUt.contentSize = new Size(400, 30);
+        this.upgradeInfoLabel = infoNode.addComponent(Label);
+        this.upgradeInfoLabel.string = '';
+        this.upgradeInfoLabel.fontSize = 20;
+        this.upgradeInfoLabel.color = Color.WHITE;
+        this.upgradeInfoLabel.lineHeight = 26;
+        infoNode.setPosition(0, 45, 0);
+
+        const costNode = new Node();
+        costNode.layer = this.uiLayer;
+        costNode.parent = panel;
+        const cUt = costNode.addComponent(UITransform);
+        cUt.contentSize = new Size(400, 24);
+        this.upgradeCostLabel = costNode.addComponent(Label);
+        this.upgradeCostLabel.string = '';
+        this.upgradeCostLabel.fontSize = 16;
+        this.upgradeCostLabel.color = new Color(255, 215, 94);
+        this.upgradeCostLabel.lineHeight = 22;
+        costNode.setPosition(0, 12, 0);
+
+        const upBtn = new Node();
+        upBtn.layer = this.uiLayer;
+        upBtn.parent = panel;
+        const ubUt = upBtn.addComponent(UITransform);
+        ubUt.contentSize = new Size(170, 44);
+        const ubBg = this.createColorNode(new Color(63, 109, 51), 170, 44);
+        ubBg.parent = upBtn;
+        // 文字必须是子节点，否则会被背景色块盖住
+        const ubTextNode = new Node();
+        ubTextNode.layer = this.uiLayer;
+        ubTextNode.parent = upBtn;
+        const ubtUt = ubTextNode.addComponent(UITransform);
+        ubtUt.contentSize = new Size(170, 44);
+        const ubLabel = ubTextNode.addComponent(Label);
+        ubLabel.string = '升级';
+        ubLabel.fontSize = 20;
+        ubLabel.color = Color.WHITE;
+        ubLabel.lineHeight = 26;
+        upBtn.setPosition(-90, -42, 0);
+        const ubButton = upBtn.addComponent(Button);
+        ubButton.transition = Button.Transition.SCALE;
+        const ubHandler = new EventHandler();
+        ubHandler.target = this.node;
+        ubHandler.component = 'GameManager';
+        ubHandler.handler = 'onUpgradeConfirm';
+        ubButton.clickEvents = [ubHandler];
+
+        const closeBtn = new Node();
+        closeBtn.layer = this.uiLayer;
+        closeBtn.parent = panel;
+        const cbUt = closeBtn.addComponent(UITransform);
+        cbUt.contentSize = new Size(120, 44);
+        const cbBg = this.createColorNode(new Color(70, 80, 92), 120, 44);
+        cbBg.parent = closeBtn;
+        // 文字必须是子节点，否则会被背景色块盖住
+        const cbTextNode = new Node();
+        cbTextNode.layer = this.uiLayer;
+        cbTextNode.parent = closeBtn;
+        const cbtUt = cbTextNode.addComponent(UITransform);
+        cbtUt.contentSize = new Size(120, 44);
+        const cbLabel = cbTextNode.addComponent(Label);
+        cbLabel.string = '关闭';
+        cbLabel.fontSize = 18;
+        cbLabel.color = Color.WHITE;
+        cbLabel.lineHeight = 24;
+        closeBtn.setPosition(110, -42, 0);
+        const cbButton = closeBtn.addComponent(Button);
+        cbButton.transition = Button.Transition.SCALE;
+        const cbHandler = new EventHandler();
+        cbHandler.target = this.node;
+        cbHandler.component = 'GameManager';
+        cbHandler.handler = 'onUpgradeClose';
+        cbButton.clickEvents = [cbHandler];
+
+        panel.active = false;
+        this.upgradePanel = panel;
+    }
+
+    private createTutorialPanel() {
+        const panel = new Node('TutorialPanel');
+        panel.layer = this.uiLayer;
+        panel.parent = this.uiContainer;
+        const ut = panel.addComponent(UITransform);
+        ut.contentSize = new Size(700, 80);
+        ut.anchorPoint = new Vec2(0.5, 0.5);
+        const bg = this.createColorNode(new Color(0, 0, 0, 180), 700, 80);
+        bg.parent = panel;
+        const tNode = new Node();
+        tNode.layer = this.uiLayer;
+        tNode.parent = panel;
+        const tUt = tNode.addComponent(UITransform);
+        tUt.contentSize = new Size(680, 60);
+        const tLabel = tNode.addComponent(Label);
+        tLabel.string = '👆 点击下方「坦克厂」，建造你的第一个兵工厂！';
+        tLabel.fontSize = 22;
+        tLabel.color = new Color(255, 230, 140);
+        tLabel.lineHeight = 30;
+        tNode.setPosition(0, 0, 0);
+        panel.setPosition(0, -230, 0);
+        panel.active = false;
+        this.tutorialPanel = panel;
     }
 
     private createFactionButton(name: string, passive: string, color: Color, key: string): Node {
@@ -491,10 +759,17 @@ export class GameManager extends Component {
         abUt.contentSize = new Size(180, 50);
         const abBg = this.createColorNode(new Color(63, 109, 51), 180, 50);
         abBg.parent = againBtn;
-        const abLabel = againBtn.addComponent(Label);
+        // 文字必须是子节点，否则会被背景色块盖住
+        const abTextNode = new Node();
+        abTextNode.layer = this.uiLayer;
+        abTextNode.parent = againBtn;
+        const abtUt = abTextNode.addComponent(UITransform);
+        abtUt.contentSize = new Size(180, 50);
+        const abLabel = abTextNode.addComponent(Label);
         abLabel.string = '再来一局';
         abLabel.fontSize = 22;
         abLabel.color = Color.WHITE;
+        abLabel.lineHeight = 28;
         againBtn.setPosition(0, -100, 0);
 
         const abButton = againBtn.addComponent(Button);
@@ -552,7 +827,13 @@ export class GameManager extends Component {
         tUt.anchorPoint = new Vec2(0.5, 1);
         const tBg = this.createColorNode(new Color(0, 0, 0, 180), 400, 40);
         tBg.parent = toast;
-        this.toastLabel = toast.addComponent(Label);
+        // 文字必须是子节点，否则会被背景色块盖住
+        const tTextNode = new Node();
+        tTextNode.layer = this.uiLayer;
+        tTextNode.parent = toast;
+        const ttUt = tTextNode.addComponent(UITransform);
+        ttUt.contentSize = new Size(400, 40);
+        this.toastLabel = tTextNode.addComponent(Label);
         this.toastLabel.string = '';
         this.toastLabel.fontSize = 18;
         this.toastLabel.color = Color.WHITE;
@@ -623,48 +904,301 @@ export class GameManager extends Component {
         this.G.difficulty = this.selectedDifficulty;
         this.G.phase = 'playing';
         this.gameRunning = true;
-        this.createFactory('red', -400, -50, 'tank');
-        this.createFactory('blue', 400, -50, 'tank');
+        this.refreshBuildBar();
         this.showToast('游戏开始！阵营：' + FACTIONS[this.selectedFaction].name);
+        // 首次游玩：新手教学（手指引导造第一个兵工厂）
+        const save = this.loadSave();
+        if (!save.tutorialDone) this.showTutorial();
     }
 
     onBuildClick(event: Event, type: string) {
         if (!this.gameRunning) return;
-        if (!(type in BUILDING_TYPES)) return;
-        const building = BUILDING_TYPES[type as BuildingId];
-        const cost = getBuildingCost(type as BuildingId, this.G.playerFaction);
-        const gold = this.G.gold[this.G.playerSide];
-        if (gold < cost) {
+        const id = type as BuildingId;
+        const side = this.G.playerSide;
+
+        if (id === 'academy') {
+            this.buildAcademy('red');
+            return;
+        }
+        if (id === 'auraTower') {
+            this.buildAuraTower('red');
+            return;
+        }
+        if (!isFactoryId(id) || !(id in BUILDING_TYPES)) return;
+
+        // 进入建造模式：点击左侧建造区放置
+        const owned = this.G.buildings.filter((b: any) => b.side === 'red' && b.unitType === id).length;
+        const cost = getFactoryPrice(id, this.G.playerFaction, owned);
+        if (this.G.gold[side] < cost) {
             this.showToast('金币不足！需要 ' + cost + ' 金');
             return;
         }
-        this.G.gold[this.G.playerSide] -= cost;
+        if (this.buildMode === id) {
+            // 再点一次取消建造模式
+            this.buildMode = null;
+            this.setBuildZoneHighlight(false);
+            this.showToast('已取消建造');
+            return;
+        }
+        this.buildMode = id;
+        this.setBuildZoneHighlight(true);
+        this.showToast('点击左侧建造区放置「' + BUILDING_TYPES[id].name + '」（再点按钮可取消）');
+    }
 
-        if (type === 'tower') {
-            // 造塔
-            this.G.towers.push({
-                kind: 'tower', type: 'tower', side: 'red',
-                x: -300 + Math.random() * 100, y: -50 + Math.random() * 40 - 20,
-                hp: building.health, maxHp: building.health,
-                range: building.rangePixels, atk: building.attack,
-                atkSpd: building.attacksPerSecond, atkCd: 0,
-            });
-        } else if (type === 'academy') {
-            // 学院 - 全军强化
-            this.G.permBuff.atk = (this.G.permBuff.atk || 1) * 1.1;
-            this.G.permBuff.hp = (this.G.permBuff.hp || 1) * 1.1;
-            this.showToast('战争学院！全军攻击+10% 血量+10%');
-        } else {
-            // 兵工厂
+    /** 建造模式中：在己方半场（主道/河道除外）点击放置建筑 */
+    private tryPlaceBuilding(px: number, py: number) {
+        const id = this.buildMode as BuildingId;
+        if (!id) return;
+        // 己方半场：x ∈ [-620, -90]；不能在主道 |y|<=70；河道由 x<-90 天然排除
+        if (px < -620 || px > -90 || py < -330 || py > 330) {
+            this.showToast('只能在左侧己方建造区内建造！');
+            return;
+        }
+        if (Math.abs(py) <= 70) {
+            this.showToast('主道上不能放置建筑！');
+            return;
+        }
+        // 不能紧贴已有建筑
+        for (const b of this.G.buildings) {
+            if (Math.abs(b.x - px) < 46 && Math.abs(b.y - py) < 46) {
+                this.showToast('离其他建筑太近了，换个位置');
+                return;
+            }
+        }
+        const side = this.G.playerSide;
+        const owned = this.G.buildings.filter((b: any) => b.side === 'red' && b.unitType === id).length;
+        const cost = getFactoryPrice(id, this.G.playerFaction, owned);
+        if (this.G.gold[side] < cost) {
+            this.showToast('金币不足！需要 ' + cost + ' 金');
+            this.buildMode = null;
+            this.setBuildZoneHighlight(false);
+            return;
+        }
+        this.G.gold[side] -= cost;
+        this.G.buildings.push({
+            kind: 'building', type: 'factory', unitType: id, side: 'red',
+            x: px, y: py,
+            hp: BUILDING_TYPES[id].health, maxHp: BUILDING_TYPES[id].health,
+            baseHp: BUILDING_TYPES[id].health,
+            waveTimer: FACTIONS[this.G.playerFaction].waveIntervalSeconds,
+            level: 1,
+        });
+        this.showToast('建造了 ' + BUILDING_TYPES[id].name + '！');
+        this.buildMode = null;
+        this.setBuildZoneHighlight(false);
+        this.refreshBuildBar();
+        this.dismissTutorial();
+    }
+
+    /** 建造区高亮/取消高亮 */
+    private setBuildZoneHighlight(on: boolean) {
+        if (!this.buildZoneNode) return;
+        const sprite = this.buildZoneNode.getComponent(Sprite);
+        if (sprite) {
+            const color = on ? new Color(120, 200, 255, 60) : new Color(80, 140, 255, 22);
+            const sf = this.getColorSpriteFrame(color, 530, 660);
+            if (sf) sprite.spriteFrame = sf;
+        }
+    }
+
+    onResearchClick(event: Event) {
+        if (!this.gameRunning) return;
+        if ((this.G.academies?.red ?? 0) < 2) {
+            this.showToast('全军强化需要战争学院 Lv2！');
+            return;
+        }
+        const cost = this.G.researchCosts.red;
+        if (this.G.gold.red < cost) {
+            this.showToast('金币不足！需要 ' + cost + ' 金');
+            return;
+        }
+        this.G.gold.red -= cost;
+        this.G.researchLayers.red++;
+        this.G.researchCosts.red = Math.round(
+            ARMY_RESEARCH.baseCost * Math.pow(ARMY_RESEARCH.costGrowth, this.G.researchLayers.red));
+        this.G.permBuff.atk = (this.G.permBuff.atk || 1) * (1 + ARMY_RESEARCH.attackBonusPerLayer);
+        this.showToast('全军强化 Lv' + this.G.researchLayers.red + '！全队攻击 +8%（可无限叠加）');
+        this.refreshBuildBar();
+    }
+
+    /** 战争学院：Lv1 解锁 Lv3 兵工厂；Lv2 全队攻击 +10% 并解锁全军强化 */
+    private buildAcademy(side: string) {
+        const lvl = this.G.academies[side] ?? 0;
+        if (lvl >= 2) {
+            if (side === 'red') this.showToast('战争学院已满级');
+            return;
+        }
+        const next = ACADEMY_LEVELS[(lvl + 1) as 1 | 2];
+        if (this.G.gold[side] < next.cost) {
+            if (side === 'red') this.showToast('金币不足！需要 ' + next.cost + ' 金');
+            return;
+        }
+        this.G.gold[side] -= next.cost;
+        if (lvl === 0) {
             this.G.buildings.push({
-                kind: 'building', type: 'factory', unitType: type, side: 'red',
-                x: -350 + Math.random() * 100, y: -50 + Math.random() * 60 - 30,
-                hp: building.health, maxHp: building.health,
-                waveTimer: FACTIONS[this.G.playerFaction].waveIntervalSeconds,
+                kind: 'building', type: 'academy', side,
+                x: side === 'red' ? -430 : 430, y: 130,
+                hp: next.health, maxHp: next.health, baseHp: next.health,
                 level: 1,
             });
+            if (side === 'red') this.showToast('战争学院 Lv1！解锁 Lv3 兵工厂升级');
+        } else {
+            const acad = this.G.buildings.find((b: any) => b.side === side && b.type === 'academy');
+            if (acad) {
+                acad.level = 2;
+                acad.maxHp = next.health;
+                acad.hp = Math.min(acad.maxHp, acad.hp + (next.health - ACADEMY_LEVELS[1].health));
+            }
+            if (side === 'red') {
+                this.G.permBuff.atk = (this.G.permBuff.atk || 1) * (1 + ACADEMY_LEVELS[2].attackBonus);
+                this.showToast('战争学院 Lv2！全队攻击+10%，解锁全军强化');
+            } else {
+                this.G.aiAtkMult *= (1 + ACADEMY_LEVELS[2].attackBonus);
+            }
         }
-        this.showToast('建造了 ' + building.name + '！');
+        this.G.academies[side] = lvl + 1;
+        this.refreshBuildBar();
+    }
+
+    /** 光环塔：每方限 1 座，全体己方单位攻速 +15%（实体建筑，可被拆） */
+    private buildAuraTower(side: string) {
+        if (this.G.auraBuilt[side]) {
+            if (side === 'red') this.showToast('光环塔每方限建 1 座');
+            return;
+        }
+        if (this.G.gold[side] < AURA_TOWER.cost) {
+            if (side === 'red') this.showToast('金币不足！需要 ' + AURA_TOWER.cost + ' 金');
+            return;
+        }
+        this.G.gold[side] -= AURA_TOWER.cost;
+        this.G.buildings.push({
+            kind: 'building', type: 'auraTower', side,
+            x: side === 'red' ? -420 + Math.random() * 60 : 420 - Math.random() * 60,
+            y: -140 - Math.random() * 40,
+            hp: AURA_TOWER.health, maxHp: AURA_TOWER.health, baseHp: AURA_TOWER.health,
+        });
+        this.G.auraBuilt[side] = true;
+        if (side === 'red') {
+            this.showToast('光环塔！全体己方单位攻速 +15%');
+            this.refreshBuildBar();
+        }
+    }
+
+    // ==================== 兵工厂升级 ====================
+    private upgradeFactory(factory: any, side: string): boolean {
+        const level = factory.level || 1;
+        if (level >= 3) {
+            if (side === 'red') this.showToast('该兵工厂已满级 Lv3');
+            return false;
+        }
+        const upgrade = FACTORY_UPGRADES[(level + 1) as 2 | 3];
+        if (upgrade.requiresAcademyLevel > (this.G.academies[side] ?? 0)) {
+            if (side === 'red') this.showToast('需要战争学院 Lv1 才能升到 Lv3！');
+            return false;
+        }
+        if (this.G.gold[side] < upgrade.cost) {
+            if (side === 'red') this.showToast('金币不足！需要 ' + upgrade.cost + ' 金');
+            return false;
+        }
+        this.G.gold[side] -= upgrade.cost;
+        factory.level = level + 1;
+        const oldMax = factory.maxHp;
+        factory.maxHp = Math.round((factory.baseHp || oldMax) * upgrade.healthMultiplier);
+        factory.hp = Math.min(factory.maxHp, factory.hp + (factory.maxHp - oldMax));
+        if (side === 'red') {
+            this.showToast('兵工厂升级 Lv' + factory.level + '！出兵属性 ×' + upgrade.statMultiplier);
+        }
+        return true;
+    }
+
+    private onGameTouch(event: any) {
+        if (!this.gameRunning || !this.gameContainer) return;
+        const ut = this.gameContainer.getComponent(UITransform);
+        if (!ut) return;
+        const loc = event.getUILocation();
+        const p = ut.convertToNodeSpaceAR(new Vec3(loc.x, loc.y, 0));
+        // 建造模式优先：点击放置建筑
+        if (this.buildMode) {
+            this.tryPlaceBuilding(p.x, p.y);
+            return;
+        }
+        let best: any = null, bestDist = 60;
+        for (const b of this.G.buildings) {
+            if (b.side !== 'red' || b.type !== 'factory') continue;
+            const d = Math.sqrt((b.x - p.x) ** 2 + (b.y - p.y) ** 2);
+            if (d < bestDist) { bestDist = d; best = b; }
+        }
+        if (best) {
+            this.selectedFactory = best;
+            this.showUpgradePanel();
+        } else {
+            this.selectedFactory = null;
+            this.hideUpgradePanel();
+        }
+    }
+
+    private showUpgradePanel() {
+        if (!this.upgradePanel || !this.selectedFactory) return;
+        const f = this.selectedFactory;
+        const level = f.level || 1;
+        if (this.upgradeInfoLabel) {
+            this.upgradeInfoLabel.string = BUILDING_TYPES[f.unitType as BuildingId].name
+                + ' Lv' + level + (level >= 3 ? '（已满级）' : ' 点击工厂再点「升级」');
+        }
+        if (this.upgradeCostLabel) {
+            this.upgradeCostLabel.string = level >= 3
+                ? ''
+                : 'Lv' + (level + 1) + '：出兵 ×' + FACTORY_UPGRADES[(level + 1) as 2 | 3].statMultiplier
+                    + '，血量 ×' + FACTORY_UPGRADES[(level + 1) as 2 | 3].healthMultiplier
+                    + '，花费 ' + FACTORY_UPGRADES[(level + 1) as 2 | 3].cost + ' 金';
+        }
+        this.upgradePanel.active = true;
+    }
+
+    private hideUpgradePanel() {
+        if (this.upgradePanel) this.upgradePanel.active = false;
+    }
+
+    onUpgradeConfirm(event: Event) {
+        if (this.selectedFactory) this.upgradeFactory(this.selectedFactory, 'red');
+        this.showUpgradePanel();
+    }
+
+    onUpgradeClose(event: Event) {
+        this.selectedFactory = null;
+        this.hideUpgradePanel();
+    }
+
+    // ==================== 本地存档与教学 ====================
+    private loadSave(): any {
+        try {
+            const raw = (typeof localStorage !== 'undefined') ? localStorage.getItem('fww_save') : null;
+            if (raw) return JSON.parse(raw);
+        } catch (e) { /* 存档不可用（如隐私模式）则使用默认值 */ }
+        return { wins: 0, losses: 0, bestStars: 0, tutorialDone: false };
+    }
+
+    private saveSave(save: any) {
+        try {
+            if (typeof localStorage !== 'undefined') {
+                localStorage.setItem('fww_save', JSON.stringify(save));
+            }
+        } catch (e) { /* 忽略写入失败 */ }
+    }
+
+    private showTutorial() {
+        if (this.tutorialPanel) this.tutorialPanel.active = true;
+    }
+
+    private dismissTutorial() {
+        if (this.tutorialPanel && this.tutorialPanel.active) {
+            this.tutorialPanel.active = false;
+            const save = this.loadSave();
+            if (!save.tutorialDone) {
+                save.tutorialDone = true;
+                this.saveSave(save);
+            }
+        }
     }
 
     onAgainClick(event: Event) {
@@ -674,6 +1208,11 @@ export class GameManager extends Component {
 
     private showStartPanel() {
         if (this.startPanel) this.startPanel.active = true;
+        if (this.recordLabel) {
+            const save = this.loadSave();
+            const stars = save.bestStars ? '⭐'.repeat(save.bestStars) : '暂无';
+            this.recordLabel.string = '战绩：' + (save.wins || 0) + ' 胜 ' + (save.losses || 0) + ' 负 · 最佳：' + stars;
+        }
     }
 
     private showToast(msg: string) {
@@ -695,6 +1234,8 @@ export class GameManager extends Component {
             this.G.buildingNodes.forEach(n => { if (n && n.isValid) n.destroy(); });
             this.G.towerNodes.forEach(n => { if (n && n.isValid) n.destroy(); });
             this.G.unitNodes.forEach(n => { if (n && n.isValid) n.destroy(); });
+            this.G.projectiles?.forEach((p: any) => { if (p.node?.isValid) p.node.destroy(); });
+            this.G.effects?.forEach((e: any) => { if (e.node?.isValid) e.node.destroy(); });
         }
 
         this.G = {
@@ -717,7 +1258,23 @@ export class GameManager extends Component {
             buildingNodes: [] as Node[],
             towerNodes: [] as Node[],
             unitNodes: [] as Node[],
+            projectiles: [] as any[],
+            effects: [] as any[],
+            // M2 系统状态
+            academies: { red: 0, blue: 0 },
+            researchLayers: { red: 0, blue: 0 },
+            researchCosts: { red: ARMY_RESEARCH.baseCost, blue: ARMY_RESEARCH.baseCost },
+            auraBuilt: { red: false, blue: false },
+            aiAtkMult: 1,
+            comeback: {
+                red: { streak: 0, active: false },
+                blue: { streak: 0, active: false },
+            },
+            playerComp: {} as Record<string, number>,
+            aiCompDelayed: {} as Record<string, number>,
         };
+        this.selectedFactory = null;
+        this.hideUpgradePanel();
 
         this.G.crystals.push({
             kind: 'crystal', side: 'red', x: -500, y: 0,
@@ -727,6 +1284,20 @@ export class GameManager extends Component {
             kind: 'crystal', side: 'blue', x: 500, y: 0,
             hp: GAME_CONFIG.crystalHealth, maxHp: GAME_CONFIG.crystalHealth,
         });
+
+        // 基地防御塔：双方各 2 座，固定不可建造；塔不倒不能打水晶
+        for (const side of ['red', 'blue']) {
+            const dir = side === 'red' ? -1 : 1;
+            for (const dy of [70, -70]) {
+                this.G.towers.push({
+                    kind: 'tower', type: 'tower', side,
+                    x: dir * 450, y: dy,
+                    hp: BASE_TOWER.health, maxHp: BASE_TOWER.health,
+                    range: BASE_TOWER.rangePixels, atk: BASE_TOWER.attack,
+                    atkSpd: BASE_TOWER.attacksPerSecond, atkCd: 0,
+                });
+            }
+        }
     }
 
     private getAIFaction(): string {
@@ -742,6 +1313,7 @@ export class GameManager extends Component {
             kind: 'building', type: 'factory', unitType, side, x, y,
             hp: building.health,
             maxHp: building.health,
+            baseHp: building.health,
             waveTimer: FACTIONS[faction].waveIntervalSeconds,
             level: 1,
         });
@@ -750,14 +1322,18 @@ export class GameManager extends Component {
     gameStep(dt: number) {
         this.G.elapsed += dt;
 
-        // 工资
+        // 工资（绝地反击激活期间 +50%）
         for (const side of ['red', 'blue']) {
             this.G.salaryTimer[side] -= dt;
             if (this.G.salaryTimer[side] <= 0) {
+                let salary: number = GAME_CONFIG.salaryGold;
+                if (this.G.comeback[side].active) {
+                    salary = Math.round(salary * COMEBACK.salaryMultiplier);
+                }
                 const incomeMultiplier = side === 'blue'
                     ? DIFFICULTIES[this.G.difficulty].incomeMultiplier
                     : 1;
-                this.G.gold[side] += GAME_CONFIG.salaryGold * incomeMultiplier;
+                this.G.gold[side] += Math.round(salary * incomeMultiplier);
                 this.G.salaryTimer[side] = GAME_CONFIG.salaryIntervalSeconds;
             }
         }
@@ -782,7 +1358,13 @@ export class GameManager extends Component {
         }
 
         // 更新单位
+        this.lastDt = dt;
         for (const u of this.G.units) this.updateUnit(u, dt);
+        // 单位间分离，避免重叠
+        this.separateUnits();
+        for (const u of this.G.units) this.constrainToBridge(u);
+        // 弹道与特效
+        this.updateProjectilesAndEffects(dt);
         // 更新塔
         for (const t of this.G.towers) this.updateTower(t, dt);
 
@@ -790,6 +1372,24 @@ export class GameManager extends Component {
         this.G.units = this.G.units.filter((u: any) => u.hp > 0);
         this.G.buildings = this.G.buildings.filter((b: any) => b.hp > 0);
         this.G.towers = this.G.towers.filter((t: any) => t.hp > 0);
+
+        // 学院等级 / 光环塔状态由场上实体推导（被拆即失效）
+        const redAuraBefore = this.G.auraBuilt.red;
+        const structBefore = this.G.academies.red + '/' + this.G.academies.blue
+            + '/' + this.G.auraBuilt.red + '/' + this.G.auraBuilt.blue;
+        for (const side of ['red', 'blue'] as const) {
+            this.G.academies[side] = this.G.buildings
+                .filter((b: any) => b.side === side && b.type === 'academy')
+                .reduce((m: number, b: any) => Math.max(m, b.level || 1), 0);
+            this.G.auraBuilt[side] = this.G.buildings.some(
+                (b: any) => b.side === side && b.type === 'auraTower');
+        }
+        const structAfter = this.G.academies.red + '/' + this.G.academies.blue
+            + '/' + this.G.auraBuilt.red + '/' + this.G.auraBuilt.blue;
+        if (structAfter !== structBefore) {
+            if (redAuraBefore && !this.G.auraBuilt.red) this.showToast('光环塔被拆除了！');
+            this.refreshBuildBar();
+        }
 
         // 临时buff
         for (let i = this.G.tempBuffs.length - 1; i >= 0; i--) {
@@ -815,28 +1415,99 @@ export class GameManager extends Component {
     private aiThink(dt: number) {
         this.G.aiBuildTimer -= dt;
         if (this.G.aiBuildTimer > 0) return;
+        this.G.aiBuildTimer = DIFFICULTIES[this.G.difficulty].buildIntervalSeconds;
 
-        const factoryTypes = Object.keys(FACTORY_OUTPUT[this.G.aiFaction]) as UnitRoleId[];
-        const affordableTypes = factoryTypes
-            .filter(type => this.G.gold.blue >= getBuildingCost(type, this.G.aiFaction));
-        const type = affordableTypes.reduce((a, b) =>
-            getBuildingCost(a, this.G.aiFaction) <= getBuildingCost(b, this.G.aiFaction) ? a : b);
+        const faction = this.G.aiFaction as FactionId;
+        const myFactories = () => this.G.buildings.filter((b: any) => b.side === 'blue' && b.type === 'factory');
 
-        if (!type || this.G.buildings.filter((b: any) => b.side === 'blue').length >= 5) {
-            this.G.aiBuildTimer = DIFFICULTIES[this.G.difficulty].buildIntervalSeconds;
-            return;
+        // 困难：光环塔 / 学院时机最优（有余钱先补功能建筑）
+        if (this.G.difficulty === 'hard') {
+            if (!this.G.auraBuilt.blue && this.G.gold.blue >= AURA_TOWER.cost + 100) {
+                this.buildAuraTower('blue');
+                return;
+            }
+            if (this.G.academies.blue < 1 && this.G.gold.blue >= ACADEMY_LEVELS[1].cost + 200) {
+                this.buildAcademy('blue');
+                return;
+            }
+            if (this.G.academies.blue < 2 && this.G.gold.blue >= ACADEMY_LEVELS[2].cost + 200) {
+                this.buildAcademy('blue');
+                return;
+            }
+            // 困难：厂子铺起来后把低级厂升到 Lv2
+            if (myFactories().length >= 3 && this.G.gold.blue >= FACTORY_UPGRADES[2].cost + 150) {
+                const target = myFactories().find((b: any) => (b.level || 1) < 2);
+                if (target) { this.upgradeFactory(target, 'blue'); return; }
+            }
         }
 
-        this.G.gold.blue -= getBuildingCost(type, this.G.aiFaction);
+        // 兵种选择：简单=固定建造顺序；普通=延迟1波的克制；困难=即时克制
+        let role: UnitRoleId;
+        if (this.G.difficulty === 'easy') {
+            const order: UnitRoleId[] = ['tank', 'ranged', 'rush', 'aoe', 'siege'];
+            role = order.find(r => !myFactories().some((b: any) => b.unitType === r)) ?? 'tank';
+        } else {
+            const comp = this.G.difficulty === 'hard' ? this.G.playerComp : this.G.aiCompDelayed;
+            const dominant = this.getDominantRole(comp);
+            role = dominant ? this.counterOf(dominant) : 'tank';
+        }
+
+        const owned = myFactories().filter((b: any) => b.unitType === role).length;
+        const cost = getFactoryPrice(role, faction, owned);
+        if (this.G.gold.blue < cost) return;
+        if (myFactories().length >= 7) return;
+        this.G.gold.blue -= cost;
         this.G.buildings.push({
-            kind: 'building', type: 'factory', unitType: type, side: 'blue',
-            x: 350 + Math.random() * 100, y: -50 + Math.random() * 60 - 30,
-            hp: BUILDING_TYPES[type].health,
-            maxHp: BUILDING_TYPES[type].health,
-            waveTimer: FACTIONS[this.G.aiFaction].waveIntervalSeconds,
+            kind: 'building', type: 'factory', unitType: role, side: 'blue',
+            // 蓝方半场、避开主道（|y|>70）和水晶区
+            x: 150 + Math.random() * 300,
+            y: (Math.random() < 0.5 ? -1 : 1) * (90 + Math.random() * 220),
+            hp: BUILDING_TYPES[role].health,
+            maxHp: BUILDING_TYPES[role].health,
+            baseHp: BUILDING_TYPES[role].health,
+            waveTimer: FACTIONS[faction].waveIntervalSeconds,
             level: 1,
         });
-        this.G.aiBuildTimer = DIFFICULTIES[this.G.difficulty].buildIntervalSeconds;
+    }
+
+    /** 玩家兵种构成中最多的定位（达到 3 个才视为明显倾向） */
+    private getDominantRole(comp: Record<string, number>): UnitRoleId | null {
+        let best: UnitRoleId | null = null, max = 0;
+        for (const k of Object.keys(comp)) {
+            if (comp[k] > max) { max = comp[k]; best = k as UnitRoleId; }
+        }
+        return max >= 3 ? best : null;
+    }
+
+    /** 克制关系反查：造什么厂克玩家最多的兵种 */
+    private counterOf(role: UnitRoleId): UnitRoleId {
+        switch (role) {
+            case 'rush': return 'tank';      // 坦克堵路克冲锋
+            case 'tank': return 'ranged';    // 远程磨血克坦克
+            case 'ranged': return 'rush';    // 冲锋切后排克远程
+            case 'aoe': return 'rush';       // 冲锋切后排克 AOE
+            default: return 'tank';
+        }
+    }
+
+    // 地图：河道 x ∈ [-60,60]；主道/桥 y ∈ [-45,45]
+    private static readonly RIVER_HALF_X = 60;
+    private static readonly ROAD_HALF_Y = 45;
+
+    /** 过河寻路：目标在河对岸时，先走到己方桥口，过桥期间沿桥中线前进 */
+    private getMovePoint(u: any, tx: number, ty: number): { x: number, y: number } {
+        const RIVER = GameManager.RIVER_HALF_X;
+        const targetSign = tx >= 0 ? 1 : -1;
+        if (Math.abs(u.x) > RIVER) {
+            // 在陆地上
+            if (Math.sign(u.x) === targetSign) {
+                return { x: tx, y: ty }; // 与目标同岸，直走
+            }
+            // 去对岸桥口（过桥期间 constrainToBridge 会把单位夹在桥面上）
+            return { x: -Math.sign(u.x) * (RIVER + 10), y: 0 };
+        }
+        // 在桥上（河道范围内）：朝目标一侧的桥口前进，保持桥内
+        return { x: targetSign * (RIVER + 10), y: 0 };
     }
 
     updateUnit(u: any, dt: number) {
@@ -848,26 +1519,159 @@ export class GameManager extends Component {
 
         const target = this.findTarget(u);
         if (target) {
-            const dx = target.x - u.x, dy = target.y - u.y;
-            const dist = distance(u, target);
+            // 过河寻路：不能越河，必须走桥
+            const mp = this.getMovePoint(u, target.x, target.y);
+            const dx = mp.x - u.x, dy = mp.y - u.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
             if (isInRange(u, target, u.range)) {
                 if (u.atkCd <= 0) {
                     this.attack(u, target);
-                    u.atkCd = 1 / (u.atkSpd * (this.G.permBuff.as || 1));
+                    // 光环塔：己方全体攻速 +15%；玩家的卡牌攻速加成实时生效
+                    const auraMult = this.G.auraBuilt[u.side] ? 1 + AURA_TOWER.attackSpeedBonus : 1;
+                    const asBuff = u.side === 'red' ? (this.G.permBuff.as || 1) : 1;
+                    u.atkCd = 1 / (u.atkSpd * asBuff * auraMult);
                 }
-            } else {
+            } else if (dist > 1) {
                 u.x += (dx / dist) * u.spd * spdMult * dt;
                 u.y += (dy / dist) * u.spd * spdMult * dt;
+                this.constrainToBridge(u);
             }
         } else {
             const crystal = this.G.crystals.find((c: any) => c.side !== u.side);
             if (crystal) {
-                const dx = crystal.x - u.x, dy = crystal.y - u.y;
-                const dist = distance(u, crystal);
+                const mp = this.getMovePoint(u, crystal.x, crystal.y);
+                const dx = mp.x - u.x, dy = mp.y - u.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
                 if (dist > 1) {
                     u.x += (dx / dist) * u.spd * spdMult * dt;
                     u.y += (dy / dist) * u.spd * spdMult * dt;
+                    this.constrainToBridge(u);
                 }
+            }
+        }
+    }
+
+    /** 在河道范围内时，把单位约束在桥面（主道）上 */
+    private constrainToBridge(u: any) {
+        const RIVER = GameManager.RIVER_HALF_X;
+        const ROAD = GameManager.ROAD_HALF_Y;
+        if (Math.abs(u.x) <= RIVER + 2) {
+            const limit = ROAD - 8;
+            if (u.y > limit) u.y = limit;
+            if (u.y < -limit) u.y = -limit;
+        }
+    }
+
+    // ==================== 弹道与特效 ====================
+
+    /** 发射一枚视觉弹丸（伤害已在逻辑层结算） */
+    private spawnProjectile(attacker: any, target: any) {
+        if (!this.gameContainer) return;
+        const side = attacker.side;
+        let color = side === 'red' ? new Color(255, 170, 90) : new Color(130, 180, 255);
+        let size = 6;
+        if (attacker.kind === 'unit' && attacker.type === 'siege') { color = side === 'red' ? new Color(255, 120, 60) : new Color(110, 160, 255); size = 9; }
+        if (attacker.kind === 'unit' && attacker.type === 'aoe') { color = side === 'red' ? new Color(255, 220, 120) : new Color(160, 220, 255); size = 7; }
+        if (attacker.kind === 'tower') { size = 5; }
+
+        const node = this.createColorNode(color, size, size);
+        node.parent = this.gameContainer;
+        node.setPosition(attacker.x, attacker.y, 0);
+        this.G.projectiles.push({
+            node,
+            x: attacker.x, y: attacker.y,
+            tx: target.x, ty: target.y,
+            speed: 420,
+            isAoe: attacker.kind === 'unit' && attacker.type === 'aoe',
+        });
+    }
+
+    /** 近战命中闪白 */
+    private spawnHitFlash(target: any) {
+        this.spawnEffect(target.x, target.y, new Color(255, 255, 255, 200), 14, 0.12);
+    }
+
+    /** AOE 溅射扩散圈 */
+    private spawnSplashEffect(x: number, y: number, radius: number) {
+        this.spawnEffect(x, y, new Color(255, 200, 90, 180), radius, 0.3);
+    }
+
+    /** 通用短命特效（扩散+淡出） */
+    private spawnEffect(x: number, y: number, color: Color, size: number, dur: number) {
+        if (!this.gameContainer) return;
+        const node = this.createColorNode(new Color(color.r, color.g, color.b, color.a), size, size);
+        node.parent = this.gameContainer;
+        node.setPosition(x, y, 0);
+        this.G.effects.push({ node, t: 0, dur, size });
+    }
+
+    /** 每帧更新弹道与特效 */
+    private updateProjectilesAndEffects(dt: number) {
+        if (!this.G.projectiles) return;
+        for (let i = this.G.projectiles.length - 1; i >= 0; i--) {
+            const p = this.G.projectiles[i];
+            const dx = p.tx - p.x, dy = p.ty - p.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const step = p.speed * dt;
+            if (dist <= step) {
+                // 命中：AOE 显示溅射圈
+                if (p.isAoe) this.spawnSplashEffect(p.tx, p.ty, UNIT_TYPES.aoe.splashRadiusPixels);
+                else this.spawnEffect(p.tx, p.ty, new Color(255, 230, 150, 200), 10, 0.12);
+                if (p.node.isValid) p.node.destroy();
+                this.G.projectiles.splice(i, 1);
+                continue;
+            }
+            p.x += (dx / dist) * step;
+            p.y += (dy / dist) * step;
+            p.node.setPosition(p.x, p.y, 0);
+        }
+        for (let i = this.G.effects.length - 1; i >= 0; i--) {
+            const e = this.G.effects[i];
+            e.t += dt;
+            const k = e.t / e.dur;
+            if (k >= 1) {
+                if (e.node.isValid) e.node.destroy();
+                this.G.effects.splice(i, 1);
+                continue;
+            }
+            // 扩散 + 淡出
+            const scale = 1 + k * 1.2;
+            e.node.setScale(scale, scale, 1);
+            const sp = e.node.getComponent(Sprite);
+            if (sp) {
+                const base = e.size;
+                const c = new Color(255, 230, 160, Math.round(200 * (1 - k)));
+                const sf = this.getColorSpriteFrame(c, Math.max(2, Math.round(base * scale)), Math.max(2, Math.round(base * scale)));
+                if (sf) sp.spriteFrame = sf;
+            }
+        }
+    }
+
+    /** 单位间分离：附近单位互相排斥，避免完全重叠看不清数量 */    private separateUnits() {
+        const units = this.G.units;
+        const MIN_DIST = 14;   // 单位最小间距（略小于体型 16px）
+        const PUSH = 24;       // 每秒排斥速度
+        for (let i = 0; i < units.length; i++) {
+            const a = units[i];
+            if (a.hp <= 0) continue;
+            for (let j = i + 1; j < units.length; j++) {
+                const b = units[j];
+                if (b.hp <= 0) continue;
+                let dx = b.x - a.x, dy = b.y - a.y;
+                let d2 = dx * dx + dy * dy;
+                if (d2 >= MIN_DIST * MIN_DIST || d2 === 0) continue;
+                const d = Math.sqrt(d2) || 0.01;
+                // 重叠越深推得越猛；完全重合时给个随机方向分开
+                if (d < 1) {
+                    dx = Math.random() - 0.5;
+                    dy = Math.random() - 0.5;
+                    d = Math.sqrt(dx * dx + dy * dy) || 1;
+                }
+                const overlap = (MIN_DIST - d) / MIN_DIST; // 0~1
+                const push = PUSH * overlap;
+                const nx = dx / d, ny = dy / d;
+                a.x -= nx * push * this.lastDt; a.y -= ny * push * this.lastDt;
+                b.x += nx * push * this.lastDt; b.y += ny * push * this.lastDt;
             }
         }
     }
@@ -888,13 +1692,26 @@ export class GameManager extends Component {
         }
         const crystal = this.G.crystals.find((c: any) => c.side !== u.side);
         if (crystal) {
-            const d = distance(u, crystal);
-            if (d < minDist) nearest = crystal;
+            // 基地防御塔必须先拆掉，才能攻击水晶（防一波偷家）
+            const towersAlive = this.G.towers.some((t: any) => t.side !== u.side);
+            if (!towersAlive) {
+                const d = distance(u, crystal);
+                if (d < minDist) nearest = crystal;
+            }
         }
         return nearest;
     }
 
     attack(attacker: any, target: any) {
+        // 弹道表现：远程单位 / 塔发射飞行弹丸（伤害仍即时结算，弹丸纯视觉）
+        const isRangedAttacker = attacker.kind === 'tower'
+            || (attacker.kind === 'unit' && ['ranged', 'aoe', 'siege'].includes(attacker.type));
+        if (isRangedAttacker) {
+            this.spawnProjectile(attacker, target);
+        } else {
+            this.spawnHitFlash(target); // 近战命中闪白
+        }
+
         const attackerRole = attacker.type as UnitRoleId;
         const attackerFaction = attacker.side === 'red'
             ? this.G.playerFaction
@@ -941,6 +1758,7 @@ export class GameManager extends Component {
         this.awardKill(attacker.side, target, attacker);
     }
 
+    /** 塔射击也走弹道表现 */
     updateTower(t: any, dt: number) {
         if (t.atkCd > 0) { t.atkCd -= dt; return; }
         let target: any = null, minDist = Infinity;
@@ -949,6 +1767,7 @@ export class GameManager extends Component {
             if (d < t.range && d < minDist) { minDist = d; target = u; }
         }
         if (target) {
+            this.spawnProjectile(t, target);
             target.hp -= t.atk;
             if (target.hp < 0) target.hp = 0;
             t.atkCd = 1 / t.atkSpd;
@@ -963,7 +1782,9 @@ export class GameManager extends Component {
 
         this.G.kills[side]++;
         if (target.kind === 'unit') {
-            this.G.gold[side] += UNIT_TYPES[target.type as UnitRoleId].bounty;
+            // 精英兵（Lv2/Lv3 工厂产出）击杀赏金 ×1.5 / ×2
+            const eliteMult = ELITE_BOUNTY_MULTIPLIERS[(attacker?.level || 1) as 1 | 2 | 3] || 1;
+            this.G.gold[side] += Math.round(UNIT_TYPES[target.type as UnitRoleId].bounty * eliteMult);
         } else if (target.kind === 'building') {
             this.G.gold[side] += GAME_CONFIG.razeBounty;
         }
@@ -974,9 +1795,44 @@ export class GameManager extends Component {
     }
 
     onWave() {
+        // 绝地反击：按全体单位平均 x 评估兵线位置
+        const units = this.G.units;
+        if (units.length > 0) {
+            const frontline = units.reduce((s: number, u: any) => s + u.x, 0) / units.length;
+            const th = COMEBACK.frontlineThresholdPixels;
+            this.updateComeback('red', frontline < -th, frontline > -th / 2);
+            this.updateComeback('blue', frontline > th, frontline < th / 2);
+        }
+
+        // 普通 AI：延迟 1 波快照玩家兵种构成
+        this.G.aiCompDelayed = { ...this.G.playerComp };
+
+        // 卡牌触发
         if ([5, 15, 20].includes(this.G.wave) && !this.G.cardTriggered[this.G.wave]) {
             this.G.cardTriggered[this.G.wave] = true;
             this.showCardSelection();
+        }
+    }
+
+    /** 绝地反击状态机：连续 N 波被推回己方高地 → 工资加成，兵线重回中路后解除 */
+    private updateComeback(side: string, pushedBack: boolean, recovered: boolean) {
+        const c = this.G.comeback[side];
+        if (c.active) {
+            if (recovered) {
+                c.active = false;
+                c.streak = 0;
+                if (side === 'red') this.showToast('兵线重回中路，绝地反击结束');
+            }
+            return;
+        }
+        if (pushedBack) {
+            c.streak++;
+            if (c.streak >= COMEBACK.triggerWaves) {
+                c.active = true;
+                if (side === 'red') this.showToast('绝地反击！工资 +50%');
+            }
+        } else {
+            c.streak = 0;
         }
     }
 
@@ -987,26 +1843,36 @@ export class GameManager extends Component {
 
         const unitType = (factory.unitType || 'tank') as UnitRoleId;
         const uConf = UNIT_TYPES[unitType] || UNIT_TYPES.tank;
+        // 精英兵：升级提升出兵属性（数量不变），带等级用于赏金/体型
+        const level = (factory.level || 1) as 1 | 2 | 3;
+        const statMult = level === 1 ? 1 : FACTORY_UPGRADES[level].statMultiplier;
+        // 玩家用卡牌/研究 permBuff；AI 用 aiAtkMult（学院加成）
+        const sideAtk = side === 'red' ? (this.G.permBuff.atk || 1) : this.G.aiAtkMult;
+        const sideHp = side === 'red' ? (this.G.permBuff.hp || 1) : 1;
 
         let count = getFactoryOutput(unitType, faction);
         if (Math.random() < fConf.factoryBonusChance) count += fConf.factoryBonusCount;
-        count = Math.floor(count * factory.level);
         const pop = this.G.units.filter((u: any) => u.side === side).length;
         if (pop + count > GAME_CONFIG.unitCapPerSide) {
             count = Math.max(0, GAME_CONFIG.unitCapPerSide - pop);
         }
 
+        // 统计玩家出兵构成（供 AI 克制决策）
+        if (side === 'red') {
+            this.G.playerComp[unitType] = (this.G.playerComp[unitType] || 0) + count;
+        }
+
         for (let i = 0; i < count; i++) {
             this.G.units.push({
-                kind: 'unit', side, type: unitType,
+                kind: 'unit', side, type: unitType, level,
                 x: factory.x + (side === 'red' ? 40 : -40) + Math.random() * 30,
                 y: factory.y + Math.random() * 60 - 30,
-                hp: uConf.health * fConf.healthMultiplier * (this.G.permBuff.hp || 1),
-                maxHp: uConf.health * fConf.healthMultiplier * (this.G.permBuff.hp || 1),
-                atk: uConf.attack * fConf.attackMultiplier * (this.G.permBuff.atk || 1),
+                hp: uConf.health * fConf.healthMultiplier * sideHp * statMult,
+                maxHp: uConf.health * fConf.healthMultiplier * sideHp * statMult,
+                atk: uConf.attack * fConf.attackMultiplier * sideAtk * statMult,
                 spd: uConf.speedPixelsPerSecond * fConf.speedMultiplier,
                 range: uConf.rangePixels,
-                atkSpd: uConf.attacksPerSecond * (this.G.permBuff.as || 1),
+                atkSpd: uConf.attacksPerSecond,
                 atkCd: 0,
                 hasStruck: false,
             });
@@ -1022,12 +1888,19 @@ export class GameManager extends Component {
         const oldCards = this.cardPanel.children.filter(c => c.name.startsWith('Card_'));
         oldCards.forEach(c => { if (c.isValid) c.destroy(); });
 
-        // 随机3张卡
+        // 按稀有度加权随机抽 3 张（不重复）：稀有权重高、传说权重低
         const faction = this.G.playerFaction;
         const pool = [...CARDS[faction]];
         const selected: any[] = [];
         for (let i = 0; i < 3 && pool.length > 0; i++) {
-            const idx = Math.floor(Math.random() * pool.length);
+            const weightOf = (c: any) => CARD_RARITY_WEIGHTS[c.rarity as keyof typeof CARD_RARITY_WEIGHTS] || 1;
+            const total = pool.reduce((s, c) => s + weightOf(c), 0);
+            let roll = Math.random() * total;
+            let idx = 0;
+            for (; idx < pool.length - 1; idx++) {
+                roll -= weightOf(pool[idx]);
+                if (roll < 0) break;
+            }
             selected.push(pool.splice(idx, 1)[0]);
         }
 
@@ -1239,6 +2112,16 @@ export class GameManager extends Component {
         const hpRatio = crystal ? crystal.hp / crystal.maxHp : 0;
         const stars = won ? (hpRatio >= 0.5 ? 3 : 2) : 1;
 
+        // 本地存档：胜负与最佳星级
+        const save = this.loadSave();
+        if (won) {
+            save.wins = (save.wins || 0) + 1;
+            save.bestStars = Math.max(save.bestStars || 0, stars);
+        } else {
+            save.losses = (save.losses || 0) + 1;
+        }
+        this.saveSave(save);
+
         if (this.endPanel) {
             this.endPanel.active = true;
             const statsNode = this.endPanel.children.find(c => {
@@ -1266,10 +2149,52 @@ export class GameManager extends Component {
         this.syncUnits();
     }
 
+    /** 给实体节点挂一个血条（bg + fg），fg 用 scale.x 表示血量比例 */
+    private attachHpBar(node: Node, width: number): Node {
+        const bar = new Node('HpBar');
+        bar.layer = this.uiLayer;
+        bar.parent = node;
+        const but = bar.addComponent(UITransform);
+        but.contentSize = new Size(width, 4);
+        const bg = this.createColorNode(new Color(0, 0, 0, 180), width, 4);
+        bg.parent = bar;
+        const fgNode = this.createColorNode(new Color(80, 220, 90), width - 2, 2);
+        fgNode.name = 'HpFg';
+        fgNode.parent = bar;
+        // fg 左对齐：锚点设为左中，位置贴左，缩放时从左往右减
+        const fut = fgNode.getComponent(UITransform)!;
+        fut.anchorPoint = new Vec2(0, 0.5);
+        fgNode.setPosition(-(width - 2) / 2, 0, 0);
+        bar.setPosition(0, 0, 0); // 由调用方摆位置
+        return bar;
+    }
+
+    /** 更新血条显示（比例 + 红/黄/绿变色） */
+    private updateHpBar(node: Node, hp: number, maxHp: number) {
+        const bar = node.getChildByName('HpBar');
+        if (!bar) return;
+        const fgNode = bar.getChildByName('HpFg');
+        if (!fgNode) return;
+        const ratio = Math.max(0, Math.min(1, hp / maxHp));
+        fgNode.setScale(ratio, 1, 1);
+        const sprite = fgNode.getComponent(Sprite);
+        if (sprite) {
+            let c: Color;
+            if (ratio > 0.6) c = new Color(80, 220, 90);
+            else if (ratio > 0.3) c = new Color(250, 200, 60);
+            else c = new Color(235, 80, 70);
+            const ut = fgNode.getComponent(UITransform);
+            const sf = this.getColorSpriteFrame(c, Math.round(ut.contentSize.width), Math.round(ut.contentSize.height));
+            if (sf) sprite.spriteFrame = sf;
+        }
+    }
+
     private syncCrystals() {
         while (this.G.crystalNodes.length < this.G.crystals.length) {
             const node = this.createColorNode(new Color(100, 100, 100), 60, 60);
             node.parent = this.gameContainer;
+            const bar = this.attachHpBar(node, 56);
+            bar.setPosition(0, 38, 0);
             this.G.crystalNodes.push(node);
         }
         while (this.G.crystalNodes.length > this.G.crystals.length) { const n = this.G.crystalNodes.pop()!; if (n.isValid) n.destroy(); }
@@ -1280,6 +2205,7 @@ export class GameManager extends Component {
             node.setPosition(c.x, c.y, 0);
             const sprite = node.getComponent(Sprite);
             if (sprite) { const sf = this.getColorSpriteFrame(color, 60, 60); if (sf) sprite.spriteFrame = sf; }
+            this.updateHpBar(node, c.hp, c.maxHp);
         }
     }
 
@@ -1287,16 +2213,24 @@ export class GameManager extends Component {
         while (this.G.buildingNodes.length < this.G.buildings.length) {
             const node = this.createColorNode(new Color(100, 100, 100), 40, 40);
             node.parent = this.gameContainer;
+            const bar = this.attachHpBar(node, 36);
+            bar.setPosition(0, 30, 0);
             this.G.buildingNodes.push(node);
         }
         while (this.G.buildingNodes.length > this.G.buildings.length) { const n = this.G.buildingNodes.pop()!; if (n.isValid) n.destroy(); }
         for (let i = 0; i < this.G.buildings.length; i++) {
             const b = this.G.buildings[i];
             const node = this.G.buildingNodes[i];
-            const color = b.side === 'red' ? new Color(200, 100, 100) : new Color(100, 150, 200);
+            let color = b.side === 'red' ? new Color(200, 100, 100) : new Color(100, 150, 200);
+            let size = 40;
+            if (b.type === 'factory') size = 40 + ((b.level || 1) - 1) * 8; // 精英厂更大
+            if (b.type === 'academy') { color = new Color(170, 120, 220); size = 52; }
+            if (b.type === 'auraTower') { color = new Color(80, 200, 220); size = 44; }
+            if (this.selectedFactory && b === this.selectedFactory) color = new Color(255, 220, 90);
             node.setPosition(b.x, b.y, 0);
             const sprite = node.getComponent(Sprite);
-            if (sprite) { const sf = this.getColorSpriteFrame(color, 40, 40); if (sf) sprite.spriteFrame = sf; }
+            if (sprite) { const sf = this.getColorSpriteFrame(color, size, size); if (sf) sprite.spriteFrame = sf; }
+            this.updateHpBar(node, b.hp, b.maxHp);
         }
     }
 
@@ -1304,6 +2238,8 @@ export class GameManager extends Component {
         while (this.G.towerNodes.length < this.G.towers.length) {
             const node = this.createColorNode(new Color(100, 100, 100), 30, 30);
             node.parent = this.gameContainer;
+            const bar = this.attachHpBar(node, 28);
+            bar.setPosition(0, 22, 0);
             this.G.towerNodes.push(node);
         }
         while (this.G.towerNodes.length > this.G.towers.length) { const n = this.G.towerNodes.pop()!; if (n.isValid) n.destroy(); }
@@ -1314,6 +2250,7 @@ export class GameManager extends Component {
             node.setPosition(t.x, t.y, 0);
             const sprite = node.getComponent(Sprite);
             if (sprite) { const sf = this.getColorSpriteFrame(color, 30, 30); if (sf) sprite.spriteFrame = sf; }
+            this.updateHpBar(node, t.hp, t.maxHp);
         }
     }
 
@@ -1321,6 +2258,8 @@ export class GameManager extends Component {
         while (this.G.unitNodes.length < this.G.units.length) {
             const node = this.createColorNode(new Color(100, 100, 100), 16, 16);
             node.parent = this.gameContainer;
+            const bar = this.attachHpBar(node, 18);
+            bar.setPosition(0, 14, 0);
             this.G.unitNodes.push(node);
         }
         while (this.G.unitNodes.length > this.G.units.length) { const n = this.G.unitNodes.pop()!; if (n.isValid) n.destroy(); }
@@ -1328,9 +2267,11 @@ export class GameManager extends Component {
             const u = this.G.units[i];
             const node = this.G.unitNodes[i];
             const color = u.side === 'red' ? new Color(255, 150, 150) : new Color(150, 200, 255);
+            const size = 16 + ((u.level || 1) - 1) * 5; // 精英兵（★/★★）体型更大
             node.setPosition(u.x, u.y, 0);
             const sprite = node.getComponent(Sprite);
-            if (sprite) { const sf = this.getColorSpriteFrame(color, 16, 16); if (sf) sprite.spriteFrame = sf; }
+            if (sprite) { const sf = this.getColorSpriteFrame(color, size, size); if (sf) sprite.spriteFrame = sf; }
+            this.updateHpBar(node, u.hp, u.maxHp);
         }
     }
 

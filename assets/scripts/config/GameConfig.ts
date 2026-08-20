@@ -1,7 +1,8 @@
 export type FactionId = 'fruit' | 'wood' | 'animal';
 export type UnitRoleId = 'tank' | 'ranged' | 'aoe' | 'rush' | 'siege';
 export type FactoryRoleId = Exclude<UnitRoleId, never>;
-export type BuildingId = UnitRoleId | 'tower' | 'academy';
+export type BuildingId = UnitRoleId | 'auraTower' | 'academy';
+export type UnitLevel = 1 | 2 | 3;
 
 export interface FactionConfig {
     readonly id: FactionId;
@@ -63,6 +64,68 @@ export const GAME_CONFIG = {
     nonSiegeCrystalDamageMultiplier: 0.75,
     suddenDeathStartTimeSeconds: 300,
     suddenDeathHealthFractionPerSecond: 0.01,
+} as const;
+
+// ==================== M2 系统配置 ====================
+
+/** 同类兵工厂价格递增：每多造 1 座 +25%（第 2 座 +25%、第 3 座 +50%） */
+export const FACTORY_PRICE_INCREMENT = 0.25;
+
+/** 兵工厂升级（Lv1→Lv2→Lv3）：出兵属性与建筑血量倍率（相对基准） */
+export const FACTORY_UPGRADES: Record<Exclude<UnitLevel, 1>, {
+    readonly cost: number;
+    readonly statMultiplier: number;
+    readonly healthMultiplier: number;
+    readonly requiresAcademyLevel: number;
+}> = {
+    2: { cost: 150, statMultiplier: 1.5, healthMultiplier: 1.5, requiresAcademyLevel: 0 },
+    3: { cost: 300, statMultiplier: 2.2, healthMultiplier: 2.2, requiresAcademyLevel: 1 },
+};
+
+/** 精英兵击杀赏金加成（Lv2 ×1.5，Lv3 ×2，v0.3 收窄版） */
+export const ELITE_BOUNTY_MULTIPLIERS: Record<UnitLevel, number> = { 1: 1, 2: 1.5, 3: 2 };
+
+/** 战争学院：Lv1 解锁 Lv3 兵工厂；Lv2 全队攻击 +10% 并解锁全军强化研究 */
+export const ACADEMY_LEVELS = {
+    1: { cost: 200, health: 1000 },
+    2: { cost: 400, health: 1500, attackBonus: 0.1 },
+} as const;
+
+/** 全军强化研究（需学院 Lv2）：400 金起，每层 ×1.15，全队攻击 +8%/层，无限叠加 */
+export const ARMY_RESEARCH = {
+    baseCost: 400,
+    costGrowth: 1.15,
+    attackBonusPerLayer: 0.08,
+} as const;
+
+/** 光环塔：每方限 1 座，全体己方单位攻速 +15% */
+export const AURA_TOWER = {
+    cost: 250,
+    health: 800,
+    attackSpeedBonus: 0.15,
+    limitPerSide: 1,
+} as const;
+
+/** 基地防御塔（双方固定各 2 座，不可建造）：塔不倒不能打水晶 */
+export const BASE_TOWER = {
+    health: 1000,
+    attack: 65,
+    attacksPerSecond: 1.2,
+    rangePixels: 360,
+} as const;
+
+/** 卡牌稀有度出现权重（稀有高、史诗中、传说低） */
+export const CARD_RARITY_WEIGHTS: Record<'rare' | 'epic' | 'legendary', number> = {
+    rare: 60,
+    epic: 30,
+    legendary: 10,
+};
+
+/** 绝地反击：连续 N 波兵线被推回己方高地 → 工资 +50%，直到兵线重回中路 */
+export const COMEBACK = {
+    triggerWaves: 3,
+    salaryMultiplier: 1.5,
+    frontlineThresholdPixels: 200,
 } as const;
 
 export const FACTIONS: Record<FactionId, FactionConfig> = {
@@ -159,9 +222,9 @@ export const BUILDING_TYPES: Record<BuildingId, BuildingConfig> = {
         id: 'siege', name: '攻城厂', icon: '🏰', health: 900, cost: 200,
         rangePixels: 0, attack: 0, attacksPerSecond: 0,
     },
-    tower: {
-        id: 'tower', name: '防御塔', icon: '🗼', health: 1000, cost: 120,
-        rangePixels: 360, attack: 65, attacksPerSecond: 1.2,
+    auraTower: {
+        id: 'auraTower', name: '光环塔', icon: '🌀', health: 800, cost: 250,
+        rangePixels: 0, attack: 0, attacksPerSecond: 0,
     },
     academy: {
         id: 'academy', name: '战争学院', icon: '️', health: 1000, cost: 200,
@@ -193,6 +256,15 @@ export function isFactoryId(id: BuildingId): id is FactoryRoleId {
 
 export function getBuildingCost(id: BuildingId, faction: FactionId): number {
     return isFactoryId(id) ? FACTORY_COSTS[faction][id] : BUILDING_TYPES[id].cost;
+}
+
+export function getFactoryPrice(
+    id: FactoryRoleId,
+    faction: FactionId,
+    ownedSameTypeCount: number,
+): number {
+    const base = FACTORY_COSTS[faction][id];
+    return Math.round(base * (1 + FACTORY_PRICE_INCREMENT * ownedSameTypeCount));
 }
 
 export function getFactoryOutput(
