@@ -982,6 +982,7 @@ export class GameManager extends Component {
         this.G.difficulty = this.selectedDifficulty;
         this.G.phase = 'playing';
         this.gameRunning = true;
+        this.G.gameStartTime = Date.now(); // 记录游戏开始时间
         this.refreshBuildBar();
         this.showToast('游戏开始！阵营：' + FACTIONS[this.selectedFaction].name);
         // 首次游玩：新手教学（手指引导造第一个兵工厂）
@@ -1661,6 +1662,7 @@ export class GameManager extends Component {
             aiFaction: this.getAIFaction(),
             difficulty: this.selectedDifficulty,
             elapsed: 0,
+            gameStartTime: Date.now(),
             gold: { red: GAME_CONFIG.startingGold, blue: GAME_CONFIG.startingGold },
             salaryTimer: { red: GAME_CONFIG.salaryIntervalSeconds, blue: GAME_CONFIG.salaryIntervalSeconds },
             wave: 0, waveTimer: GAME_CONFIG.waveIntervalSeconds,
@@ -2717,6 +2719,12 @@ export class GameManager extends Component {
         const hpRatio = crystal ? crystal.hp / crystal.maxHp : 0;
         const stars = won ? (hpRatio >= 0.5 ? 3 : 2) : 1;
 
+        // 计算用时
+        const durationSec = Math.floor((Date.now() - this.G.gameStartTime) / 1000);
+        const minutes = Math.floor(durationSec / 60);
+        const seconds = durationSec % 60;
+        const durationText = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+
         // 本地存档：胜负与最佳星级
         const save = this.loadSave();
         if (won) {
@@ -2738,6 +2746,7 @@ export class GameManager extends Component {
                 if (l) {
                     l.string = (won ? '🎉 胜利！' : '😢 失败\n') +
                         '⭐'.repeat(stars) + '☆'.repeat(3 - stars) + '\n' +
+                        '用时：' + durationText + '\n' +
                         '击杀：' + this.G.kills.red + '\n' +
                         '波次：第 ' + this.G.wave + ' 波';
                 }
