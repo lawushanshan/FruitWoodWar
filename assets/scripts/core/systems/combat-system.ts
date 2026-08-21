@@ -13,6 +13,7 @@
 import { GAME_CONFIG } from '../../config/game-config';
 import { FACTION_CONFIG } from '../../config/faction-config';
 import { UNIT_CONFIG, counterMultiplier } from '../../config/unit-config';
+import { MAP_LAYOUT } from '../../config/map-layout';
 import { eliteBountyMult, AURA_TOWER_CONFIG, BASE_TOWER_CONFIG } from '../../config/building-config';
 import { syncAcademyLevel } from './building-system';
 import type {
@@ -159,6 +160,7 @@ function updateUnit(state: GameState, u: UnitState, dt: number, random: RandomSo
     if (u.atkCd > 0) u.atkCd -= dt;
 
     const target = findTarget(state, u);
+    const speedMult = () => spdMult * effectiveSpeedMult(state, u.side);
     if (target) {
         const dx = target.x - u.x;
         const dy = target.y - u.y;
@@ -169,24 +171,63 @@ function updateUnit(state: GameState, u: UnitState, dt: number, random: RandomSo
                 u.atkCd = 1 / (u.atkSpeed * effectiveAttackSpeedMult(state, u.side, u.x, u.y));
             }
         } else {
-            const speedMult = spdMult * effectiveSpeedMult(state, u.side);
-            u.x += (dx / dist) * u.speed * speedMult * dt;
-            u.y += (dy / dist) * u.speed * speedMult * dt;
+            moveUnit(u, target.x, target.y, speedMult(), dt);
         }
     } else {
         // 无目标时向敌方水晶推进
         const crystal = state.crystals.find(c => c.side !== u.side);
         if (crystal) {
-            const dx = crystal.x - u.x;
-            const dy = crystal.y - u.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist > 1) {
-                const speedMult = spdMult * effectiveSpeedMult(state, u.side);
-                u.x += (dx / dist) * u.speed * speedMult * dt;
-                u.y += (dy / dist) * u.speed * speedMult * dt;
-            }
+            moveUnit(u, crystal.x, crystal.y, speedMult(), dt);
         }
     }
+}
+
+/**
+ * 单位移动（v1.2 河道规则）：
+ * 河（|x| ≤ riverHalfWidth）沿 y 轴贯穿全场，唯一的越河通道是中央战斗道路
+ * （|y| ≤ roadHalfHeight 的走廊，即"桥"）。
+ *
+ * 若直线路径会在道路走廊之外跨越中线，则先折向己方一侧的桥头
+ * （±(riverHalfWidth + 20), roadCenterY），走到走廊内再正常过河。
+ */
+function moveUnit(u: UnitState, tx: number, ty: number, speedMult: number, dt: number): void {
+    let gx = tx;
+    let gy = ty;
+
+    // 单位当前是否已在中央道路走廊内
+    const inCorridor = Math.abs(u.y - MAP_LAYOUT.roadCenterY) <= MAP_LAYOUT.roadHalfHeight;
+
+    // 需要跨越中线（两侧异号）且不在走廊内 → 先折向己方桥头
+    if (u.x * tx < 0 && !inCorridor) {
+        gx = Math.sign(u.x) * (MAP_LAYOUT.riverHalfWidth + 20);
+        gy = MAP_LAYOUT.roadCenterY;
+    }
+
+    const dx = gx - u.x;
+    const dy = gy - u.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist <= 1) return;
+
+    const step = u.speed * speedMult * dt;
+    const nx = u.x + (dx / dist) * step;
+    const ny = u.y + (dy / dist) * step;
+
+    // 硬约束：落点进入河区（|x| < riverHalfWidth）时必须在走廊内，防止"切角"斜插过河
+    const wouldEnterRiver = Math.abs(nx) < MAP_LAYOUT.riverHalfWidth;
+    const stillOffRoad = Math.abs(ny - MAP_LAYOUT.roadCenterY) > MAP_LAYOUT.roadHalfHeight;
+    if (wouldEnterRiver && stillOffRoad) {
+        // 不允许：改为沿己方桥头方向收缩
+        const bx = Math.sign(u.x) * (MAP_LAYOUT.riverHalfWidth + 20);
+        const bdx = bx - u.x;
+        const bdy = MAP_LAYOUT.roadCenterY - u.y;
+        const bdist = Math.sqrt(bdx * bdx + bdy * bdy) || 1;
+        u.x += (bdx / bdist) * step;
+        u.y += (bdy / bdist) * step;
+        return;
+    }
+
+    u.x = nx;
+    u.y = ny;
 }
 
 /**

@@ -29,6 +29,7 @@ import { BattleEffects } from './presentation/battle-effects';
 import { makeBuildCommand, makeUpgradeCommand, makeResearchCommand, makeCardCommand } from './input/game-commands';
 import { BUILDING_CONFIG } from './config/building-config';
 import { BUILD_GRID } from './config/build-grid';
+import { MAP_LAYOUT } from './config/map-layout';
 import { saveFromState } from './core/save-system';
 import { AdManager } from './platform/ad-manager';
 import type { BuildingItemId, Phase } from './core/types';
@@ -166,23 +167,45 @@ export class GameManager extends Component {
         this.spriteFactory = sf;
         const bg = sf.createColorNode(new Color(13, 20, 24), 1280, 720);
         bg.parent = this.gameContainer;
-        const lane = sf.createColorNode(new Color(34, 48, 58), 1280, 200);
-        lane.parent = this.gameContainer;
-        lane.setPosition(0, -50, 0);
 
-        // 地图装饰：中线 + 双方建造区域高亮（对齐网格范围 ±280）
-        const midLine = sf.createColorNode(new Color(70, 90, 105, 120), 4, 300);
-        midLine.name = 'MidLine';
-        midLine.parent = this.gameContainer;
-        midLine.setPosition(0, -50, 0);
-        const redZone = sf.createColorNode(new Color(120, 40, 40, 45), 560, 580);
+        // 河（楚河汉界）：沿 y 轴贯穿全场，唯一通道是中央道路（桥）
+        const river = sf.createColorNode(
+            new Color(28, 56, 96),
+            MAP_LAYOUT.riverHalfWidth * 2,
+            MAP_LAYOUT.riverHalfLength * 2,
+        );
+        river.name = 'River';
+        river.parent = this.gameContainer;
+        river.setPosition(MAP_LAYOUT.riverCenterX, 0, 0);
+        // 河岸描边
+        const bankColor = new Color(70, 96, 120);
+        for (const bankX of [MAP_LAYOUT.riverHalfWidth, -MAP_LAYOUT.riverHalfWidth]) {
+            const bank = sf.createColorNode(bankColor, 4, MAP_LAYOUT.riverHalfLength * 2);
+            bank.name = 'RiverBank';
+            bank.parent = this.gameContainer;
+            bank.setPosition(bankX, 0, 0);
+        }
+
+        // 战斗道路：沿 x 轴居中（y=0，高 140），与 ±100 起的网格行互不重叠；
+        // 盖在河上方形成"桥"
+        const lane = sf.createColorNode(
+            new Color(52, 62, 46),
+            1280,
+            MAP_LAYOUT.roadHalfHeight * 2,
+        );
+        lane.name = 'BattleRoad';
+        lane.parent = this.gameContainer;
+        lane.setPosition(0, MAP_LAYOUT.roadCenterY, 0);
+
+        // 地图装饰：双方建造区域高亮（对齐网格：x ±90~570，行 y ±100~±250）
+        const redZone = sf.createColorNode(new Color(120, 40, 40, 45), 500, 180);
         redZone.name = 'RedBuildZone';
         redZone.parent = this.gameContainer;
-        redZone.setPosition(-290, 75, 0);
-        const blueZone = sf.createColorNode(new Color(40, 70, 140, 45), 560, 580);
+        redZone.setPosition(-330, 175, 0);
+        const blueZone = sf.createColorNode(new Color(40, 70, 140, 45), 500, 180);
         blueZone.name = 'BlueBuildZone';
         blueZone.parent = this.gameContainer;
-        blueZone.setPosition(290, 75, 0);
+        blueZone.setPosition(330, 175, 0);
 
         // 初始化表现层模块
         this.gameView = new GameView(this.gameContainer, sf);
@@ -383,7 +406,9 @@ export class GameManager extends Component {
 
     private onGameTouch(event: EventTouch) {
         if (this.engine.state.phase !== 'playing') return;
-        const loc = event.getLocation();
+        // 必须用 getUILocation()：设计分辨率 UI 坐标（0~1280/0~720）。
+        // getLocation() 返回设备像素坐标，高 DPI 屏上会整体偏移导致网格错位
+        const loc = event.getUILocation();
         const localPos = this.toLocal(loc);
 
         // 建造模式：吸附格点放置
@@ -426,7 +451,7 @@ export class GameManager extends Component {
 
     private onGameTouchMove(event: EventTouch) {
         if (!this.pendingBuild) return;
-        const loc = event.getLocation();
+        const loc = event.getUILocation();
         const localPos = this.toLocal(loc);
         this.updatePreviewAt(localPos.x, localPos.y);
     }
