@@ -123,6 +123,10 @@ export class GameManager extends Component {
     private lastDt: number = 0;
     private riverWaves: Node[] = [];
     private mapAnimT: number = 0;
+    // 卡牌选择超时：倒计时剩余秒数；<=0 表示无进行中的选卡
+    private cardTimeoutSeconds: number = 0;
+    // 当前待选卡牌（超时自动选第一张）
+    private pendingCards: any[] = [];
     private researchBtn: Node | null = null;
     private upgradePanel: Node | null = null;
     private upgradeInfoLabel: Label | null = null;
@@ -168,8 +172,14 @@ export class GameManager extends Component {
     update(dt: number) {
         this.mapAnimT += dt;
         this.animateMap();
+        this.updateCardTimeout(dt); // 选卡暂停期间也要倒计时（在 gameRunning 判断之前）
         if (!this.gameRunning) return;
-        this.gameStep(dt);
+        // 逻辑帧异常隔离：任何运行时错误不允许冻结胜负判定与渲染
+        try {
+            this.gameStep(dt);
+        } catch (e) {
+            console.error('[gameStep] 帧内异常（已跳过该帧）:', e);
+        }
         this.syncVisuals();
         this.updateUI();
     }
@@ -837,26 +847,28 @@ export class GameManager extends Component {
 
         const bg = this.createColorNode(new Color(5, 10, 14, 235), 1280, 720);
         bg.parent = this.cardPanel;
+        // 挡住点击穿透：防止选卡时误触战场（建造/选中工厂）
+        bg.addComponent(BlockInputEvents);
 
         const title = new Node();
         title.layer = this.uiLayer;
         title.parent = this.cardPanel;
         const tUt = title.addComponent(UITransform);
-        tUt.contentSize = new Size(400, 40);
+        tUt.contentSize = new Size(500, 40);
         const tLabel = title.addComponent(Label);
-        tLabel.string = '选择一张卡牌';
+        tLabel.string = '⏸ 游戏暂停 · 选择一张卡牌';
         tLabel.fontSize = 30;
         tLabel.color = new Color(255, 215, 94);
         tLabel.lineHeight = 36;
         title.setPosition(0, 220, 0);
 
-        const sub = new Node();
+        const sub = new Node('CardSub');
         sub.layer = this.uiLayer;
         sub.parent = this.cardPanel;
         const sUt = sub.addComponent(UITransform);
         sUt.contentSize = new Size(400, 24);
         const sLabel = sub.addComponent(Label);
-        sLabel.string = '';
+        sLabel.string = '点击一张卡牌后战斗继续';
         sLabel.fontSize = 16;
         sLabel.color = new Color(159, 180, 196);
         sLabel.lineHeight = 22;
@@ -1612,9 +1624,15 @@ export class GameManager extends Component {
 
     // ==================== 弹道与特效 ====================
 
+    // 特效数量上限：防止大规模混战时节点无限堆积导致卡顿
+    private static readonly FX_MAX_PROJECTILES = 120;
+    private static readonly FX_MAX_EFFECTS = 150;
+    private static readonly FX_MAX_FLOAT_TEXTS = 80;
+
     /** 发射一枚视觉弹丸（伤害已在逻辑层结算） */
     private spawnProjectile(attacker: any, target: any) {
         if (!this.gameContainer) return;
+        if (this.G.projectiles.length >= GameManager.FX_MAX_PROJECTILES) return; // 超限不再生成
         const side = attacker.side;
         let color = side === 'red' ? new Color(255, 170, 90) : new Color(130, 180, 255);
         let size = 6;
@@ -1647,6 +1665,7 @@ export class GameManager extends Component {
     /** 通用短命特效（扩散+淡出） */
     private spawnEffect(x: number, y: number, color: Color, size: number, dur: number) {
         if (!this.gameContainer) return;
+        if (this.G.effects.length >= GameManager.FX_MAX_EFFECTS) return; // 超限不再生成
         const node = this.createColorNode(new Color(color.r, color.g, color.b, color.a), size, size);
         node.parent = this.gameContainer;
         node.setPosition(x, y, 0);
@@ -1656,6 +1675,7 @@ export class GameManager extends Component {
     /** 浮字：伤害跳字 / 死亡星星，上飘 + 淡出 */
     private spawnFloatText(x: number, y: number, text: string, color: Color, size: number = 16) {
         if (!this.gameContainer) return;
+        if (this.G.floatTexts.length >= GameManager.FX_MAX_FLOAT_TEXTS) return; // 超限不再生成
         const node = new Node('FloatText');
         node.layer = this.uiLayer;
         node.parent = this.gameContainer;
@@ -1682,7 +1702,7 @@ export class GameManager extends Component {
                 // 命中：AOE 显示溅射圈
                 if (p.isAoe) this.spawnSplashEffect(p.tx, p.ty, UNIT_TYPES.aoe.splashRadiusPixels);
                 else this.spawnEffect(p.tx, p.ty, new Color(255, 230, 150, 200), 10, 0.12);
-                if (p.node.isValid) p.node.destroy();
+                if (p.node.isValid) { p.node.removeFromParent(); p.node.destroy(); }
                 this.G.projectiles.splice(i, 1);
                 continue;
             }
@@ -1695,20 +1715,15 @@ export class GameManager extends Component {
             e.t += dt;
             const k = e.t / e.dur;
             if (k >= 1) {
-                if (e.node.isValid) e.node.destroy();
+                if (e.node.isValid) { e.node.removeFromParent(); e.node.destroy(); }
                 this.G.effects.splice(i, 1);
                 continue;
             }
-            // 扩散 + 淡出
+            // 扩散用节点缩放、淡出用 UIOpacity——绝不每帧换贴图（换贴图会导致纹理缓存爆炸）
             const scale = 1 + k * 1.2;
             e.node.setScale(scale, scale, 1);
-            const sp = e.node.getComponent(Sprite);
-            if (sp) {
-                const base = e.size;
-                const c = new Color(255, 230, 160, Math.round(200 * (1 - k)));
-                const sf = this.getColorSpriteFrame(c, Math.max(2, Math.round(base * scale)), Math.max(2, Math.round(base * scale)));
-                if (sf) sp.spriteFrame = sf;
-            }
+            const op = e.node.getComponent(UIOpacity) || e.node.addComponent(UIOpacity);
+            op.opacity = Math.round(200 * (1 - k));
         }
         // 浮字：上飘 + 淡出
         for (let i = this.G.floatTexts.length - 1; i >= 0; i--) {
@@ -1716,7 +1731,7 @@ export class GameManager extends Component {
             f.t += dt;
             const k = f.t / f.dur;
             if (k >= 1) {
-                if (f.node.isValid) f.node.destroy();
+                if (f.node.isValid) { f.node.removeFromParent(); f.node.destroy(); }
                 this.G.floatTexts.splice(i, 1);
                 continue;
             }
@@ -1726,7 +1741,8 @@ export class GameManager extends Component {
         }
     }
 
-    /** 单位间分离：附近单位互相排斥，避免完全重叠看不清数量 */    private separateUnits() {
+    /** 单位间分离：附近单位互相排斥，避免完全重叠看不清数量 */
+    private separateUnits() {
         const units = this.G.units;
         const MIN_DIST = 14;   // 单位最小间距（略小于体型 16px）
         const PUSH = 24;       // 每秒排斥速度
@@ -1739,7 +1755,7 @@ export class GameManager extends Component {
                 let dx = b.x - a.x, dy = b.y - a.y;
                 let d2 = dx * dx + dy * dy;
                 if (d2 >= MIN_DIST * MIN_DIST || d2 === 0) continue;
-                const d = Math.sqrt(d2) || 0.01;
+                let d = Math.sqrt(d2) || 0.01;
                 // 重叠越深推得越猛；完全重合时给个随机方向分开
                 if (d < 1) {
                     dx = Math.random() - 0.5;
@@ -1769,7 +1785,7 @@ export class GameManager extends Component {
             const d = distance(u, t);
             if (d < minDist && d <= GAME_CONFIG.unitAggroRangePixels) { minDist = d; nearest = t; }
         }
-        const crystal = this.G.crystals.find((c: any) => c.side !== u.side);
+        const crystal = this.G.crystals.find((c: any) => c.side !== u.side && c.hp > 0);
         if (crystal) {
             // 基地防御塔必须先拆掉，才能攻击水晶（防一波偷家）
             const towersAlive = this.G.towers.some((t: any) => t.side !== u.side);
@@ -1998,13 +2014,13 @@ export class GameManager extends Component {
             selected.push(pool.splice(idx, 1)[0]);
         }
 
-        const subNode = this.cardPanel.children.find(c => {
-            const l = c.getComponent(Label);
-            return l && l.string === '';
-        });
+        this.pendingCards = selected;
+        this.cardTimeoutSeconds = 10; // 10 秒不选自动拿第一张
+
+        const subNode = this.cardPanel.getChildByName('CardSub');
         if (subNode) {
             const l = subNode.getComponent(Label);
-            if (l) l.string = '第 ' + this.G.wave + ' 波 · ' + FACTIONS[faction].name;
+            if (l) l.string = '第 ' + this.G.wave + ' 波 · ' + FACTIONS[faction].name + ' · ⏱ ' + this.cardTimeoutSeconds + ' 秒后自动选择第一张';
         }
 
         selected.forEach((card, i) => {
@@ -2012,6 +2028,32 @@ export class GameManager extends Component {
             cardNode.parent = this.cardPanel;
             cardNode.setPosition(-220 + i * 220, 0, 0);
         });
+    }
+
+    /** 卡牌倒计时：update 中调用（选卡暂停期间 gameStep 不跑，所以独立计时） */
+    private updateCardTimeout(dt: number) {
+        if (this.cardTimeoutSeconds <= 0) return;
+        this.cardTimeoutSeconds -= dt;
+        if (this.cardTimeoutSeconds <= 0) {
+            // 超时：自动选第一张
+            const first = this.pendingCards[0];
+            this.cardTimeoutSeconds = 0;
+            if (first) {
+                this.onCardClick({ target: null, type: 'click' } as any, first.id);
+                this.showToast('⏱ 超时自动选择：' + first.name);
+            }
+            return;
+        }
+        // 刷新倒计时显示（秒数变化时才更新文本，避免每帧写字符串）
+        const remain = Math.ceil(this.cardTimeoutSeconds);
+        const subNode = this.cardPanel ? this.cardPanel.getChildByName('CardSub') : null;
+        if (subNode && this.cardPanel && this.cardPanel.active) {
+            const l = subNode.getComponent(Label);
+            if (l && l.string.indexOf('⏱ ' + remain + ' ') < 0) {
+                const faction = this.G.playerFaction;
+                l.string = '第 ' + this.G.wave + ' 波 · ' + FACTIONS[faction].name + ' · ⏱ ' + remain + ' 秒后自动选择第一张';
+            }
+        }
     }
 
     private createCardNode(card: any, index: number): Node {
@@ -2097,6 +2139,8 @@ export class GameManager extends Component {
     }
 
     onCardClick(event: Event, cardId: string) {
+        this.cardTimeoutSeconds = 0; // 手动选择即取消倒计时
+        this.pendingCards = [];
         this.gameRunning = true;
         if (this.cardPanel) this.cardPanel.active = false;
         this.applyCardEffect(cardId);
