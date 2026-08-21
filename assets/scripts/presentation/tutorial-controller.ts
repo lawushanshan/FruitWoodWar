@@ -128,7 +128,14 @@ export class TutorialController {
             const bg = this.spriteFactory.createColorNode(new Color(0, 0, 0, 200), 500, 80);
             bg.parent = this.hintNode;
 
-            this.hintLabel = this.hintNode.addComponent(Label);
+            // 文字必须是 bg 之后的子节点（Label 在 hintNode 自身会被 bg 子节点盖住）
+            const labelNode = new Node('HintLabel');
+            labelNode.layer = this.layer;
+            labelNode.parent = this.hintNode;
+            const lUt = labelNode.addComponent(UITransform);
+            lUt.contentSize = new Size(480, 70);
+            lUt.anchorPoint = new Vec2(0.5, 0.5);
+            this.hintLabel = labelNode.addComponent(Label);
             this.hintLabel.fontSize = 18;
             this.hintLabel.color = new Color(255, 215, 94);
             this.hintLabel.lineHeight = 24;

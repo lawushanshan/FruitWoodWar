@@ -284,10 +284,8 @@ export class PanelController {
         const btnBg = this.spriteFactory.createColorNode(new Color(63, 109, 51), 160, 44);
         btnBg.name = 'BtnBg';
         btnBg.parent = btn;
-        const bLabel = btn.addComponent(Label);
-        bLabel.string = '⬆ 升级';
-        bLabel.fontSize = 18;
-        bLabel.color = Color.WHITE;
+        // 文字必须是 bg 之后的子节点：Label 加在按钮节点自身会被子节点背景盖住
+        this.makeLabel('⬆ 升级', 0, 0, Color.WHITE, btn, 18);
         btn.setPosition(0, -60, 0);
 
         const button = btn.addComponent(Button);
@@ -361,10 +359,8 @@ export class PanelController {
         dbUt.contentSize = new Size(160, 40);
         const dbBg = this.spriteFactory.createColorNode(new Color(46, 65, 82), 160, 40);
         dbBg.parent = diffBtn;
-        const dbLabel = diffBtn.addComponent(Label);
-        dbLabel.string = '切换难度';
-        dbLabel.fontSize = 16;
-        dbLabel.color = Color.WHITE;
+        // 文字必须是 bg 之后的子节点（Label 在按钮节点自身会被 bg 子节点盖住）
+        this.makeLabel('切换难度', 0, 0, Color.WHITE, diffBtn, 16);
         diffBtn.setPosition(0, -120, 0);
 
         const dbButton = diffBtn.addComponent(Button);
@@ -383,10 +379,7 @@ export class PanelController {
         dsUt.contentSize = new Size(200, 40);
         const dsBg = this.spriteFactory.createColorNode(new Color(212, 116, 26), 200, 40);
         dsBg.parent = doubleBtn;
-        const dsLabel = doubleBtn.addComponent(Label);
-        dsLabel.string = '📺 双倍工资';
-        dsLabel.fontSize = 16;
-        dsLabel.color = Color.WHITE;
+        this.makeLabel('📺 双倍工资', 0, 0, Color.WHITE, doubleBtn, 16);
         doubleBtn.setPosition(0, -160, 0);
 
         const dsButton = doubleBtn.addComponent(Button);
@@ -405,11 +398,7 @@ export class PanelController {
         sbUt.contentSize = new Size(200, 50);
         const sbBg = this.spriteFactory.createColorNode(new Color(63, 109, 51), 200, 50);
         sbBg.parent = startBtn;
-        const sbLabel = startBtn.addComponent(Label);
-        sbLabel.string = '开始游戏';
-        sbLabel.fontSize = 24;
-        sbLabel.color = Color.WHITE;
-        sbLabel.lineHeight = 30;
+        this.makeLabel('开始游戏', 0, 0, Color.WHITE, startBtn, 24);
         startBtn.setPosition(0, -220, 0);
 
         const sButton = startBtn.addComponent(Button);
@@ -513,10 +502,7 @@ export class PanelController {
         abUt.contentSize = new Size(180, 50);
         const abBg = this.spriteFactory.createColorNode(new Color(63, 109, 51), 180, 50);
         abBg.parent = againBtn;
-        const abLabel = againBtn.addComponent(Label);
-        abLabel.string = '再来一局';
-        abLabel.fontSize = 22;
-        abLabel.color = Color.WHITE;
+        this.makeLabel('再来一局', 0, 0, Color.WHITE, againBtn, 22);
         againBtn.setPosition(0, -100, 0);
 
         const abButton = againBtn.addComponent(Button);
@@ -536,10 +522,7 @@ export class PanelController {
         rvUt.contentSize = new Size(200, 50);
         const rvBg = this.spriteFactory.createColorNode(new Color(212, 116, 26), 200, 50);
         rvBg.parent = this.reviveBtn;
-        const rvLabel = this.reviveBtn.addComponent(Label);
-        rvLabel.string = '📺 看广告复活';
-        rvLabel.fontSize = 20;
-        rvLabel.color = Color.WHITE;
+        this.makeLabel('📺 看广告复活', 0, 0, Color.WHITE, this.reviveBtn, 20);
         this.reviveBtn.setPosition(0, -160, 0);
 
         const rvButton = this.reviveBtn.addComponent(Button);
@@ -560,11 +543,8 @@ export class PanelController {
         tUt.anchorPoint = new Vec2(0.5, 1);
         const tBg = this.spriteFactory.createColorNode(new Color(0, 0, 0, 180), 400, 40);
         tBg.parent = toast;
-        this.toastLabel = toast.addComponent(Label);
-        this.toastLabel.string = '';
-        this.toastLabel.fontSize = 18;
-        this.toastLabel.color = Color.WHITE;
-        this.toastLabel.lineHeight = 24;
+        // toast 锚点在顶部，label 子节点放中间（bg 之后追加，避免被盖）
+        this.toastLabel = this.makeLabel('', 0, -20, Color.WHITE, toast, 18);
         toast.setPosition(0, 340, 0);
         toast.active = false;
     }
