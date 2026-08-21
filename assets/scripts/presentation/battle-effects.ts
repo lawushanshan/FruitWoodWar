@@ -25,7 +25,7 @@ interface EffectInstance {
     elapsed: number;
     duration: number;
     /** 效果类型 */
-    type: 'spawn_pulse' | 'attack_flash' | 'crystal_shake' | 'building_explode' | 'impact_ring' | 'range_ring' | 'particle';
+    type: 'attack_flash' | 'crystal_shake' | 'building_explode' | 'impact_ring' | 'range_ring' | 'particle';
     /** 起始位置 */
     startX: number;
     startY: number;
@@ -55,24 +55,7 @@ export class BattleEffects {
 
     // ==================== 公开方法 ====================
 
-    /** 出兵表现：工厂脉冲闪烁 */
-    playSpawnEffect(x: number, y: number) {
-        const node = this.pool.acquire('spawn', () =>
-            this.spriteFactory.createColorNode(new Color(255, 255, 100, 180), 50, 50, 'circle'),
-        );
-        node.parent = this.container;
-        node.setPosition(x, y, 0);
-        node.active = true;
-        setUniformScale(node, 0.5);
-        const opacity = node.getComponent(UIOpacity);
-        if (opacity) opacity.opacity = 200;
-
-        this.push({
-            node, elapsed: 0, duration: 0.3,
-            type: 'spawn_pulse', startX: x, startY: y, origScale: 0.5,
-            dx: 0, dy: 0,
-        });
-    }
+    // 注：出兵脉冲效果已按用户反馈移除——单位出生时不应有类似爆炸的视觉。
 
     /** 攻击表现：攻击者短暂闪光 */
     playAttackFlash(x: number, y: number) {
@@ -269,11 +252,6 @@ export class BattleEffects {
         const opacity = node.getComponent(UIOpacity);
 
         switch (fx.type) {
-            case 'spawn_pulse':
-                // 从小到大扩散 + 淡出
-                setUniformScale(node, fx.origScale + progress * 1.0);
-                if (opacity) opacity.opacity = Math.floor(200 * (1 - progress));
-                break;
 
             case 'attack_flash':
                 // 快速闪烁消失
@@ -336,7 +314,6 @@ export class BattleEffects {
 
     private getPoolKey(type: EffectInstance['type']): string {
         switch (type) {
-            case 'spawn_pulse': return 'spawn';
             case 'attack_flash': return 'attack';
             case 'crystal_shake': return 'crystal_hit';
             case 'building_explode': return 'explode';

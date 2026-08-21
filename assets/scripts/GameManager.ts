@@ -267,7 +267,7 @@ export class GameManager extends Component {
             this.detectEffects();
             this.consumeFx();
             this.detectTutorial();
-            this.gameView.sync(this.engine.state);
+            this.gameView.sync(this.engine.state, dt);
             this.hudView.update(this.engine.state);
             this.floatingText.update(dt);
             this.deathEffect.update(dt);
@@ -313,10 +313,12 @@ export class GameManager extends Component {
     private detectEffects() {
         const s = this.engine.state;
 
+        // 单位 id 索引（O(n) 构建，替代死亡检测里逐个 find 的 O(n²) 扫描）
+        const unitsById = new Map(s.units.map(u => [u.id, u]));
+
         // ---- 单位事件（遍历快照，位置精确） ----
         for (const [id, snap] of this.prevUnits) {
-            const alive = s.units.find(u => u.id === id);
-            if (!alive) {
+            if (!unitsById.has(id)) {
                 const color = snap.side === 'red'
                     ? new Color(255, 150, 150, 180)
                     : new Color(150, 200, 255, 180);
@@ -327,10 +329,6 @@ export class GameManager extends Component {
         for (const u of s.units) {
             const snap = this.prevUnits.get(u.id);
 
-            if (!snap) {
-                this.battleEffects.playSpawnEffect(u.x, u.y);
-            }
-
             const prevCd = this.prevAtkCd.get(u.id) ?? 0;
             if (snap && u.atkCd > prevCd + 0.1 && u.atkCd > 0.15) {
                 this.battleEffects.playAttackFlash(u.x, u.y);
@@ -339,8 +337,9 @@ export class GameManager extends Component {
         }
 
         // ---- 建筑被毁：在原位置播放爆炸 ----
+        const buildingIds = new Set(s.buildings.map(b => b.id));
         for (const [id, snap] of this.prevBuildingIds) {
-            if (!s.buildings.some(b => b.id === id)) {
+            if (!buildingIds.has(id)) {
                 this.battleEffects.playBuildingDestroy(snap.x, snap.y);
             }
         }

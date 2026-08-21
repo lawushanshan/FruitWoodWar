@@ -25,6 +25,7 @@ import { Node, Color, Sprite, UIOpacity, Label, UITransform, Size, Vec2 } from '
 import { ColorSpriteFactory, Shape } from './color-sprite-factory';
 import { NodePool } from './node-pool';
 import { setUniformScale } from './scale-helper';
+import { BUILDING_CONFIG } from '../config/building-config';
 import type { GameState, Side, UnitType, UnitState } from '../core/types';
 
 /** 实体颜色表（按阵营边） */
@@ -59,6 +60,20 @@ const OVERLAP_SPREAD: ReadonlyArray<[number, number]> = [
 /** 重叠量化粒度（px）：在此范围内视为同格 */
 const OVERLAP_GRID = 12;
 
+/** 单位兵种图标（叠加在形状上，帮助区分 15 个兵种） */
+const UNIT_ICONS: Record<UnitType, string> = {
+    tank: '🛡️',
+    ranged: '🏹',
+    aoe: '✨',
+    rush: '⚡',
+    siege: '🏰',
+};
+
+/** 血条颜色缓存（避免每帧 new Color 造成 GC 压力） */
+const HP_GREEN = new Color(90, 220, 90);
+const HP_YELLOW = new Color(235, 190, 70);
+const HP_RED = new Color(235, 80, 70);
+
 export class GameView {
 
     /** id → Node 映射 */
@@ -66,6 +81,9 @@ export class GameView {
     private buildingNodes: Map<string, Node> = new Map();
     private towerNodes: Map<string, Node> = new Map();
     private unitNodes: Map<string, Node> = new Map();
+
+    /** id → 当前渲染的重叠偏移（对目标偏移做指数平滑，消除量化边界跳变） */
+    private unitOffsets: Map<string, { x: number; y: number }> = new Map();
 
     /** 对象池 */
     private pool: NodePool = new NodePool();
@@ -78,8 +96,8 @@ export class GameView {
         this.spriteFactory = spriteFactory;
     }
 
-    /** 每帧调用：从 GameState 同步所有实体的视觉 */
-    sync(state: GameState) {
+    /** 每帧调用：从 GameState 同步所有实体的视觉（dt 用于单位偏移平滑） */
+    sync(state: GameState, dt: number = 1 / 60) {
         // 水晶
         this.syncCrystals(state);
         // 建筑（含学院/光环塔）
@@ -87,7 +105,7 @@ export class GameView {
         // 塔（基地塔）
         this.syncTowers(state);
         // 单位（按兵种形状）
-        this.syncUnits(state);
+        this.syncUnits(state, dt);
     }
 
     /** 销毁所有节点（重新开局时调用） */
@@ -96,7 +114,23 @@ export class GameView {
         this.clearMap(this.buildingNodes, 'building');
         this.clearMap(this.towerNodes, 'tower');
         this.clearMap(this.unitNodes, 'unit');
+        this.unitOffsets.clear();
         this.pool.clearAll();
+    }
+
+    /** 在节点中心叠加 emoji 图标（建筑/塔用） */
+    private addCenterIcon(parent: Node, icon: string, fontSize: number) {
+        const node = new Node('Icon');
+        node.layer = parent.layer;
+        node.parent = parent;
+        const ut = node.addComponent(UITransform);
+        ut.contentSize = new Size(24, 18);
+        ut.anchorPoint = new Vec2(0.5, 0.5);
+        const label = node.addComponent(Label);
+        label.string = icon;
+        label.fontSize = fontSize;
+        label.lineHeight = fontSize;
+        node.setPosition(0, 0, 0);
     }
 
     // ==================== 各实体同步 ====================
@@ -139,6 +173,12 @@ export class GameView {
                     this.spriteFactory.createColorNode(colors[b.side], w, h, shape),
                 );
                 node.parent = this.container;
+                // 中心叠加建筑图标（🛡️🏹✨⚡🪨🎓，来自 building-config.icon）
+                if (b.unitType !== null) {
+                    this.addCenterIcon(node, BUILDING_CONFIG[b.unitType].icon, 16);
+                } else if (b.kind === 'academy') {
+                    this.addCenterIcon(node, '🎓', 16);
+                }
                 // 工厂挂星标子节点（Lv2 ★ / Lv3 ★★）
                 if (b.kind !== 'academy') {
                     const badge = new Node('StarBadge');
@@ -185,6 +225,9 @@ export class GameView {
                     this.spriteFactory.createColorNode(colors[t.side], w, h, shape),
                 );
                 node.parent = this.container;
+                if (t.kind === 'aura') {
+                    this.addCenterIcon(node, '💠', 14);
+                }
                 this.towerNodes.set(t.id, node);
             }
             node.setPosition(t.x, t.y, 0);
@@ -192,7 +235,7 @@ export class GameView {
         this.cleanupDead(aliveIds, this.towerNodes, 'tower');
     }
 
-    private syncUnits(state: GameState) {
+    private syncUnits(state: GameState, dt: number) {
         const aliveIds = new Set<string>();
 
         // 第一遍：统计同格单位数量（重叠判定）
@@ -202,7 +245,10 @@ export class GameView {
             gridCount.set(key, (gridCount.get(key) ?? 0) + 1);
         }
 
-        // 第二遍：按同格内序号错开渲染
+        // 平滑系数：帧率无关的指数趋近（约 8 帧收敛 90%）
+        const smooth = 1 - Math.pow(0.001, dt);
+
+        // 第二遍：按同格内序号错开渲染（偏移做平滑，消除量化边界跳变导致的卡顿感）
         const gridIndex = new Map<string, number>();
         for (const u of state.units) {
             aliveIds.add(u.id);
@@ -214,17 +260,30 @@ export class GameView {
                     this.spriteFactory.createColorNode(colors[u.side], spec.w, spec.h, spec.shape),
                 );
                 node.parent = this.container;
+                this.addUnitIcon(node, u.type);
                 this.addHpBar(node);
                 this.addStatusBadge(node);
                 this.unitNodes.set(u.id, node);
             }
 
-            // 重叠散开：同格内多个单位按固定序列偏移视觉位置
+            // 重叠散开：同格内多个单位按固定序列偏移视觉位置；偏移经指数平滑，
+            // 单位跨过量化格边界或桶内顺序变化时不再产生位置跳变
             const key = `${Math.round(u.x / OVERLAP_GRID)},${Math.round(u.y / OVERLAP_GRID)}`;
             const idx = gridIndex.get(key) ?? 0;
             gridIndex.set(key, idx + 1);
-            const off = (gridCount.get(key) ?? 1) > 1 ? OVERLAP_SPREAD[idx % OVERLAP_SPREAD.length] : [0, 0];
-            node.setPosition(u.x + off[0], u.y + off[1], 0);
+            const target = (gridCount.get(key) ?? 1) > 1 ? OVERLAP_SPREAD[idx % OVERLAP_SPREAD.length] : [0, 0];
+
+            let so = this.unitOffsets.get(u.id);
+            if (!so) {
+                so = { x: target[0], y: target[1] };
+                this.unitOffsets.set(u.id, so);
+            } else {
+                so.x += (target[0] - so.x) * smooth;
+                so.y += (target[1] - so.y) * smooth;
+            }
+
+            // 渲染位置 = 逻辑位置（零延迟跟随）+ 平滑后的散开偏移
+            node.setPosition(u.x + so.x, u.y + so.y, 0);
 
             // 精英等级用缩放表示
             const levelScale = u.level === 1 ? 1 : u.level === 2 ? 1.2 : 1.4;
@@ -233,7 +292,27 @@ export class GameView {
             this.updateHpBar(node, u);
             this.updateStatusBadge(node, u);
         }
+
+        // 清理死亡单位的偏移记录
+        for (const id of this.unitOffsets.keys()) {
+            if (!aliveIds.has(id)) this.unitOffsets.delete(id);
+        }
         this.cleanupDead(aliveIds, this.unitNodes, 'unit');
+    }
+
+    /** 给单位节点中心叠加兵种 emoji 图标 */
+    private addUnitIcon(unitNode: Node, type: UnitType) {
+        const icon = new Node('TypeIcon');
+        icon.layer = unitNode.layer;
+        icon.parent = unitNode;
+        const ut = icon.addComponent(UITransform);
+        ut.contentSize = new Size(20, 12);
+        ut.anchorPoint = new Vec2(0.5, 0.5);
+        const label = icon.addComponent(Label);
+        label.string = UNIT_ICONS[type];
+        label.fontSize = 10;
+        label.lineHeight = 10;
+        icon.setPosition(0, 0, 0);
     }
 
     // ==================== 单位附属 UI（血条 / 状态图标） ====================
@@ -275,7 +354,7 @@ export class GameView {
         fill.setScale(ratio, 1, 1);
         const sp = fill.getComponent(Sprite);
         if (sp) {
-            sp.color = ratio > 0.5 ? new Color(90, 220, 90) : ratio > 0.25 ? new Color(235, 190, 70) : new Color(235, 80, 70);
+            sp.color = ratio > 0.5 ? HP_GREEN : ratio > 0.25 ? HP_YELLOW : HP_RED;
         }
     }
 
