@@ -30,6 +30,15 @@ export type Phase = 'idle' | 'playing' | 'card-pause' | 'ended';
 
 // ==================== 通用结构 ====================
 
+/**
+ * 战斗表现事件（由 combat-system 结算产生，供表现层消费）。
+ * 不写入 GameState（避免影响确定性序列化），而是经 GameEngine.drainFx() 一次性读取并清空。
+ */
+export type FxEvent =
+    | { type: 'hit'; x: number; y: number; side: Side }
+    | { type: 'aoe'; x: number; y: number; radius: number; side: Side }
+    | { type: 'tower'; x: number; y: number; radius: number; side: Side };
+
 /** 平面坐标（像素） */
 export interface Position {
     x: number;

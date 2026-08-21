@@ -19,6 +19,7 @@ import { syncAcademyLevel } from './building-system';
 import type {
     BuildingState,
     CrystalState,
+    FxEvent,
     GameState,
     Side,
     TowerState,
@@ -98,12 +99,12 @@ export function effectiveSpeedMult(state: GameState, side: Side): number {
 // ==================== 战斗推进 ====================
 
 /** 推进所有单位与防御塔的战斗行为 */
-export function stepCombat(state: GameState, dt: number, random: RandomSource): void {
+export function stepCombat(state: GameState, dt: number, random: RandomSource, fx: FxEvent[] = []): void {
     for (const u of state.units) {
-        updateUnit(state, u, dt, random);
+        updateUnit(state, u, dt, random, fx);
     }
     for (const t of state.towers) {
-        updateTower(state, t, dt);
+        updateTower(state, t, dt, fx);
     }
 }
 
@@ -138,7 +139,7 @@ function targetKindOf(t: AttackTarget): TargetKind {
 }
 
 /** 更新单个单位：流血、控制、索敌、移动、攻击 */
-function updateUnit(state: GameState, u: UnitState, dt: number, random: RandomSource): void {
+function updateUnit(state: GameState, u: UnitState, dt: number, random: RandomSource, fx: FxEvent[]): void {
     if (u.hp <= 0) return;
 
     // 流血（利爪撕裂）
@@ -167,7 +168,7 @@ function updateUnit(state: GameState, u: UnitState, dt: number, random: RandomSo
         const dist = Math.sqrt(dx * dx + dy * dy);
         if (dist <= u.range) {
             if (u.atkCd <= 0) {
-                attack(state, u, target, random);
+                attack(state, u, target, random, fx);
                 u.atkCd = 1 / (u.atkSpeed * effectiveAttackSpeedMult(state, u.side, u.x, u.y));
             }
         } else {
@@ -281,7 +282,7 @@ function findTarget(state: GameState, u: UnitState): AttackTarget | null {
 }
 
 /** 单位攻击结算：首击、暴击、处决、克制/攻城/水晶倍率、护盾、减伤、反伤、流血、溅射、赏金 */
-function attack(state: GameState, attacker: UnitState, target: AttackTarget, random: RandomSource): void {
+function attack(state: GameState, attacker: UnitState, target: AttackTarget, random: RandomSource, fx: FxEvent[]): void {
     const kind = targetKindOf(target);
     const hpBefore = target.hp;
     const atkBuff = effectiveAtkMult(state, attacker.side);
@@ -324,6 +325,11 @@ function attack(state: GameState, attacker: UnitState, target: AttackTarget, ran
     target.hp -= dmg;
     if (target.hp < 0) target.hp = 0;
 
+    // 命中表现事件（仅单位目标产生"hit"，建筑/塔/水晶另有专属表现）
+    if (unitTarget && dmg > 0) {
+        fx.push({ type: 'hit', x: target.x, y: target.y, side: target.side });
+    }
+
     // 反伤（荆棘之甲）：防御方单位把受到伤害的一部分反弹给攻击者
     if (kind === 'unit' && dmg > 0 && state.buffs[target.side].thorn > 0) {
         attacker.hp -= dmg * state.buffs[target.side].thorn;
@@ -346,6 +352,8 @@ function attack(state: GameState, attacker: UnitState, target: AttackTarget, ran
                 e.hp -= splashDmg;
             }
         }
+        // 范围溅射表现事件（画一个半径环）
+        fx.push({ type: 'aoe', x: target.x, y: target.y, radius: uConf.splashRadius, side: target.side });
     }
 
     // 卡牌"果弹飞溅"额外溅射
@@ -381,7 +389,7 @@ function attack(state: GameState, attacker: UnitState, target: AttackTarget, ran
  * - 基地塔：攻 80 / 攻速 1.2 / 射程 360，主目标全额 + 40% 溅射（半径 80px）
  * - 光环塔：攻 40 / 攻速 0.8 / 射程 280，主目标全额 + 30% 溅射（半径 70px）
  */
-function updateTower(state: GameState, t: TowerState, dt: number): void {
+function updateTower(state: GameState, t: TowerState, dt: number, fx: FxEvent[]): void {
     if (t.atkCd > 0) {
         t.atkCd -= dt;
         return;
@@ -411,6 +419,8 @@ function updateTower(state: GameState, t: TowerState, dt: number): void {
             }
         }
         t.atkCd = 1 / t.atkSpeed;
+        // 塔的范围攻击表现事件
+        fx.push({ type: 'tower', x: target.x, y: target.y, radius: splashConf.splashRadius, side: t.side });
         if (hpBefore > 0 && target.hp <= 0) {
             state.stats.kills[t.side]++;
             // 塔击杀同样发放击杀赏金（含精英倍率）

@@ -265,6 +265,7 @@ export class GameManager extends Component {
 
         if (phase === 'playing') {
             this.detectEffects();
+            this.consumeFx();
             this.detectTutorial();
             this.gameView.sync(this.engine.state);
             this.hudView.update(this.engine.state);
@@ -273,6 +274,19 @@ export class GameManager extends Component {
             this.battleEffects.update(dt);
             this.tutorial.update(dt);
             this.panels.refreshUpgrade(this.engine.state);
+        }
+    }
+
+    /** 消费引擎结算出的战斗表现事件，路由到对应特效 */
+    private consumeFx() {
+        const fx = this.engine.drainFx();
+        if (fx.length === 0) return;
+        for (const e of fx) {
+            if (e.type === 'hit') {
+                this.battleEffects.playImpact(e.x, e.y, e.side);
+            } else if (e.type === 'aoe' || e.type === 'tower') {
+                this.battleEffects.playRangeEffect(e.x, e.y, e.radius, e.side);
+            }
         }
     }
 

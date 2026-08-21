@@ -3,10 +3,11 @@
  *
  * 职责：
  *  - 出兵表现：工厂闪烁/脉冲
- *  - 攻击表现：攻击者闪光
+ *  - 攻击表现：攻击者闪光 + 命中爆发 + 范围溅射环 + 粒子
  *  - 水晶受击：震动 + 闪烁
- *  - 建筑被毁：爆炸扩散效果
+ *  - 建筑被毁：爆炸扩散效果 + 碎片
  *  - 所有效果使用对象池，不频繁创建/销毁节点
+ *  - 全局上限判定：活跃效果数量超限时丢弃新效果，防止性能雪崩
  *
  * 设计规范（来自 01-玩法设计总纲 §全龄化）：
  *  - "出兵、攻击、死亡弹飞、伤害跳字和水晶受击表现"
@@ -24,16 +25,21 @@ interface EffectInstance {
     elapsed: number;
     duration: number;
     /** 效果类型 */
-    type: 'spawn_pulse' | 'attack_flash' | 'crystal_shake' | 'building_explode';
+    type: 'spawn_pulse' | 'attack_flash' | 'crystal_shake' | 'building_explode' | 'impact_ring' | 'range_ring' | 'particle';
     /** 起始位置 */
     startX: number;
     startY: number;
-    /** 原始缩放（用于恢复） */
+    /** 原始缩放（用于恢复/基准） */
     origScale: number;
-    /** 弹射方向偏移（爆炸碎片专用） */
+    /** 弹射方向偏移（碎片/粒子专用） */
     dx: number;
     dy: number;
 }
+
+/** 活跃效果总数上限：超过则丢弃新效果（上限判定，保护低端设备帧率） */
+const MAX_ACTIVE_EFFECTS = 220;
+/** 单次爆发的粒子数量上限 */
+const MAX_PARTICLES_PER_BURST = 6;
 
 export class BattleEffects {
 
@@ -61,7 +67,7 @@ export class BattleEffects {
         const opacity = node.getComponent(UIOpacity);
         if (opacity) opacity.opacity = 200;
 
-        this.active.push({
+        this.push({
             node, elapsed: 0, duration: 0.3,
             type: 'spawn_pulse', startX: x, startY: y, origScale: 0.5,
             dx: 0, dy: 0,
@@ -80,9 +86,54 @@ export class BattleEffects {
         const opacity = node.getComponent(UIOpacity);
         if (opacity) opacity.opacity = 255;
 
-        this.active.push({
+        this.push({
             node, elapsed: 0, duration: 0.15,
             type: 'attack_flash', startX: x, startY: y, origScale: 1,
+            dx: 0, dy: 0,
+        });
+    }
+
+    /** 命中表现：目标位置小爆发（冲击环 + 少量粒子） */
+    playImpact(x: number, y: number, side: 'red' | 'blue') {
+        const color = side === 'red' ? new Color(255, 90, 90, 200) : new Color(90, 140, 255, 200);
+        const ring = this.pool.acquire('impact', () =>
+            this.spriteFactory.createColorNode(color, 30, 30, 'circle'),
+        );
+        ring.parent = this.container;
+        ring.setPosition(x, y, 0);
+        ring.active = true;
+        setUniformScale(ring, 0.3);
+        const opacity = ring.getComponent(UIOpacity);
+        if (opacity) opacity.opacity = 200;
+
+        this.push({
+            node: ring, elapsed: 0, duration: 0.25,
+            type: 'impact_ring', startX: x, startY: y, origScale: 0.3,
+            dx: 0, dy: 0,
+        });
+
+        // 少量粒子飞散（上限判定：受 MAX_ACTIVE_EFFECTS 约束）
+        this.spawnParticles(x, y, color, 3);
+    }
+
+    /** 范围溅射表现：以目标为圆心的扩散环（AOE / 防御塔溅射） */
+    playRangeEffect(x: number, y: number, radius: number, side: 'red' | 'blue') {
+        const color = side === 'red' ? new Color(255, 160, 90, 170) : new Color(90, 180, 255, 170);
+        const node = this.pool.acquire('range', () =>
+            this.spriteFactory.createColorNode(color, 40, 40, 'circle'),
+        );
+        node.parent = this.container;
+        node.setPosition(x, y, 0);
+        node.active = true;
+        setUniformScale(node, 0.4);
+        const opacity = node.getComponent(UIOpacity);
+        if (opacity) opacity.opacity = 180;
+
+        // 目标缩放 = radius / 基准 40px
+        this.push({
+            node, elapsed: 0, duration: 0.35,
+            type: 'range_ring', startX: x, startY: y,
+            origScale: radius / 40,
             dx: 0, dy: 0,
         });
     }
@@ -100,7 +151,7 @@ export class BattleEffects {
         const opacity = node.getComponent(UIOpacity);
         if (opacity) opacity.opacity = 200;
 
-        this.active.push({
+        this.push({
             node, elapsed: 0, duration: 0.4,
             type: 'crystal_shake', startX: x, startY: y, origScale: 1,
             dx: 0, dy: 0,
@@ -120,10 +171,10 @@ export class BattleEffects {
         const opacity = node.getComponent(UIOpacity);
         if (opacity) opacity.opacity = 220;
 
-        this.active.push({
+        this.push({
             node, elapsed: 0, duration: 0.5,
             type: 'building_explode', startX: x, startY: y, origScale: 0.3,
-            dx: 0, dy: 0, // 主爆炸圈不弹射
+            dx: 0, dy: 0,
         });
 
         // 碎片粒子（4 个小方块向四周飞散）
@@ -139,7 +190,7 @@ export class BattleEffects {
             const dOpacity = debris.getComponent(UIOpacity);
             if (dOpacity) dOpacity.opacity = 255;
 
-            this.active.push({
+            this.push({
                 node: debris, elapsed: 0, duration: 0.4,
                 type: 'building_explode',
                 startX: x + Math.cos(angle) * 5,
@@ -177,7 +228,41 @@ export class BattleEffects {
         this.pool.clearAll();
     }
 
-    // ==================== 内部动画 ====================
+    // ==================== 内部 ====================
+
+    /** 推入活跃效果（带全局上限判定：超限直接丢弃，不创建新节点） */
+    private push(fx: EffectInstance) {
+        if (this.active.length >= MAX_ACTIVE_EFFECTS) {
+            this.pool.release(fx.node, this.getPoolKey(fx.type));
+            return;
+        }
+        this.active.push(fx);
+    }
+
+    /** 生成一簇粒子（每个粒子受全局上限约束） */
+    private spawnParticles(x: number, y: number, color: Color, count: number) {
+        const n = Math.min(count, MAX_PARTICLES_PER_BURST);
+        for (let i = 0; i < n; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const speed = 30 + Math.random() * 60;
+            const particle = this.pool.acquire('particle', () =>
+                this.spriteFactory.createColorNode(color, 6, 6, 'rect'),
+            );
+            particle.parent = this.container;
+            particle.setPosition(x, y, 0);
+            particle.active = true;
+            setUniformScale(particle, 1);
+            const opacity = particle.getComponent(UIOpacity);
+            if (opacity) opacity.opacity = 255;
+
+            this.push({
+                node: particle, elapsed: 0, duration: 0.4,
+                type: 'particle', startX: x, startY: y, origScale: 1,
+                dx: Math.cos(angle) * speed,
+                dy: Math.sin(angle) * speed,
+            });
+        }
+    }
 
     private animateEffect(fx: EffectInstance, progress: number) {
         const node = fx.node;
@@ -196,13 +281,37 @@ export class BattleEffects {
                 if (opacity) opacity.opacity = Math.floor(255 * (1 - progress));
                 break;
 
-            case 'crystal_shake':
+            case 'impact_ring':
+                // 命中：快速放大 + 淡出
+                setUniformScale(node, fx.origScale + progress * 1.4);
+                if (opacity) opacity.opacity = Math.floor(200 * (1 - progress));
+                break;
+
+            case 'range_ring':
+                // 范围溅射：从 0.4 放大到 radius/40，淡出
+                setUniformScale(node, 0.4 + (fx.origScale - 0.4) * progress);
+                if (opacity) opacity.opacity = Math.floor(180 * (1 - progress));
+                break;
+
+            case 'particle':
+                // 粒子：飞散 + 缩小 + 淡出
+                node.setPosition(
+                    fx.startX + fx.dx * progress,
+                    fx.startY + fx.dy * progress,
+                    0,
+                );
+                setUniformScale(node, 1 - progress * 0.8);
+                if (opacity) opacity.opacity = Math.floor(255 * (1 - progress));
+                break;
+
+            case 'crystal_shake': {
                 // 左右震动 + 淡出
                 const shakeX = Math.sin(progress * Math.PI * 6) * 8 * (1 - progress);
                 node.setPosition(fx.startX + shakeX, fx.startY, 0);
                 setUniformScale(node, 1 + Math.sin(progress * Math.PI) * 0.15);
                 if (opacity) opacity.opacity = Math.floor(200 * (1 - progress));
                 break;
+            }
 
             case 'building_explode':
                 // 主圈：放大 + 淡出；碎片：飞散 + 缩小 + 淡出（按 dx/dy 区分）
@@ -231,6 +340,9 @@ export class BattleEffects {
             case 'attack_flash': return 'attack';
             case 'crystal_shake': return 'crystal_hit';
             case 'building_explode': return 'explode';
+            case 'impact_ring': return 'impact';
+            case 'range_ring': return 'range';
+            case 'particle': return 'particle';
         }
     }
 }

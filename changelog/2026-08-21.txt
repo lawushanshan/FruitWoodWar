@@ -87,3 +87,21 @@ v1.0.0 调参之前（fruit 0.78/0.9、wood 1.35/0.5），与文档冻结值分�
 convertToNodeSpaceAR 的空间不一致 → 点击位置整体偏移 → 明明点在己方格点上
 却被判定"请在己方建造区网格内放置"。
 修复：onGameTouch / onGameTouchMove 两处改用 event.getUILocation()。
+
+二十三、单位战斗表现增强（v1.3.0）：血条 / 攻击范围特效 / 重叠散开 / 状态图标
+--------
+① 单位血条：每个单位挂 HpBar（背景+填充条），满血隐藏、受损显示并按比例
+   缩短，颜色随血量绿→黄→红；对象池复用，不反复创建节点。
+② 攻击与范围特效 + 粒子 + 上限判定：
+   - core 新增 FxEvent（hit/aoe/tower），由 combat-system 在结算命中/溅射/塔
+     攻击时产出，经 GameEngine.drainFx() 读取清空（不写入 GameState，确定性
+     序列化不受影响）
+   - BattleEffects 新增 playImpact（目标命中爆发+粒子）、playRangeEffect
+     （AOE/塔溅射扩散环）；全局 MAX_ACTIVE_EFFECTS=220 上限判定，超限丢弃
+     新效果；单次粒子爆发上限 6
+③ 单位重叠处理：syncUnits 按 12px 量化同格，同格内多个单位按固定序列错开
+   渲染（逻辑位置不变），解决堆叠成一团的问题。
+④ 单位临时 UI/图标：单位挂 StatusBadge，精英星标（★/★★）+ 临时状态图标
+   （定身💫 / 减速🐌）实时显示。
+测试：新增 tests/fx-events.test.ts（hit/aoe/tower 事件 + 不入 state 序列化），
+94 条测试通过，tsc 干净。

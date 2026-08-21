@@ -20,11 +20,16 @@ import { triggerCardChoiceIfDue, chooseCard, stepTempBuffs } from './systems/car
 import { aiDecide, evaluateComeback, snapshotPlayerComposition } from './systems/ai-system';
 import { tryBuild, tryResearch, tryUpgrade } from './systems/building-system';
 import { stepVictory } from './systems/victory-system';
-import type { CommandResult, GameCommand, GameState, Side, StartOptions } from './types';
+import type { CommandResult, FxEvent, GameCommand, GameState, Side, StartOptions } from './types';
+
+/** 表现事件队列上限：超过则丢弃最旧的，防止极端情况下队列无限增长 */
+const MAX_FX_QUEUE = 1000;
 
 export class GameEngine {
     private _state: GameState;
     readonly random: RandomSource;
+    /** 待表现层消费的战斗事件队列（不进 GameState，避免污染确定性序列化） */
+    private _fxQueue: FxEvent[] = [];
 
     constructor(random: RandomSource = new MathRandomSource()) {
         this.random = random;
@@ -41,6 +46,15 @@ export class GameEngine {
     reset(options: StartOptions): void {
         this._state = createInitialState(options);
         this._state.phase = 'playing';
+        this._fxQueue.length = 0;
+    }
+
+    /** 读取并清空本帧累计的战斗表现事件（表现层每帧调用） */
+    drainFx(): FxEvent[] {
+        if (this._fxQueue.length === 0) return [];
+        const out = this._fxQueue;
+        this._fxQueue = [];
+        return out;
     }
 
     /** 推进一帧（仅在 playing 阶段生效） */
@@ -65,7 +79,12 @@ export class GameEngine {
         stepSpawners(s, dt, this.random);
 
         // 4. 战斗（单位 + 防御塔）
-        stepCombat(s, dt, this.random);
+        const fx: FxEvent[] = [];
+        stepCombat(s, dt, this.random, fx);
+        if (fx.length > 0) {
+            for (const e of fx) this._fxQueue.push(e);
+            while (this._fxQueue.length > MAX_FX_QUEUE) this._fxQueue.shift();
+        }
 
         // 5. 死亡清理（含死亡爆炸结算）
         cleanupDead(s);

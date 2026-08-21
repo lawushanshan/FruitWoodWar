@@ -21,11 +21,11 @@
  *  - 攻城：矩形 22×14
  */
 
-import { Node, Color, Sprite, UIOpacity, Label, UITransform, Size } from 'cc';
+import { Node, Color, Sprite, UIOpacity, Label, UITransform, Size, Vec2 } from 'cc';
 import { ColorSpriteFactory, Shape } from './color-sprite-factory';
 import { NodePool } from './node-pool';
 import { setUniformScale } from './scale-helper';
-import type { GameState, Side, UnitType } from '../core/types';
+import type { GameState, Side, UnitType, UnitState } from '../core/types';
 
 /** 实体颜色表（按阵营边） */
 const ENTITY_COLORS: Record<string, { red: Color; blue: Color }> = {
@@ -45,6 +45,19 @@ const UNIT_SHAPES: Record<UnitType, { shape: Shape; w: number; h: number }> = {
     rush: { shape: 'triangle', w: 18, h: 18 },
     siege: { shape: 'rect', w: 22, h: 14 },
 };
+
+/**
+ * 重叠散开偏移（v1.3.0）：同格堆叠的单位按此序列错开渲染，
+ * 逻辑位置不变，只改视觉位置，解决"多个单位叠成一个点"的问题。
+ */
+const OVERLAP_SPREAD: ReadonlyArray<[number, number]> = [
+    [0, 0], [7, 0], [-7, 0], [0, 7], [0, -7],
+    [7, 7], [-7, 7], [7, -7], [-7, -7],
+    [4, 4], [-4, -4], [4, -4], [-4, 4],
+];
+
+/** 重叠量化粒度（px）：在此范围内视为同格 */
+const OVERLAP_GRID = 12;
 
 export class GameView {
 
@@ -181,6 +194,16 @@ export class GameView {
 
     private syncUnits(state: GameState) {
         const aliveIds = new Set<string>();
+
+        // 第一遍：统计同格单位数量（重叠判定）
+        const gridCount = new Map<string, number>();
+        for (const u of state.units) {
+            const key = `${Math.round(u.x / OVERLAP_GRID)},${Math.round(u.y / OVERLAP_GRID)}`;
+            gridCount.set(key, (gridCount.get(key) ?? 0) + 1);
+        }
+
+        // 第二遍：按同格内序号错开渲染
+        const gridIndex = new Map<string, number>();
         for (const u of state.units) {
             aliveIds.add(u.id);
             let node = this.unitNodes.get(u.id);
@@ -191,14 +214,102 @@ export class GameView {
                     this.spriteFactory.createColorNode(colors[u.side], spec.w, spec.h, spec.shape),
                 );
                 node.parent = this.container;
+                this.addHpBar(node);
+                this.addStatusBadge(node);
                 this.unitNodes.set(u.id, node);
             }
-            node.setPosition(u.x, u.y, 0);
+
+            // 重叠散开：同格内多个单位按固定序列偏移视觉位置
+            const key = `${Math.round(u.x / OVERLAP_GRID)},${Math.round(u.y / OVERLAP_GRID)}`;
+            const idx = gridIndex.get(key) ?? 0;
+            gridIndex.set(key, idx + 1);
+            const off = (gridCount.get(key) ?? 1) > 1 ? OVERLAP_SPREAD[idx % OVERLAP_SPREAD.length] : [0, 0];
+            node.setPosition(u.x + off[0], u.y + off[1], 0);
+
             // 精英等级用缩放表示
             const levelScale = u.level === 1 ? 1 : u.level === 2 ? 1.2 : 1.4;
             setUniformScale(node, levelScale);
+
+            this.updateHpBar(node, u);
+            this.updateStatusBadge(node, u);
         }
         this.cleanupDead(aliveIds, this.unitNodes, 'unit');
+    }
+
+    // ==================== 单位附属 UI（血条 / 状态图标） ====================
+
+    /** 给单位节点挂血条子节点（创建时调用一次） */
+    private addHpBar(unitNode: Node) {
+        const bar = new Node('HpBar');
+        bar.layer = unitNode.layer;
+        bar.parent = unitNode;
+        const barUt = bar.addComponent(UITransform);
+        barUt.contentSize = new Size(22, 3);
+        barUt.anchorPoint = new Vec2(0.5, 0.5);
+        bar.setPosition(0, 15, 0);
+
+        const bg = this.spriteFactory.createColorNode(new Color(20, 20, 20, 200), 22, 3);
+        bg.name = 'HpBg';
+        bg.parent = bar;
+
+        const fill = this.spriteFactory.createColorNode(new Color(90, 220, 90), 22, 3);
+        fill.name = 'HpFill';
+        fill.parent = bar;
+        // 填充条锚定左缘，缩放时从右向左缩短
+        const fillUt = fill.getComponent(UITransform);
+        fillUt.anchorPoint = new Vec2(0, 0.5);
+        fill.setPosition(-11, 0, 0);
+    }
+
+    /** 每帧更新血条：满血隐藏，受损时按比例缩短并变色 */
+    private updateHpBar(unitNode: Node, u: UnitState) {
+        const bar = unitNode.getChildByName('HpBar');
+        if (!bar) return;
+        const damaged = u.hp < u.maxHp;
+        bar.active = damaged;
+        if (!damaged) return;
+
+        const fill = bar.getChildByName('HpFill');
+        if (!fill) return;
+        const ratio = Math.max(0, Math.min(1, u.hp / u.maxHp));
+        fill.setScale(ratio, 1, 1);
+        const sp = fill.getComponent(Sprite);
+        if (sp) {
+            sp.color = ratio > 0.5 ? new Color(90, 220, 90) : ratio > 0.25 ? new Color(235, 190, 70) : new Color(235, 80, 70);
+        }
+    }
+
+    /** 给单位节点挂状态图标子节点（创建时调用一次） */
+    private addStatusBadge(unitNode: Node) {
+        const badge = new Node('StatusBadge');
+        badge.layer = unitNode.layer;
+        badge.parent = unitNode;
+        const ut = badge.addComponent(UITransform);
+        ut.contentSize = new Size(30, 14);
+        ut.anchorPoint = new Vec2(0.5, 0.5);
+        const label = badge.addComponent(Label);
+        label.string = '';
+        label.fontSize = 11;
+        label.color = new Color(255, 235, 160);
+        label.lineHeight = 12;
+        badge.setPosition(0, 25, 0);
+        badge.active = false;
+    }
+
+    /** 每帧更新状态图标：精英星标 / 减速 / 定身等临时 UI */
+    private updateStatusBadge(unitNode: Node, u: UnitState) {
+        const badge = unitNode.getChildByName('StatusBadge');
+        if (!badge) return;
+        const label = badge.getComponent(Label);
+        if (!label) return;
+
+        let text = '';
+        if (u.stunDur > 0) text += '💫';
+        else if (u.slowDur > 0) text += '🐌';
+        if (u.level === 2) text += '★';
+        else if (u.level === 3) text += '★★';
+        label.string = text;
+        badge.active = text.length > 0;
     }
 
     // ==================== 内部辅助 ====================
