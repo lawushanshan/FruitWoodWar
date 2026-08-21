@@ -1357,19 +1357,37 @@ export class GameManager extends Component {
         const f = this.selectedFactory;
         const level = f.level || 1;
         const stars = level >= 3 ? '★★' : level >= 2 ? '★' : '';
+        // 学院限制：Lv2→Lv3 需要战争学院 Lv1（面板提前显示，避免点了才提示）
+        const next = level < 3 ? FACTORY_UPGRADES[(level + 1) as 2 | 3] : null;
+        const academyRequired = next && next.requiresAcademyLevel > (this.G.academies?.red ?? 0);
         if (this.upgradeInfoLabel) {
             this.upgradeInfoLabel.string = BUILDING_TYPES[f.unitType as BuildingId].name
-                + ' Lv' + level + stars + (level >= 3 ? '（已满级）' : ' 点击工厂再点「升级」');
+                + ' Lv' + level + stars
+                + (level >= 3 ? '（已满级）' : academyRequired ? '（需战争学院 Lv1）' : ' 点击工厂再点「升级」');
         }
         if (this.upgradeCostLabel) {
             this.upgradeCostLabel.string = level >= 3
                 ? '已升至最高级，不再升级'
-                : 'Lv' + (level + 1) + '：出兵 ×' + FACTORY_UPGRADES[(level + 1) as 2 | 3].statMultiplier
-                    + '，血量 ×' + FACTORY_UPGRADES[(level + 1) as 2 | 3].healthMultiplier
-                    + '，花费 ' + FACTORY_UPGRADES[(level + 1) as 2 | 3].cost + ' 金';
+                : academyRequired
+                    ? '⚠ 需先建造「战争学院」才能升到 Lv' + (level + 1)
+                    : 'Lv' + (level + 1) + '：出兵 ×' + next!.statMultiplier
+                        + '，血量 ×' + next!.healthMultiplier
+                        + '，花费 ' + next!.cost + ' 金';
         }
-        // 顶级隐藏升级按钮（v0.4.4）
-        if (this.upgradeBtnNode) this.upgradeBtnNode.active = level < 3;
+        // 升级按钮：顶级隐藏；学院未达要求时禁用并置灰，达标恢复绿色
+        if (this.upgradeBtnNode) {
+            const btn = this.upgradeBtnNode;
+            btn.active = level < 3;
+            if (level < 3) {
+                // 每次面板刷新都同步按钮颜色：绿=可升，灰=需学院
+                const targetColor = academyRequired ? new Color(70, 80, 92) : new Color(63, 109, 51);
+                btn.getComponentsInChildren(Sprite).forEach((sp: any) => {
+                    if (sp.node !== btn && sp.node.getComponent(Label) === null) {
+                        sp.color = targetColor;
+                    }
+                });
+            }
+        }
         this.upgradePanel.active = true;
     }
 
