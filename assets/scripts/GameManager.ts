@@ -133,6 +133,7 @@ export class GameManager extends Component {
     private upgradeInfoLabel: Label | null = null;
     private upgradeCostLabel: Label | null = null;
     private upgradeBtnNode: Node | null = null;
+    private difficultyLabel: Label | null = null;
     // 建造拖拽预览（v0.5.0）：半透明建筑跟随指针，红绿反馈
     private buildPreviewNode: Node | null = null;
     private buildPreviewIcon: Label | null = null;
@@ -224,7 +225,8 @@ export class GameManager extends Component {
         const ROAD_HALF_Y = 45;
 
         // 己方建造区高亮底色（左侧半场，先画，主道/河会覆盖其上）
-        const zone = this.createColorNode(new Color(80, 140, 255, 22), 530, 660);
+        // 高度对齐 BUILD_GRID 最外行 ±250 + 半格余量 = ±280
+        const zone = this.createColorNode(new Color(80, 140, 255, 22), 530, 560);
         zone.name = 'BuildZone';
         zone.parent = this.gameContainer;
         zone.setPosition(-355, 0, 0);
@@ -271,12 +273,12 @@ export class GameManager extends Component {
             plank.setPosition(x, 0, 0);
         }
 
-        // 建造区边框（上下两条，主道隔开）
+        // 建造区边框（上下两条，主道隔开；±280 对齐网格最外行）
         const borderCol = new Color(120, 170, 255, 190);
-        const bt = this.createColorNode(borderCol, 530, 3); bt.parent = this.gameContainer; bt.setPosition(-355, 330, 0);
-        const bb = this.createColorNode(borderCol, 530, 3); bb.parent = this.gameContainer; bb.setPosition(-355, -330, 0);
-        const bl = this.createColorNode(borderCol, 3, 660); bl.parent = this.gameContainer; bl.setPosition(-620, 0, 0);
-        const br = this.createColorNode(borderCol, 3, 660); br.parent = this.gameContainer; br.setPosition(-90, 0, 0);
+        const bt = this.createColorNode(borderCol, 530, 3); bt.parent = this.gameContainer; bt.setPosition(-355, 280, 0);
+        const bb = this.createColorNode(borderCol, 530, 3); bb.parent = this.gameContainer; bb.setPosition(-355, -280, 0);
+        const bl = this.createColorNode(borderCol, 3, 560); bl.parent = this.gameContainer; bl.setPosition(-620, 0, 0);
+        const br = this.createColorNode(borderCol, 3, 560); br.parent = this.gameContainer; br.setPosition(-90, 0, 0);
         // 建造区标题
         const zTitle = new Node();
         zTitle.layer = this.uiLayer;
@@ -288,7 +290,7 @@ export class GameManager extends Component {
         ztLabel.fontSize = 14;
         ztLabel.color = new Color(159, 208, 255, 230);
         ztLabel.lineHeight = 18;
-        zTitle.setPosition(-355, 308, 0);
+        zTitle.setPosition(-355, 256, 0);
         this.buildZoneNode = zone;
 
         // 点击游戏区选择己方兵工厂（升级入口）
@@ -555,6 +557,7 @@ export class GameManager extends Component {
         dLabel.fontSize = 18;
         dLabel.color = Color.WHITE;
         diffLabel.setPosition(0, -80, 0);
+        this.difficultyLabel = dLabel;
 
         const diffBtn = new Node();
         diffBtn.layer = this.uiLayer;
@@ -969,9 +972,10 @@ export class GameManager extends Component {
         const diffs = ['easy', 'normal', 'hard'] as const;
         const idx = diffs.indexOf(this.selectedDifficulty);
         this.selectedDifficulty = diffs[(idx + 1) % 3];
-        // 更新难度显示
-        const diffNode = this.startPanel?.children.find(c => c.getComponent(Label));
-        // 简化：直接toast
+        // 更新难度标签文字
+        if (this.difficultyLabel) {
+            this.difficultyLabel.string = '难度：' + DIFFICULTIES[this.selectedDifficulty].name;
+        }
         this.showToast('难度：' + DIFFICULTIES[this.selectedDifficulty].name);
     }
 
@@ -1170,9 +1174,10 @@ export class GameManager extends Component {
             overlay.parent = this.gameContainer;
             for (const c of this.getGridCells()) {
                 const occupied = this.isCellOccupied(c.x, c.y);
+                // 宽 54（列距60-6），高 44（行距50-6），避免纵向相邻格视觉重叠
                 const cellNode = this.createColorNode(
                     occupied ? new Color(255, 90, 90, 70) : new Color(120, 200, 255, 40),
-                    BUILD_GRID.cellSize - 6, BUILD_GRID.cellSize - 6);
+                    BUILD_GRID.cellSize - 6, 44);
                 cellNode.parent = overlay;
                 cellNode.setPosition(c.x, c.y, 0);
             }
@@ -1194,7 +1199,7 @@ export class GameManager extends Component {
             const occupied = this.isCellOccupied(c.x, c.y);
             const sf = this.getColorSpriteFrame(
                 occupied ? new Color(255, 90, 90, 70) : new Color(120, 200, 255, 40),
-                BUILD_GRID.cellSize - 6, BUILD_GRID.cellSize - 6);
+                BUILD_GRID.cellSize - 6, 44);
             if (sf) sp.spriteFrame = sf;
         }
     }
@@ -2668,11 +2673,13 @@ export class GameManager extends Component {
                 break;
             }
             case 'bloom':
+                // 召唤 3 个树人（属性对标坦克、速度稍慢；spd 单位是像素/秒，此前误写 0.6 导致树人"卡住不动"）
                 for (let i = 0; i < 3; i++) {
                     this.G.units.push({
-                        kind: 'unit', side: 'red', type: 'tank',
+                        kind: 'unit', side: 'red', type: 'tank', level: 1,
                         x: -300 + Math.random() * 100, y: -50 + Math.random() * 60 - 30,
-                        hp: 200, maxHp: 200, atk: 15, spd: 0.6, range: 50, atkSpd: 0.8, atkCd: 0,
+                        hp: 300, maxHp: 300, atk: 15, spd: 48, range: 60, atkSpd: 0.8, atkCd: 0,
+                        hasStruck: false,
                     });
                 }
                 break;

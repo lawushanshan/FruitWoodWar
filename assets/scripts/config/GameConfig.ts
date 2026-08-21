@@ -135,10 +135,10 @@ export const BUILD_GRID = {
     columns: 9,
     /** 建造区 x 中心起点（最左列中心 x = gridOriginX） */
     gridOriginX: -570,
-    /** 上区行 y 坐标（4 行，避开主道 y>=100 起） */
-    topRows: [130, 190, 250, 310],
-    /** 下区行 y 坐标（4 行，对称） */
-    bottomRows: [-130, -190, -250, -310],
+    /** 上区行 y 坐标（4 行，避开主道；最外行 250+建筑半高20=270 < 顶栏底边 316，不被遮挡） */
+    topRows: [100, 150, 200, 250],
+    /** 下区行 y 坐标（4 行，对称；-250-20=-270 > 底栏顶边 -284，不被遮挡） */
+    bottomRows: [-100, -150, -200, -250],
     /** 生成全部格点坐标 */
     cells(): Array<{ x: number; y: number }> {
         const pts: Array<{ x: number; y: number }> = [];

@@ -40,7 +40,8 @@ describe('M2 systems configuration', () => {
 
     it('aura tower is limited to one per side with +15% attack speed', () => {
         expect(AURA_TOWER.cost).toBe(250);
-        expect(AURA_TOWER.health).toBe(800);
+        // v0.4.3：光环塔血量 800→1600，新增弱化版范围攻击（详见 02-数值设计表 §5）
+        expect(AURA_TOWER.health).toBe(1600);
         expect(AURA_TOWER.attackSpeedBonus).toBeCloseTo(0.15);
         expect(AURA_TOWER.limitPerSide).toBe(1);
         expect(BUILDING_TYPES.auraTower).toBeDefined();
@@ -48,8 +49,9 @@ describe('M2 systems configuration', () => {
     });
 
     it('base towers match the fixed defense tower stats', () => {
-        expect(BASE_TOWER.health).toBe(1000);
-        expect(BASE_TOWER.attack).toBe(65);
+        // v0.4：防御塔血量 1000→1500；攻击 65→80 并带 40% 溅射（详见 02-数值设计表 §5）
+        expect(BASE_TOWER.health).toBe(1500);
+        expect(BASE_TOWER.attack).toBe(80);
         expect(BASE_TOWER.attacksPerSecond).toBeCloseTo(1.2);
         expect(BASE_TOWER.rangePixels).toBe(360);
     });
