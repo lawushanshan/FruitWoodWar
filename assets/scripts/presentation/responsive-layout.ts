@@ -11,7 +11,7 @@
  * 适配策略：fitWidth + fitHeight（SHOW_ALL 模式，保持比例，可能有黑边）
  */
 
-import { view, visibleSize, screen } from 'cc';
+import { view, screen } from 'cc';
 
 /** 布局参数 */
 export interface LayoutParams {
@@ -61,7 +61,7 @@ export class ResponsiveLayout {
     /** 计算当前布局参数 */
     private computeLayout(): LayoutParams {
         const designSize = view.getDesignResolutionSize();
-        const visSize = visibleSize;
+        const visSize = view.getVisibleSize();
 
         const visibleWidth = visSize.width;
         const visibleHeight = visSize.height;

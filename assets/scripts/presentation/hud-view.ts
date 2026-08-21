@@ -9,7 +9,7 @@
  */
 
 import {
-    Node, Label, Color, UITransform, Size, Vec2, Button, EventHandler, view, visibleSize,
+    Node, Label, Color, UITransform, Size, Vec2, Button, EventHandler, view,
 } from 'cc';
 import { ColorSpriteFactory } from './color-sprite-factory';
 import { setUniformScale } from './scale-helper';
@@ -145,8 +145,8 @@ export class HudView {
      * - 超宽屏（> 21:9）：战场区域向两侧扩展
      */
     private checkResponsiveLayout() {
-        const visHeight = visibleSize.height;
-        const visWidth = visibleSize.width;
+        const visHeight = view.getVisibleSize().height;
+        const visWidth = view.getVisibleSize().width;
 
         // 只在尺寸变化时重新计算
         if (visHeight === this.lastVisibleHeight) return;
