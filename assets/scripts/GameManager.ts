@@ -131,6 +131,7 @@ export class GameManager extends Component {
     private upgradePanel: Node | null = null;
     private upgradeInfoLabel: Label | null = null;
     private upgradeCostLabel: Label | null = null;
+    private upgradeBtnNode: Node | null = null;
     private tutorialPanel: Node | null = null;
     private recordLabel: Label | null = null;
     private selectedFactory: any = null;
@@ -660,6 +661,7 @@ export class GameManager extends Component {
         ubLabel.color = Color.WHITE;
         ubLabel.lineHeight = 26;
         upBtn.setPosition(-90, -42, 0);
+        this.upgradeBtnNode = upBtn; // 顶级时隐藏（v0.4.4）
         const ubButton = upBtn.addComponent(Button);
         ubButton.transition = Button.Transition.SCALE;
         const ubHandler = new EventHandler();
@@ -1354,17 +1356,20 @@ export class GameManager extends Component {
         if (!this.upgradePanel || !this.selectedFactory) return;
         const f = this.selectedFactory;
         const level = f.level || 1;
+        const stars = level >= 3 ? '★★' : level >= 2 ? '★' : '';
         if (this.upgradeInfoLabel) {
             this.upgradeInfoLabel.string = BUILDING_TYPES[f.unitType as BuildingId].name
-                + ' Lv' + level + (level >= 3 ? '（已满级）' : ' 点击工厂再点「升级」');
+                + ' Lv' + level + stars + (level >= 3 ? '（已满级）' : ' 点击工厂再点「升级」');
         }
         if (this.upgradeCostLabel) {
             this.upgradeCostLabel.string = level >= 3
-                ? ''
+                ? '已升至最高级，不再升级'
                 : 'Lv' + (level + 1) + '：出兵 ×' + FACTORY_UPGRADES[(level + 1) as 2 | 3].statMultiplier
                     + '，血量 ×' + FACTORY_UPGRADES[(level + 1) as 2 | 3].healthMultiplier
                     + '，花费 ' + FACTORY_UPGRADES[(level + 1) as 2 | 3].cost + ' 金';
         }
+        // 顶级隐藏升级按钮（v0.4.4）
+        if (this.upgradeBtnNode) this.upgradeBtnNode.active = level < 3;
         this.upgradePanel.active = true;
     }
 
@@ -2677,6 +2682,17 @@ export class GameManager extends Component {
             node.parent = this.gameContainer;
             const bar = this.attachHpBar(node, 36);
             bar.setPosition(0, 30, 0);
+            // 升级星标（Lv2 ★ / Lv3 ★★，v0.4.4）
+            const badge = new Node('StarBadge');
+            badge.layer = this.uiLayer;
+            badge.parent = node;
+            const bUt = badge.addComponent(UITransform);
+            bUt.contentSize = new Size(22, 16);
+            const bLabel = badge.addComponent(Label);
+            bLabel.fontSize = 13;
+            bLabel.lineHeight = 16;
+            bLabel.color = new Color(255, 215, 60);
+            badge.active = false;
             this.G.buildingNodes.push(node);
         }
         while (this.G.buildingNodes.length > this.G.buildings.length) { const n = this.G.buildingNodes.pop()!; if (n.isValid) n.destroy(); }
@@ -2696,6 +2712,19 @@ export class GameManager extends Component {
             node.setPosition(b.x, b.y, 0);
             this.updateEmojiVisual(node, emoji, color, size);
             this.updateHpBar(node, b.hp, b.maxHp);
+            // 升级星标
+            const badge = node.getChildByName('StarBadge');
+            if (badge) {
+                const lvl = b.type === 'factory' ? (b.level || 1) : 1;
+                if (lvl > 1) {
+                    badge.active = true;
+                    const bLabel = badge.getComponent(Label);
+                    if (bLabel) bLabel.string = lvl >= 3 ? '★★' : '★';
+                    badge.setPosition(size * 0.42, size * 0.42, 0);
+                } else {
+                    badge.active = false;
+                }
+            }
         }
     }
 
