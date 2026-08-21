@@ -106,12 +106,15 @@ export const AURA_TOWER = {
     limitPerSide: 1,
 } as const;
 
-/** 基地防御塔（双方固定各 2 座，不可建造）：塔不倒不能打水晶 */
+/** 基地防御塔（双方固定各 2 座，不可建造）：塔不倒不能打水晶。
+ *  v0.4.2：范围攻击——主目标 80 伤 + 40% 溅射（半径 80px），防人海偷家。 */
 export const BASE_TOWER = {
     health: 1500,
-    attack: 65,
+    attack: 80,
     attacksPerSecond: 1.2,
     rangePixels: 360,
+    splashDamageFraction: 0.4,
+    splashRadiusPixels: 80,
 } as const;
 
 /** 卡牌稀有度出现权重（稀有高、史诗中、传说低） */

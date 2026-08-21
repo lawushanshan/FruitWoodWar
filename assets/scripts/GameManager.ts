@@ -2047,6 +2047,20 @@ export class GameManager extends Component {
             target.hp -= t.atk;
             if (target.hp < 0) target.hp = 0;
             this.spawnFloatText(target.x, target.y + 8, String(t.atk), new Color(255, 230, 200), 13);
+            // 范围攻击：对主目标周围敌人造成 40% 溅射（防人海偷家）
+            const splashFraction = BASE_TOWER.splashDamageFraction;
+            const splashRadius = BASE_TOWER.splashRadiusPixels;
+            if (splashFraction > 0 && splashRadius > 0) {
+                const splashDamage = t.atk * splashFraction;
+                for (const e of this.G.units.filter((u: any) => u.side !== t.side && u !== target)) {
+                    if (!isInRange(target, e, splashRadius)) continue;
+                    e.hp = Math.max(0, e.hp - splashDamage);
+                    this.spawnFloatText(e.x, e.y + 8, String(Math.round(splashDamage)), new Color(255, 200, 150), 12);
+                    if (e.hp <= 0) {
+                        this.awardKill(t.side, e);
+                    }
+                }
+            }
             t.atkCd = 1 / t.atkSpd;
             if (target.hp <= 0) {
                 this.awardKill(t.side, target);
