@@ -1258,9 +1258,12 @@ export class GameManager extends Component {
             kind: 'building', type: 'auraTower', side,
             x: px, y: py,
             hp: AURA_TOWER.health, maxHp: AURA_TOWER.health, baseHp: AURA_TOWER.health,
+            // 范围攻击参数（v0.4.3：光环塔也能防御）
+            range: AURA_TOWER.rangePixels, atk: AURA_TOWER.attack,
+            atkSpd: AURA_TOWER.attacksPerSecond, atkCd: 0,
         });
         this.G.auraBuilt[side] = true;
-        this.showToast('光环塔！全体己方单位攻速 +15%');
+        this.showToast('光环塔！全体己方单位攻速 +15%，可范围攻击');
         this.buildMode = null;
         this.setBuildZoneHighlight(false);
         this.refreshBuildBar();
@@ -1283,6 +1286,9 @@ export class GameManager extends Component {
             x: side === 'red' ? -420 + Math.random() * 60 : 420 - Math.random() * 60,
             y: -140 - Math.random() * 40,
             hp: AURA_TOWER.health, maxHp: AURA_TOWER.health, baseHp: AURA_TOWER.health,
+            // 范围攻击参数（v0.4.3：光环塔也能防御）
+            range: AURA_TOWER.rangePixels, atk: AURA_TOWER.attack,
+            atkSpd: AURA_TOWER.attacksPerSecond, atkCd: 0,
         });
         this.G.auraBuilt[side] = true;
         if (side === 'red') {
@@ -1576,6 +1582,10 @@ export class GameManager extends Component {
         this.updateProjectilesAndEffects(dt);
         // 更新塔
         for (const t of this.G.towers) this.updateTower(t, dt);
+        // 光环塔（玩家可建造）：范围攻击（v0.4.3）
+        for (const b of this.G.buildings) {
+            if (b.type === 'auraTower') this.updateAuraTower(b, dt);
+        }
 
         // 清理死亡（先发射全龄化消亡特效：兵变星星/果粒，建筑碎裂，无血腥）
         this.emitDeathEffects();
@@ -2050,6 +2060,40 @@ export class GameManager extends Component {
             // 范围攻击：对主目标周围敌人造成 40% 溅射（防人海偷家）
             const splashFraction = BASE_TOWER.splashDamageFraction;
             const splashRadius = BASE_TOWER.splashRadiusPixels;
+            if (splashFraction > 0 && splashRadius > 0) {
+                const splashDamage = t.atk * splashFraction;
+                for (const e of this.G.units.filter((u: any) => u.side !== t.side && u !== target)) {
+                    if (!isInRange(target, e, splashRadius)) continue;
+                    e.hp = Math.max(0, e.hp - splashDamage);
+                    this.spawnFloatText(e.x, e.y + 8, String(Math.round(splashDamage)), new Color(255, 200, 150), 12);
+                    if (e.hp <= 0) {
+                        this.awardKill(t.side, e);
+                    }
+                }
+            }
+            t.atkCd = 1 / t.atkSpd;
+            if (target.hp <= 0) {
+                this.awardKill(t.side, target);
+            }
+        }
+    }
+
+    /** 光环塔：弱化版范围攻击（v0.4.3）——攻 40 + 30% 溅射，玩家可建造的塔也能防御 */
+    updateAuraTower(t: any, dt: number) {
+        if (t.atkCd > 0) { t.atkCd -= dt; return; }
+        let target: any = null, minDist = Infinity;
+        for (const u of this.G.units.filter((u: any) => u.side !== t.side)) {
+            const d = distance(t, u);
+            if (d < t.range && d < minDist) { minDist = d; target = u; }
+        }
+        if (target) {
+            this.spawnProjectile(t, target);
+            target.hp -= t.atk;
+            if (target.hp < 0) target.hp = 0;
+            this.spawnFloatText(target.x, target.y + 8, String(t.atk), new Color(255, 230, 200), 13);
+            // 范围攻击
+            const splashFraction = AURA_TOWER.splashDamageFraction;
+            const splashRadius = AURA_TOWER.splashRadiusPixels;
             if (splashFraction > 0 && splashRadius > 0) {
                 const splashDamage = t.atk * splashFraction;
                 for (const e of this.G.units.filter((u: any) => u.side !== t.side && u !== target)) {

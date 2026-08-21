@@ -98,12 +98,18 @@ export const ARMY_RESEARCH = {
     attackBonusPerLayer: 0.08,
 } as const;
 
-/** 光环塔：每方限 1 座，全体己方单位攻速 +15% */
+/** 光环塔：每方限 1 座，全体己方单位攻速 +15%。
+ *  v0.4.3：加弱化版范围攻击（攻 40 + 30% 溅射，射程 280）——玩家可建造的塔也能防御。 */
 export const AURA_TOWER = {
     cost: 250,
     health: 1600,
     attackSpeedBonus: 0.15,
     limitPerSide: 1,
+    attack: 40,
+    attacksPerSecond: 0.8,
+    rangePixels: 280,
+    splashDamageFraction: 0.3,
+    splashRadiusPixels: 70,
 } as const;
 
 /** 基地防御塔（双方固定各 2 座，不可建造）：塔不倒不能打水晶。
