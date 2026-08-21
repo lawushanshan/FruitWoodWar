@@ -4,6 +4,7 @@ import {
     ARMY_RESEARCH,
     AURA_TOWER,
     BASE_TOWER,
+    BUILD_GRID,
     BUILDING_TYPES,
     CARD_RARITY_WEIGHTS,
     COMEBACK,
@@ -132,6 +133,14 @@ export class GameManager extends Component {
     private upgradeInfoLabel: Label | null = null;
     private upgradeCostLabel: Label | null = null;
     private upgradeBtnNode: Node | null = null;
+    // 建造拖拽预览（v0.5.0）：半透明建筑跟随指针，红绿反馈
+    private buildPreviewNode: Node | null = null;
+    private buildPreviewIcon: Label | null = null;
+    private buildPreviewBg: Sprite | null = null;
+    private buildPreviewValid: boolean = false;
+    private buildPreviewCell: { x: number; y: number } | null = null;
+    // 网格底图节点（建造模式显示）
+    private gridOverlayNode: Node | null = null;
     private tutorialPanel: Node | null = null;
     private recordLabel: Label | null = null;
     private selectedFactory: any = null;
@@ -284,6 +293,16 @@ export class GameManager extends Component {
 
         // 点击游戏区选择己方兵工厂（升级入口）
         this.gameContainer.on(Node.EventType.TOUCH_END, this.onGameTouch, this);
+        // 建造模式预览：指针移动/拖动时实时显示吸附格点（v0.5.0）
+        this.gameContainer.on(Node.EventType.TOUCH_MOVE, this.onBuildPointerMove, this);
+        this.gameContainer.on(Node.EventType.MOUSE_MOVE, this.onBuildPointerMove, this);
+        // ESC/右键取消建造模式
+        this.node.on(Node.EventType.KEY_DOWN, (e: any) => {
+            if (e.keyCode === 27 || e.keyCode === 46) this.cancelBuildMode(); // Esc / Delete
+        });
+        this.gameContainer.on(Node.EventType.MOUSE_DOWN, (e: any) => {
+            if (e.getButton && e.getButton() === 2) this.cancelBuildMode(); // 右键
+        });
     }
 
     // ==================== 创建UI ====================
@@ -1008,8 +1027,7 @@ export class GameManager extends Component {
         const side = this.G.playerSide;
         if (this.buildMode === id) {
             // 再点一次取消建造模式
-            this.buildMode = null;
-            this.setBuildZoneHighlight(false);
+            this.cancelBuildMode();
             this.showToast('已取消建造');
             return;
         }
@@ -1021,7 +1039,7 @@ export class GameManager extends Component {
         }
         this.buildMode = id;
         this.setBuildZoneHighlight(true);
-        this.showToast('点击左侧建造区放置「' + BUILDING_TYPES[id].name + '」（再点按钮可取消）');
+        this.showToast('点击绿色格子放置「' + BUILDING_TYPES[id].name + '」（ESC 取消）');
     }
 
     /** 当前建造项的成本（工厂带同类型递增价） */
@@ -1037,40 +1055,72 @@ export class GameManager extends Component {
         return AURA_TOWER.cost;
     }
 
-    /** 建造模式中：在己方半场（主道/河道除外）点击放置建筑 */
+    // ==================== 建造网格（v0.5.0） ====================
+    /** 所有格点（懒加载缓存） */
+    private gridCells: Array<{ x: number; y: number }> | null = null;
+
+    private getGridCells(): Array<{ x: number; y: number }> {
+        if (!this.gridCells) this.gridCells = BUILD_GRID.cells();
+        return this.gridCells;
+    }
+
+    /** 坐标吸附到最近格点；无可行格返回 null */
+    private snapToGrid(px: number, py: number): { x: number; y: number } | null {
+        let best: { x: number; y: number } | null = null;
+        let bestDist = Infinity;
+        for (const c of this.getGridCells()) {
+            const d = (c.x - px) ** 2 + (c.y - py) ** 2;
+            if (d < bestDist) { bestDist = d; best = c; }
+        }
+        // 吸附距离上限：1.2 格，太远视为建造区外
+        if (best && bestDist <= (BUILD_GRID.cellSize * 1.2) ** 2) return best;
+        return null;
+    }
+
+    /** 格点是否被占用（同格中心距 < 半格即视为占用） */
+    private isCellOccupied(x: number, y: number, forSide?: string): boolean {
+        for (const b of this.G.buildings) {
+            if (forSide && b.side !== forSide) continue;
+            if (Math.abs(b.x - x) < BUILD_GRID.cellSize / 2 && Math.abs(b.y - y) < BUILD_GRID.cellSize / 2) {
+                return true;
+            }
+        }
+        // 防御塔/水晶也不可压（塔在 ±450,±70，本就不在格点上，保险起见也检查）
+        for (const t of [...this.G.towers, ...this.G.crystals]) {
+            if (Math.abs(t.x - x) < BUILD_GRID.cellSize / 2 && Math.abs(t.y - y) < BUILD_GRID.cellSize / 2) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 建造模式中：点击 → 吸附最近空格放置（v0.5.0 网格版） */
     private tryPlaceBuilding(px: number, py: number) {
         const id = this.buildMode as BuildingId;
         if (!id) return;
-        // 己方半场：x ∈ [-620, -90]；不能在主道 |y|<=70；河道由 x<-90 天然排除
-        if (px < -620 || px > -90 || py < -330 || py > 330) {
+        // 吸附格点：太远（>1.2格）提示建造区，吸附失败同样提示
+        const cell = this.snapToGrid(px, py);
+        if (!cell) {
             this.showToast('只能在左侧己方建造区内建造！');
             return;
         }
-        if (Math.abs(py) <= 70) {
-            this.showToast('主道上不能放置建筑！');
+        if (this.isCellOccupied(cell.x, cell.y)) {
+            this.showToast('这个格子已被占用');
             return;
-        }
-        // 不能紧贴已有建筑
-        for (const b of this.G.buildings) {
-            if (Math.abs(b.x - px) < 46 && Math.abs(b.y - py) < 46) {
-                this.showToast('离其他建筑太近了，换个位置');
-                return;
-            }
         }
         const side = this.G.playerSide;
 
         if (id === 'academy') {
-            this.placeAcademy(px, py, side);
+            this.placeAcademy(cell.x, cell.y, side);
             return;
         }
         if (id === 'auraTower') {
             if (this.G.auraBuilt[side]) {
                 this.showToast('光环塔每方限建 1 座');
-                this.buildMode = null;
-                this.setBuildZoneHighlight(false);
+                this.cancelBuildMode();
                 return;
             }
-            this.placeAuraTower(px, py, side);
+            this.placeAuraTower(cell.x, cell.y, side);
             return;
         }
 
@@ -1078,22 +1128,20 @@ export class GameManager extends Component {
         const cost = getFactoryPrice(id, this.G.playerFaction, owned);
         if (this.G.gold[side] < cost) {
             this.showToast('金币不足！需要 ' + cost + ' 金');
-            this.buildMode = null;
-            this.setBuildZoneHighlight(false);
+            this.cancelBuildMode();
             return;
         }
         this.G.gold[side] -= cost;
         this.G.buildings.push({
             kind: 'building', type: 'factory', unitType: id, side: 'red',
-            x: px, y: py,
+            x: cell.x, y: cell.y,
             hp: BUILDING_TYPES[id].health, maxHp: BUILDING_TYPES[id].health,
             baseHp: BUILDING_TYPES[id].health,
             waveTimer: FACTIONS[this.G.playerFaction].waveIntervalSeconds,
             level: 1,
         });
         this.showToast('建造了 ' + BUILDING_TYPES[id].name + '！');
-        this.buildMode = null;
-        this.setBuildZoneHighlight(false);
+        this.cancelBuildMode();
         this.refreshBuildBar();
         this.dismissTutorial();
     }
@@ -1107,6 +1155,140 @@ export class GameManager extends Component {
             const sf = this.getColorSpriteFrame(color, 530, 660);
             if (sf) sprite.spriteFrame = sf;
         }
+        this.setGridOverlay(on);
+    }
+
+    // ==================== 建造预览与网格底图（v0.5.0） ====================
+
+    /** 网格底图：建造模式下显示空格/占用格 */
+    private setGridOverlay(on: boolean) {
+        if (on) {
+            if (this.gridOverlayNode) { this.gridOverlayNode.active = true; return; }
+            const overlay = new Node('GridOverlay');
+            overlay.layer = this.uiLayer;
+            overlay.parent = this.gameContainer;
+            for (const c of this.getGridCells()) {
+                const occupied = this.isCellOccupied(c.x, c.y);
+                const cellNode = this.createColorNode(
+                    occupied ? new Color(255, 90, 90, 70) : new Color(120, 200, 255, 40),
+                    BUILD_GRID.cellSize - 6, BUILD_GRID.cellSize - 6);
+                cellNode.parent = overlay;
+                cellNode.setPosition(c.x, c.y, 0);
+            }
+            this.gridOverlayNode = overlay;
+        } else if (this.gridOverlayNode) {
+            this.gridOverlayNode.active = false;
+        }
+    }
+
+    /** 刷新网格底图（放置/拆除建筑后调用） */
+    private refreshGridOverlay() {
+        if (!this.gridOverlayNode || !this.gridOverlayNode.active) return;
+        const children = this.gridOverlayNode.children;
+        const cells = this.getGridCells();
+        for (let i = 0; i < children.length && i < cells.length; i++) {
+            const c = cells[i];
+            const sp = children[i].getComponent(Sprite);
+            if (!sp) continue;
+            const occupied = this.isCellOccupied(c.x, c.y);
+            const sf = this.getColorSpriteFrame(
+                occupied ? new Color(255, 90, 90, 70) : new Color(120, 200, 255, 40),
+                BUILD_GRID.cellSize - 6, BUILD_GRID.cellSize - 6);
+            if (sf) sp.spriteFrame = sf;
+        }
+    }
+
+    /** 创建建造预览节点（半透明建筑 + 格点高亮底） */
+    private createBuildPreview(id: BuildingId) {
+        this.destroyBuildPreview();
+        const node = new Node('BuildPreview');
+        node.layer = this.uiLayer;
+        node.parent = this.gameContainer;
+        const ut = node.addComponent(UITransform);
+        ut.contentSize = new Size(BUILD_GRID.cellSize - 6, BUILD_GRID.cellSize - 6);
+        const bg = this.createColorNode(new Color(80, 220, 120, 130), BUILD_GRID.cellSize - 6, BUILD_GRID.cellSize - 6);
+        bg.name = 'Bg';
+        bg.parent = node;
+        this.buildPreviewBg = bg.getComponent(Sprite);
+        const icon = new Node('Icon');
+        icon.layer = this.uiLayer;
+        icon.parent = node;
+        const iUt = icon.addComponent(UITransform);
+        iUt.contentSize = new Size(40, 40);
+        this.buildPreviewIcon = icon.addComponent(Label);
+        this.buildPreviewIcon.string = this.getBuildEmoji(id);
+        this.buildPreviewIcon.fontSize = 30;
+        this.buildPreviewIcon.lineHeight = 36;
+        this.buildPreviewIcon.color = Color.WHITE;
+        node.active = false;
+        this.buildPreviewNode = node;
+    }
+
+    private getBuildEmoji(id: BuildingId): string {
+        if (id === 'academy') return '🎓';
+        if (id === 'auraTower') return '🌀';
+        return UNIT_EMOJI[id as UnitRoleId] || '🏭';
+    }
+
+    private destroyBuildPreview() {
+        if (this.buildPreviewNode && this.buildPreviewNode.isValid) this.buildPreviewNode.destroy();
+        this.buildPreviewNode = null;
+        this.buildPreviewIcon = null;
+        this.buildPreviewBg = null;
+        this.buildPreviewValid = false;
+        this.buildPreviewCell = null;
+    }
+
+    /** 指针移动（鼠标 hover / 触摸拖动）：预览吸附格点 + 红绿反馈 */
+    private onBuildPointerMove(event: any) {
+        if (!this.buildMode || !this.gameRunning || !this.gameContainer) return;
+        const ut = this.gameContainer.getComponent(UITransform);
+        if (!ut) return;
+        const loc = event.getUILocation();
+        // 触摸时预览上移，避免手指遮挡（手机优先）
+        const isTouch = event.touch !== undefined;
+        const offsetY = isTouch ? 40 : 0;
+        const p = ut.convertToNodeSpaceAR(new Vec3(loc.x, loc.y - offsetY, 0));
+        if (!this.buildPreviewNode) this.createBuildPreview(this.buildMode);
+        this.updateBuildPreview(p.x, p.y);
+    }
+
+    private updateBuildPreview(px: number, py: number) {
+        if (!this.buildPreviewNode || !this.buildPreviewBg) return;
+        const cell = this.snapToGrid(px, py);
+        if (!cell) {
+            this.buildPreviewNode.active = false;
+            this.buildPreviewValid = false;
+            this.buildPreviewCell = null;
+            return;
+        }
+        const occupied = this.isCellOccupied(cell.x, cell.y);
+        const id = this.buildMode as BuildingId;
+        const auraBlocked = id === 'auraTower' && this.G.auraBuilt[this.G.playerSide];
+        const gold = this.G.gold[this.G.playerSide];
+        const cost = this.getBuildCost(id);
+        const valid = !occupied && !auraBlocked && gold >= cost;
+        this.buildPreviewNode.active = true;
+        this.buildPreviewNode.setPosition(cell.x, cell.y, 0);
+        this.buildPreviewValid = valid;
+        this.buildPreviewCell = valid ? cell : null;
+        const sf = this.getColorSpriteFrame(
+            valid ? new Color(80, 220, 120, 150) : new Color(255, 90, 90, 150),
+            BUILD_GRID.cellSize - 6, BUILD_GRID.cellSize - 6);
+        if (sf) this.buildPreviewBg.spriteFrame = sf;
+    }
+
+    /** 取消建造模式（ESC/右键/再点按钮/放置完成） */
+    private cancelBuildMode() {
+        if (!this.buildMode) {
+            // 即使模式已空，预览节点可能残留，兜底清理
+            this.destroyBuildPreview();
+            return;
+        }
+        this.buildMode = null;
+        this.setBuildZoneHighlight(false);
+        this.destroyBuildPreview();
+        this.refreshGridOverlay();
     }
 
     onResearchClick(event: Event) {
@@ -1141,15 +1323,13 @@ export class GameManager extends Component {
         const lvl = this.G.academies[side] ?? 0;
         if (lvl >= 1) {
             this.showToast('战争学院已建造，点击按钮可升级');
-            this.buildMode = null;
-            this.setBuildZoneHighlight(false);
+            this.cancelBuildMode();
             return;
         }
         const next = ACADEMY_LEVELS[1];
         if (this.G.gold[side] < next.cost) {
             this.showToast('金币不足！需要 ' + next.cost + ' 金');
-            this.buildMode = null;
-            this.setBuildZoneHighlight(false);
+            this.cancelBuildMode();
             return;
         }
         this.G.gold[side] -= next.cost;
@@ -1161,8 +1341,7 @@ export class GameManager extends Component {
         });
         this.G.academies[side] = 1;
         this.showToast('战争学院 Lv1！解锁 Lv3 兵工厂升级');
-        this.buildMode = null;
-        this.setBuildZoneHighlight(false);
+        this.cancelBuildMode();
         this.refreshBuildBar();
         this.dismissTutorial();
     }
@@ -1216,9 +1395,11 @@ export class GameManager extends Component {
         }
         this.G.gold[side] -= next.cost;
         if (lvl === 0) {
+            // 网格空位放置（v0.5.0：AI 也走格点，保持整齐）
+            const cell = side === 'blue' ? this.pickAIBuildCell() : null;
             this.G.buildings.push({
                 kind: 'building', type: 'academy', side,
-                x: side === 'red' ? -430 : 430, y: 130,
+                x: side === 'red' ? -430 : (cell ? cell.x : 430), y: side === 'red' ? 130 : (cell ? cell.y : 130),
                 hp: next.health, maxHp: next.health, baseHp: next.health,
                 level: 1,
             });
@@ -1251,8 +1432,7 @@ export class GameManager extends Component {
     private placeAuraTower(px: number, py: number, side: string) {
         if (this.G.gold[side] < AURA_TOWER.cost) {
             this.showToast('金币不足！需要 ' + AURA_TOWER.cost + ' 金');
-            this.buildMode = null;
-            this.setBuildZoneHighlight(false);
+            this.cancelBuildMode();
             return;
         }
         this.G.gold[side] -= AURA_TOWER.cost;
@@ -1266,8 +1446,7 @@ export class GameManager extends Component {
         });
         this.G.auraBuilt[side] = true;
         this.showToast('光环塔！全体己方单位攻速 +15%，可范围攻击');
-        this.buildMode = null;
-        this.setBuildZoneHighlight(false);
+        this.cancelBuildMode();
         this.refreshBuildBar();
         this.dismissTutorial();
     }
@@ -1283,10 +1462,11 @@ export class GameManager extends Component {
             return;
         }
         this.G.gold[side] -= AURA_TOWER.cost;
+        const auraCell = side === 'blue' ? this.pickAIBuildCell() : null;
         this.G.buildings.push({
             kind: 'building', type: 'auraTower', side,
-            x: side === 'red' ? -420 + Math.random() * 60 : 420 - Math.random() * 60,
-            y: -140 - Math.random() * 40,
+            x: auraCell ? auraCell.x : (side === 'red' ? -420 : 420),
+            y: auraCell ? auraCell.y : -140,
             hp: AURA_TOWER.health, maxHp: AURA_TOWER.health, baseHp: AURA_TOWER.health,
             // 范围攻击参数（v0.4.3：光环塔也能防御）
             range: AURA_TOWER.rangePixels, atk: AURA_TOWER.attack,
@@ -1705,18 +1885,33 @@ export class GameManager extends Component {
         const cost = getFactoryPrice(role, faction, owned);
         if (this.G.gold.blue < cost) return;
         if (myFactories().length >= 7) return;
+        const cell = this.pickAIBuildCell();
+        if (!cell) return; // 无空位
         this.G.gold.blue -= cost;
         this.G.buildings.push({
             kind: 'building', type: 'factory', unitType: role, side: 'blue',
-            // 蓝方半场、避开主道（|y|>70）和水晶区
-            x: 150 + Math.random() * 300,
-            y: (Math.random() < 0.5 ? -1 : 1) * (90 + Math.random() * 220),
+            // 蓝方：镜像红方网格的空位（整齐 + 避开主道）
+            x: cell.x, y: cell.y,
             hp: BUILDING_TYPES[role].health,
             maxHp: BUILDING_TYPES[role].health,
             baseHp: BUILDING_TYPES[role].health,
             waveTimer: FACTIONS[faction].waveIntervalSeconds,
             level: 1,
         });
+    }
+
+    /** AI 建造格点：红方网格镜像到蓝方，返回一个随机空格 */
+    private pickAIBuildCell(): { x: number; y: number } | null {
+        // AI 倾向前排（靠河道），格点按 |x| 升序（靠前优先）
+        const cells = this.getGridCells()
+            .map(c => ({ x: -c.x, y: c.y })) // 镜像到蓝方
+            .map(c => ({ ...c, occupied: this.isCellOccupied(c.x, c.y) }))
+            .filter(c => !c.occupied)
+            .sort((a, b) => a.x - b.x); // 蓝方前排 = x 小
+        if (cells.length === 0) return null;
+        // 前排优先带随机：从前 40% 空位随机选
+        const pool = cells.slice(0, Math.max(1, Math.ceil(cells.length * 0.4)));
+        return pool[Math.floor(Math.random() * pool.length)];
     }
 
     /** 玩家兵种构成中最多的定位（达到 3 个才视为明显倾向） */
@@ -2724,8 +2919,8 @@ export class GameManager extends Component {
                 size = 40; // 统一尺寸，等级由星标区分（v0.4.5 去掉升级变大避免挤压）
                 emoji = UNIT_EMOJI[b.unitType as UnitRoleId] || '🏭';
             }
-            if (b.type === 'academy') { color = new Color(170, 120, 220); size = 52; emoji = '🎓'; }
-            if (b.type === 'auraTower') { color = new Color(80, 200, 220); size = 44; emoji = '🌀'; }
+            if (b.type === 'academy') { color = new Color(170, 120, 220); size = 46; emoji = '🎓'; }
+            if (b.type === 'auraTower') { color = new Color(80, 200, 220); size = 42; emoji = '🌀'; }
             if (this.selectedFactory && b === this.selectedFactory) color = new Color(255, 220, 90);
             node.setPosition(b.x, b.y, 0);
             this.updateEmojiVisual(node, emoji, color, size);

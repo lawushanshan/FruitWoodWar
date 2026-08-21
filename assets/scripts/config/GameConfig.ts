@@ -125,6 +125,32 @@ export const BASE_TOWER = {
     splashRadiusPixels: 80,
 } as const;
 
+/** 建造网格（v0.5.0）：建筑吸附格点放置，整齐且防重叠。
+ *  格距 60px、建筑视觉 40px（占格 67%，四周留 10px 呼吸空间）。
+ *  布局：上下两区各 4 行，避开主道（|y| <= 70 不可建）。 */
+export const BUILD_GRID = {
+    /** 格距（px） */
+    cellSize: 60,
+    /** 网格列数（建造区宽 530px 可容 9 列） */
+    columns: 9,
+    /** 建造区 x 中心起点（最左列中心 x = gridOriginX） */
+    gridOriginX: -570,
+    /** 上区行 y 坐标（4 行，避开主道 y>=100 起） */
+    topRows: [130, 190, 250, 310],
+    /** 下区行 y 坐标（4 行，对称） */
+    bottomRows: [-130, -190, -250, -310],
+    /** 生成全部格点坐标 */
+    cells(): Array<{ x: number; y: number }> {
+        const pts: Array<{ x: number; y: number }> = [];
+        for (const y of [...this.topRows, ...this.bottomRows]) {
+            for (let c = 0; c < this.columns; c++) {
+                pts.push({ x: this.gridOriginX + c * this.cellSize, y });
+            }
+        }
+        return pts;
+    },
+} as const;
+
 /** 卡牌稀有度出现权重（稀有高、史诗中、传说低） */
 export const CARD_RARITY_WEIGHTS: Record<'rare' | 'epic' | 'legendary', number> = {
     rare: 60,
