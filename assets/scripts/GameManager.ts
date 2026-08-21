@@ -1755,8 +1755,11 @@ export class GameManager extends Component {
             if (isInRange(u, target, u.range)) {
                 if (u.atkCd <= 0) {
                     this.attack(u, target);
-                    // 光环塔：己方全体攻速 +15%；玩家的卡牌攻速加成实时生效（含临时卡）
-                    const auraMult = this.G.auraBuilt[u.side] ? 1 + AURA_TOWER.attackSpeedBonus : 1;
+                    // 光环塔：射程 400px 内己方单位攻速 +15%（v0.4.4 全场→光环范围）
+                    const auraTower = this.G.buildings.find((b: any) => b.type === 'auraTower' && b.side === u.side);
+                    const auraMult = auraTower && isInRange(u, auraTower, AURA_TOWER.buffRadiusPixels)
+                        ? 1 + AURA_TOWER.attackSpeedBonus
+                        : 1;
                     const asBuff = u.side === 'red' ? (this.G.permBuff.as || 1) : 1;
                     const tempAs = u.side === 'red'
                         ? this.G.tempBuffs.reduce((m: number, b: any) => b.type === 'asMult' ? m * b.mult : m, 1)
