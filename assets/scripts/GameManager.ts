@@ -39,8 +39,8 @@ const CARDS: Record<FactionId, any[]> = {
         { id:'heal', name:'鲜榨回复', icon:'🍹', desc:'全体治疗30%血量', rarity:'rare' },
         { id:'atkUp', name:'果香四溢', icon:'🌺', desc:'全体攻击+25%永久', rarity:'epic' },
         { id:'splash', name:'果弹飞溅', icon:'💥', desc:'攻击附带60%溅射', rarity:'rare' },
-        { id:'sunburst', name:'阳光爆发', icon:'️', desc:'10秒内攻速翻倍', rarity:'epic' },
-        { id:'tropical', name:'热带风暴', icon:'️', desc:'对全场敌人造成200伤害', rarity:'legendary' },
+        { id:'sunburst', name:'阳光爆发', icon:'☀️', desc:'10秒内攻速翻倍', rarity:'epic' },
+        { id:'tropical', name:'热带风暴', icon:'🌀', desc:'对全场敌人造成200伤害', rarity:'legendary' },
         { id:'fruitRage', name:'果族狂怒', icon:'🔥', desc:'攻击+35%攻速+20%永久', rarity:'legendary' },
         { id:'shield', name:'果皮护盾', icon:'🛡️', desc:'全体获得150护盾', rarity:'rare' },
         { id:'regen', name:'光合再生', icon:'🌱', desc:'10秒内持续回血', rarity:'epic' },
@@ -53,17 +53,17 @@ const CARDS: Record<FactionId, any[]> = {
         { id:'vine', name:'万木缠缚', icon:'🌾', desc:'敌人定身3秒', rarity:'epic' },
         { id:'bark', name:'树皮铠甲', icon:'🪵', desc:'全体减伤20%永久', rarity:'legendary' },
         { id:'bloom', name:'百花绽放', icon:'🌸', desc:'召唤3个树人', rarity:'epic' },
-        { id:'thorn', name:'荆棘之甲', icon:'', desc:'受击反弹20%伤害', rarity:'rare' },
+        { id:'thorn', name:'荆棘之甲', icon:'🌵', desc:'受击反弹20%伤害', rarity:'rare' },
         { id:'growth', name:'自然生长', icon:'🌱', desc:'出兵速度+30%永久', rarity:'legendary' },
         { id:'forest', name:'森林守护', icon:'🌲', desc:'水晶回血500', rarity:'rare' },
     ],
     animal: [
-        { id:'crit', name:'致命一击', icon:'', desc:'全体暴击率+30%', rarity:'rare' },
-        { id:'bloodlust', name:'嗜血狂潮', icon:'', desc:'击杀回血20%', rarity:'epic' },
+        { id:'crit', name:'致命一击', icon:'🎯', desc:'全体暴击率+30%', rarity:'rare' },
+        { id:'bloodlust', name:'嗜血狂潮', icon:'🩸', desc:'击杀回血20%', rarity:'epic' },
         { id:'frenzy', name:'狂暴本能', icon:'💢', desc:'攻击+40%攻速+30%永久', rarity:'legendary' },
-        { id:'howl', name:'战嚎', icon:'', desc:'10秒内攻击+50%', rarity:'epic' },
-        { id:'pack', name:'狼群战术', icon:'', desc:'每有一个友军攻击+5%', rarity:'rare' },
-        { id:'predator', name:'捕食者', icon:'', desc:'对低血量敌人伤害+100%', rarity:'epic' },
+        { id:'howl', name:'战嚎', icon:'📣', desc:'10秒内攻击+50%', rarity:'epic' },
+        { id:'pack', name:'狼群战术', icon:'🐺', desc:'每有一个友军攻击+5%', rarity:'rare' },
+        { id:'predator', name:'捕食者', icon:'🐆', desc:'对低血量敌人伤害+100%', rarity:'epic' },
         { id:'stampede', name:'兽群奔腾', icon:'🦬', desc:'全体加速50%持续10秒', rarity:'rare' },
         { id:'claw', name:'利爪撕裂', icon:'🦁', desc:'攻击附带流血效果', rarity:'legendary' },
         { id:'survival', name:'适者生存', icon:'🧬', desc:'死亡时对周围造成伤害', rarity:'epic' },
@@ -973,23 +973,37 @@ export class GameManager extends Component {
         const id = type as BuildingId;
         const side = this.G.playerSide;
 
+        // 学院：已有学院 → 直接升级 Lv2（不需要选位置）；无学院 → 进入建造模式自选位置
         if (id === 'academy') {
-            this.buildAcademy('red');
+            const lvl = this.G.academies[side] ?? 0;
+            if (lvl >= 2) {
+                this.showToast('战争学院已满级');
+                return;
+            }
+            if (lvl >= 1) {
+                this.buildAcademyUpgrade(side);
+                return;
+            }
+            this.enterBuildMode(id);
             return;
         }
+        // 光环塔：限 1 座；未建 → 进入建造模式自选位置
         if (id === 'auraTower') {
-            this.buildAuraTower('red');
+            if (this.G.auraBuilt[side]) {
+                this.showToast('光环塔每方限建 1 座');
+                return;
+            }
+            this.enterBuildMode(id);
             return;
         }
         if (!isFactoryId(id) || !(id in BUILDING_TYPES)) return;
 
-        // 进入建造模式：点击左侧建造区放置
-        const owned = this.G.buildings.filter((b: any) => b.side === 'red' && b.unitType === id).length;
-        const cost = getFactoryPrice(id, this.G.playerFaction, owned);
-        if (this.G.gold[side] < cost) {
-            this.showToast('金币不足！需要 ' + cost + ' 金');
-            return;
-        }
+        this.enterBuildMode(id);
+    }
+
+    /** 进入建造模式：点击左侧建造区放置 */
+    private enterBuildMode(id: BuildingId) {
+        const side = this.G.playerSide;
         if (this.buildMode === id) {
             // 再点一次取消建造模式
             this.buildMode = null;
@@ -997,9 +1011,28 @@ export class GameManager extends Component {
             this.showToast('已取消建造');
             return;
         }
+        // 预算预检：金币不够直接提示，不进入放置
+        const cost = this.getBuildCost(id);
+        if (this.G.gold[side] < cost) {
+            this.showToast('金币不足！需要 ' + cost + ' 金');
+            return;
+        }
         this.buildMode = id;
         this.setBuildZoneHighlight(true);
         this.showToast('点击左侧建造区放置「' + BUILDING_TYPES[id].name + '」（再点按钮可取消）');
+    }
+
+    /** 当前建造项的成本（工厂带同类型递增价） */
+    private getBuildCost(id: BuildingId): number {
+        if (isFactoryId(id)) {
+            const owned = this.G.buildings.filter((b: any) => b.side === 'red' && b.unitType === id).length;
+            return getFactoryPrice(id, this.G.playerFaction, owned);
+        }
+        if (id === 'academy') {
+            const lvl = this.G.academies?.red ?? 0;
+            return ACADEMY_LEVELS[(lvl + 1) as 1 | 2].cost;
+        }
+        return AURA_TOWER.cost;
     }
 
     /** 建造模式中：在己方半场（主道/河道除外）点击放置建筑 */
@@ -1023,6 +1056,22 @@ export class GameManager extends Component {
             }
         }
         const side = this.G.playerSide;
+
+        if (id === 'academy') {
+            this.placeAcademy(px, py, side);
+            return;
+        }
+        if (id === 'auraTower') {
+            if (this.G.auraBuilt[side]) {
+                this.showToast('光环塔每方限建 1 座');
+                this.buildMode = null;
+                this.setBuildZoneHighlight(false);
+                return;
+            }
+            this.placeAuraTower(px, py, side);
+            return;
+        }
+
         const owned = this.G.buildings.filter((b: any) => b.side === 'red' && b.unitType === id).length;
         const cost = getFactoryPrice(id, this.G.playerFaction, owned);
         if (this.G.gold[side] < cost) {
@@ -1073,12 +1122,85 @@ export class GameManager extends Component {
         this.G.researchLayers.red++;
         this.G.researchCosts.red = Math.round(
             ARMY_RESEARCH.baseCost * Math.pow(ARMY_RESEARCH.costGrowth, this.G.researchLayers.red));
-        this.G.permBuff.atk = (this.G.permBuff.atk || 1) * (1 + ARMY_RESEARCH.attackBonusPerLayer);
+        const oldAtk = this.G.permBuff.atk || 1;
+        this.G.permBuff.atk = oldAtk * (1 + ARMY_RESEARCH.attackBonusPerLayer);
+        const ratio = this.G.permBuff.atk / oldAtk;
+        // 已在场的己方单位立即同比例加攻（全局生效）
+        this.G.units.filter((u: any) => u.side === 'red').forEach((u: any) => {
+            u.atk = u.atk * ratio;
+        });
         this.showToast('全军强化 Lv' + this.G.researchLayers.red + '！全队攻击 +8%（可无限叠加）');
         this.refreshBuildBar();
     }
 
     /** 战争学院：Lv1 解锁 Lv3 兵工厂；Lv2 全队攻击 +10% 并解锁全军强化 */
+    /** 玩家：在自选位置放置战争学院 Lv1 */
+    private placeAcademy(px: number, py: number, side: string) {
+        const lvl = this.G.academies[side] ?? 0;
+        if (lvl >= 1) {
+            this.showToast('战争学院已建造，点击按钮可升级');
+            this.buildMode = null;
+            this.setBuildZoneHighlight(false);
+            return;
+        }
+        const next = ACADEMY_LEVELS[1];
+        if (this.G.gold[side] < next.cost) {
+            this.showToast('金币不足！需要 ' + next.cost + ' 金');
+            this.buildMode = null;
+            this.setBuildZoneHighlight(false);
+            return;
+        }
+        this.G.gold[side] -= next.cost;
+        this.G.buildings.push({
+            kind: 'building', type: 'academy', side,
+            x: px, y: py,
+            hp: next.health, maxHp: next.health, baseHp: next.health,
+            level: 1,
+        });
+        this.G.academies[side] = 1;
+        this.showToast('战争学院 Lv1！解锁 Lv3 兵工厂升级');
+        this.buildMode = null;
+        this.setBuildZoneHighlight(false);
+        this.refreshBuildBar();
+        this.dismissTutorial();
+    }
+
+    /** 玩家：升级战争学院到 Lv2（已有学院时点按钮直接升级，无需选位置） */
+    private buildAcademyUpgrade(side: string) {
+        const lvl = this.G.academies[side] ?? 0;
+        if (lvl >= 2) {
+            if (side === 'red') this.showToast('战争学院已满级');
+            return;
+        }
+        const next = ACADEMY_LEVELS[(lvl + 1) as 1 | 2];
+        if (this.G.gold[side] < next.cost) {
+            if (side === 'red') this.showToast('金币不足！需要 ' + next.cost + ' 金');
+            return;
+        }
+        this.G.gold[side] -= next.cost;
+        const acad = this.G.buildings.find((b: any) => b.side === side && b.type === 'academy');
+        if (acad) {
+            acad.level = 2;
+            acad.maxHp = next.health;
+            acad.hp = Math.min(acad.maxHp, acad.hp + (next.health - ACADEMY_LEVELS[1].health));
+        }
+        this.G.academies[side] = lvl + 1;
+        if (side === 'red') {
+            const oldAtk = this.G.permBuff.atk || 1;
+            this.G.permBuff.atk = oldAtk * (1 + ACADEMY_LEVELS[2].attackBonus);
+            const ratio = this.G.permBuff.atk / oldAtk;
+            // 已在场的己方单位立即同比例加攻（全局生效）
+            this.G.units.filter((u: any) => u.side === 'red').forEach((u: any) => {
+                u.atk = u.atk * ratio;
+            });
+            this.showToast('战争学院 Lv2！全队攻击+10%，解锁全军强化');
+        } else {
+            this.G.aiAtkMult *= (1 + ACADEMY_LEVELS[2].attackBonus);
+        }
+        this.refreshBuildBar();
+    }
+
+    /** AI：自动在固定位置建造战争学院（AI 不需要玩家式放置） */
     private buildAcademy(side: string) {
         const lvl = this.G.academies[side] ?? 0;
         if (lvl >= 2) {
@@ -1107,7 +1229,13 @@ export class GameManager extends Component {
                 acad.hp = Math.min(acad.maxHp, acad.hp + (next.health - ACADEMY_LEVELS[1].health));
             }
             if (side === 'red') {
-                this.G.permBuff.atk = (this.G.permBuff.atk || 1) * (1 + ACADEMY_LEVELS[2].attackBonus);
+                const oldAtk = this.G.permBuff.atk || 1;
+                this.G.permBuff.atk = oldAtk * (1 + ACADEMY_LEVELS[2].attackBonus);
+                const ratio = this.G.permBuff.atk / oldAtk;
+                // 已在场的己方单位立即同比例加攻（全局生效）
+                this.G.units.filter((u: any) => u.side === 'red').forEach((u: any) => {
+                    u.atk = u.atk * ratio;
+                });
                 this.showToast('战争学院 Lv2！全队攻击+10%，解锁全军强化');
             } else {
                 this.G.aiAtkMult *= (1 + ACADEMY_LEVELS[2].attackBonus);
@@ -1117,7 +1245,29 @@ export class GameManager extends Component {
         this.refreshBuildBar();
     }
 
-    /** 光环塔：每方限 1 座，全体己方单位攻速 +15%（实体建筑，可被拆） */
+    /** 玩家：在自选位置放置光环塔（每方限 1 座） */
+    private placeAuraTower(px: number, py: number, side: string) {
+        if (this.G.gold[side] < AURA_TOWER.cost) {
+            this.showToast('金币不足！需要 ' + AURA_TOWER.cost + ' 金');
+            this.buildMode = null;
+            this.setBuildZoneHighlight(false);
+            return;
+        }
+        this.G.gold[side] -= AURA_TOWER.cost;
+        this.G.buildings.push({
+            kind: 'building', type: 'auraTower', side,
+            x: px, y: py,
+            hp: AURA_TOWER.health, maxHp: AURA_TOWER.health, baseHp: AURA_TOWER.health,
+        });
+        this.G.auraBuilt[side] = true;
+        this.showToast('光环塔！全体己方单位攻速 +15%');
+        this.buildMode = null;
+        this.setBuildZoneHighlight(false);
+        this.refreshBuildBar();
+        this.dismissTutorial();
+    }
+
+    /** 光环塔：每方限 1 座，全体己方单位攻速 +15%（实体建筑，可被拆）AI 用 */
     private buildAuraTower(side: string) {
         if (this.G.auraBuilt[side]) {
             if (side === 'red') this.showToast('光环塔每方限建 1 座');
@@ -1513,6 +1663,12 @@ export class GameManager extends Component {
         }
 
         const owned = myFactories().filter((b: any) => b.unitType === role).length;
+        // 阵容多样性：同类型厂最多 2 座，避免 AI 单一兵种海滚雪球
+        if (owned >= 2) {
+            const others = (['tank', 'ranged', 'aoe', 'rush', 'siege'] as UnitRoleId[])
+                .filter(r => myFactories().filter((b: any) => b.unitType === r).length < 2);
+            role = others.length > 0 ? others[Math.floor(Math.random() * others.length)] : role;
+        }
         const cost = getFactoryPrice(role, faction, owned);
         if (this.G.gold.blue < cost) return;
         if (myFactories().length >= 7) return;
@@ -1573,7 +1729,10 @@ export class GameManager extends Component {
     updateUnit(u: any, dt: number) {
         if (u.hp <= 0) return;
         let spdMult = 1;
-        if (u.slowDur && u.slowDur > 0) { spdMult = u.slowMult || 0.6; u.slowDur -= dt; }
+        // 临时加速卡（兽群奔腾）叠加在减速之上：取两者乘积
+        const tempSpd = this.G.tempBuffs.some((b: any) => b.type === 'spdMult');
+        if (tempSpd) spdMult *= 2;
+        if (u.slowDur && u.slowDur > 0) { spdMult *= u.slowMult || 0.6; u.slowDur -= dt; }
         if (u.stunDur && u.stunDur > 0) { u.stunDur -= dt; return; }
         if (u.atkCd > 0) u.atkCd -= dt;
 
@@ -1586,10 +1745,13 @@ export class GameManager extends Component {
             if (isInRange(u, target, u.range)) {
                 if (u.atkCd <= 0) {
                     this.attack(u, target);
-                    // 光环塔：己方全体攻速 +15%；玩家的卡牌攻速加成实时生效
+                    // 光环塔：己方全体攻速 +15%；玩家的卡牌攻速加成实时生效（含临时卡）
                     const auraMult = this.G.auraBuilt[u.side] ? 1 + AURA_TOWER.attackSpeedBonus : 1;
                     const asBuff = u.side === 'red' ? (this.G.permBuff.as || 1) : 1;
-                    u.atkCd = 1 / (u.atkSpd * asBuff * auraMult);
+                    const tempAs = u.side === 'red'
+                        ? this.G.tempBuffs.reduce((m: number, b: any) => b.type === 'asMult' ? m * b.mult : m, 1)
+                        : 1;
+                    u.atkCd = 1 / (u.atkSpd * asBuff * tempAs * auraMult);
                 }
             } else if (dist > 1) {
                 u.x += (dx / dist) * u.spd * spdMult * dt;
@@ -1822,9 +1984,13 @@ export class GameManager extends Component {
             ? getCounterMultiplier(attackerRole, target.type)
             : 1;
         const executeMultiplier = this.G.permBuff.execute && target.hp < target.maxHp * 0.3 ? 2 : 1;
+        // 临时攻击卡（战嚎 +50%）：玩家单位实时生效
+        const tempAtkMult = attacker.kind === 'unit' && attacker.side === 'red'
+            ? this.G.tempBuffs.reduce((m: number, b: any) => b.type === 'atkMult' ? m * b.mult : m, 1)
+            : 1;
         const result = calculateDamage({
-            attack: attacker.atk * executeMultiplier,
-            attackMultiplier: this.G.permBuff.atk || 1,
+            // atk 已在生成时乘过 permBuff.atk/阵营修正/等级，这里不再重复乘
+            attack: attacker.atk * executeMultiplier * tempAtkMult,
             counterMultiplier,
             firstStrikeMultiplier,
             targetMultiplier: getTargetDamageMultiplier(attackerRole, target.kind),
@@ -1851,7 +2017,8 @@ export class GameManager extends Component {
             );
         }
 
-        const splashMultiplier = attacker.type === 'aoe' ? 0.6 : (this.G.permBuff.splashMult - 1) * 0.5;
+        // 溅射：AOE 兵 35% 溅射（v0.4 平衡：60%→35%，保留克人海但不再秒杀）；卡牌溅射按叠加
+        const splashMultiplier = attacker.type === 'aoe' ? 0.35 : (this.G.permBuff.splashMult - 1) * 0.5;
         if (splashMultiplier > 0) {
             const splashDamage = result.damage * splashMultiplier;
             const splashRadius = attacker.type === 'aoe'
@@ -2160,17 +2327,26 @@ export class GameManager extends Component {
                 });
                 break;
             case 'atkUp':
-            case 'fruitRage':
-                this.G.permBuff.atk = (this.G.permBuff.atk || 1) * (cardId === 'fruitRage' ? 1.35 : 1.25);
+            case 'fruitRage': {
+                const oldAtk = this.G.permBuff.atk || 1;
+                this.G.permBuff.atk = oldAtk * (cardId === 'fruitRage' ? 1.35 : 1.25);
+                const ratio = this.G.permBuff.atk / oldAtk;
+                // 已在场的己方单位立即按同比例提升攻击（永久加成全局生效，含老兵）
+                this.G.units.filter((u: any) => u.side === 'red').forEach((u: any) => {
+                    u.atk = u.atk * ratio;
+                });
                 if (cardId === 'fruitRage') this.G.permBuff.as = (this.G.permBuff.as || 1) * 1.2;
                 break;
+            }
             case 'splash':
                 this.G.permBuff.splashMult = (this.G.permBuff.splashMult || 1) * 1.6;
                 break;
             case 'sunburst':
-            case 'howl':
             case 'stampede':
-                this.G.tempBuffs.push({ type: 'asMult', mult: cardId === 'sunburst' ? 2 : 1.5, dur: 10 });
+                this.G.tempBuffs.push({ type: cardId === 'sunburst' ? 'asMult' : 'spdMult', mult: 2, dur: 10 });
+                break;
+            case 'howl':
+                this.G.tempBuffs.push({ type: 'atkMult', mult: 1.5, dur: 10 });
                 break;
             case 'tropical':
             case 'spore':
@@ -2187,6 +2363,12 @@ export class GameManager extends Component {
             case 'bark':
                 this.G.permBuff.hp = (this.G.permBuff.hp || 1) * (cardId === 'hpUp' ? 1.3 : 1);
                 this.G.permBuff.dr = (this.G.permBuff.dr || 1) * (cardId === 'bark' ? 0.8 : 1);
+                // 已在场的己方单位立即按比例提升血量（永久加成全局生效，含老兵）
+                this.G.units.filter((u: any) => u.side === 'red').forEach((u: any) => {
+                    const oldMax = u.maxHp;
+                    u.maxHp = Math.round(u.maxHp * (cardId === 'hpUp' ? 1.3 : 1));
+                    u.hp = Math.min(u.maxHp, u.hp + (u.maxHp - oldMax));
+                });
                 break;
             case 'crit':
                 this.G.permBuff.crit = (this.G.permBuff.crit || 0) + 0.3;
@@ -2194,10 +2376,16 @@ export class GameManager extends Component {
             case 'bloodlust':
                 this.G.permBuff.lifeOnKill = 0.2;
                 break;
-            case 'frenzy':
-                this.G.permBuff.atk = (this.G.permBuff.atk || 1) * 1.4;
+            case 'frenzy': {
+                const oldAtk = this.G.permBuff.atk || 1;
+                this.G.permBuff.atk = oldAtk * 1.4;
+                const ratio = this.G.permBuff.atk / oldAtk;
+                this.G.units.filter((u: any) => u.side === 'red').forEach((u: any) => {
+                    u.atk = u.atk * ratio;
+                });
                 this.G.permBuff.as = (this.G.permBuff.as || 1) * 1.3;
                 break;
+            }
             case 'bloom':
                 for (let i = 0; i < 3; i++) {
                     this.G.units.push({

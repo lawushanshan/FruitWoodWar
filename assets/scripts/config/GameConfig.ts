@@ -87,8 +87,8 @@ export const ELITE_BOUNTY_MULTIPLIERS: Record<UnitLevel, number> = { 1: 1, 2: 1.
 
 /** 战争学院：Lv1 解锁 Lv3 兵工厂；Lv2 全队攻击 +10% 并解锁全军强化研究 */
 export const ACADEMY_LEVELS = {
-    1: { cost: 200, health: 1000 },
-    2: { cost: 400, health: 1500, attackBonus: 0.1 },
+    1: { cost: 200, health: 2000 },
+    2: { cost: 400, health: 2500, attackBonus: 0.1 },
 } as const;
 
 /** 全军强化研究（需学院 Lv2）：400 金起，每层 ×1.15，全队攻击 +8%/层，无限叠加 */
@@ -101,14 +101,14 @@ export const ARMY_RESEARCH = {
 /** 光环塔：每方限 1 座，全体己方单位攻速 +15% */
 export const AURA_TOWER = {
     cost: 250,
-    health: 800,
+    health: 1600,
     attackSpeedBonus: 0.15,
     limitPerSide: 1,
 } as const;
 
 /** 基地防御塔（双方固定各 2 座，不可建造）：塔不倒不能打水晶 */
 export const BASE_TOWER = {
-    health: 1000,
+    health: 1500,
     attack: 65,
     attacksPerSecond: 1.2,
     rangePixels: 360,
@@ -180,17 +180,17 @@ export const UNIT_TYPES: Record<UnitRoleId, UnitTypeConfig> = {
         splashRadiusPixels: 0, hasFirstStrike: false, buildingMultiplier: 1, crystalMultiplier: 1,
     },
     ranged: {
-        id: 'ranged', name: '远程', health: 150, attack: 25, attacksPerSecond: 1,
-        rangePixels: 240, speedPixelsPerSecond: 60, bounty: 7,
+        id: 'ranged', name: '远程', health: 150, attack: 20, attacksPerSecond: 1,
+        rangePixels: 210, speedPixelsPerSecond: 60, bounty: 7,
         splashRadiusPixels: 0, hasFirstStrike: false, buildingMultiplier: 1, crystalMultiplier: 1,
     },
     aoe: {
-        id: 'aoe', name: 'AOE', health: 120, attack: 35, attacksPerSecond: 0.8,
+        id: 'aoe', name: 'AOE', health: 120, attack: 32, attacksPerSecond: 0.8,
         rangePixels: 210, speedPixelsPerSecond: 54, bounty: 8,
         splashRadiusPixels: 90, hasFirstStrike: false, buildingMultiplier: 1, crystalMultiplier: 1,
     },
     rush: {
-        id: 'rush', name: '冲刺', health: 200, attack: 30, attacksPerSecond: 1,
+        id: 'rush', name: '冲刺', health: 240, attack: 30, attacksPerSecond: 1,
         rangePixels: 60, speedPixelsPerSecond: 120, bounty: 8,
         splashRadiusPixels: 0, hasFirstStrike: true, buildingMultiplier: 1, crystalMultiplier: 1,
     },
@@ -203,31 +203,31 @@ export const UNIT_TYPES: Record<UnitRoleId, UnitTypeConfig> = {
 
 export const BUILDING_TYPES: Record<BuildingId, BuildingConfig> = {
     tank: {
-        id: 'tank', name: '坦克厂', icon: '🛡️', health: 800, cost: 150,
+        id: 'tank', name: '坦克厂', icon: '🛡️', health: 1600, cost: 150,
         rangePixels: 0, attack: 0, attacksPerSecond: 0,
     },
     ranged: {
-        id: 'ranged', name: '远程厂', icon: '🏹', health: 700, cost: 130,
+        id: 'ranged', name: '远程厂', icon: '🏹', health: 1400, cost: 130,
         rangePixels: 0, attack: 0, attacksPerSecond: 0,
     },
     aoe: {
-        id: 'aoe', name: 'AOE厂', icon: '✨', health: 600, cost: 180,
+        id: 'aoe', name: 'AOE厂', icon: '✨', health: 1200, cost: 180,
         rangePixels: 0, attack: 0, attacksPerSecond: 0,
     },
     rush: {
-        id: 'rush', name: '冲刺厂', icon: '⚡', health: 700, cost: 160,
+        id: 'rush', name: '冲刺厂', icon: '⚡', health: 1400, cost: 160,
         rangePixels: 0, attack: 0, attacksPerSecond: 0,
     },
     siege: {
-        id: 'siege', name: '攻城厂', icon: '🏰', health: 900, cost: 200,
+        id: 'siege', name: '攻城厂', icon: '🏰', health: 1800, cost: 200,
         rangePixels: 0, attack: 0, attacksPerSecond: 0,
     },
     auraTower: {
-        id: 'auraTower', name: '光环塔', icon: '🌀', health: 800, cost: 250,
+        id: 'auraTower', name: '光环塔', icon: '🌀', health: 1600, cost: 250,
         rangePixels: 0, attack: 0, attacksPerSecond: 0,
     },
     academy: {
-        id: 'academy', name: '战争学院', icon: '🎓', health: 1000, cost: 200,
+        id: 'academy', name: '战争学院', icon: '🎓', health: 2000, cost: 200,
         rangePixels: 0, attack: 0, attacksPerSecond: 0,
     },
 };
