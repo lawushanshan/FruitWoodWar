@@ -219,3 +219,31 @@ M5 补漏 + 架构修复 —— 2026-08-19
 - 新增 tests/m6-features.test.ts（4 条）：复活规则/双倍工资入账/绝地反击叠加
 - 77 条 vitest 用例全部通过（9 文件）
 - 批量模拟无死局，平均时长 150~196 秒
+
+
+代码同步与 visibleSize 修复 —— 2026-08-19
+========================================
+
+十八、rebase 合并远程 12 个新提交
+----------------------------------------
+- 远程新增提交（cdd97b0 → 999dced）：
+  - 52a51f3 修复游戏逻辑异常，优化卡牌选择界面，添加倒计时功能，防止游戏假死
+  - c7fba1b 统一建筑放置逻辑，战争学院/光环塔支持自选位置建造
+  - 1065720 同步数值设计表与问题记录
+  - e0d8373 记录战争学院/光环塔自选位置建造修复及验证结果
+  - 6807294 防御塔改为范围攻击并增强伤害
+  - ea1d919 光环塔新增弱化版范围攻击
+  - e70673f 光环塔攻速buff从全场改为光环范围400px
+  - 331cf7a 建筑升级面板优化——满级隐藏升级按钮，升级建筑显示星星标识
+  - e18dde2 升级面板提前显示学院限制提示
+  - 057613a 建筑升级不再变大，统一尺寸40px
+  - 498be19 建造系统升级为网格+预览交互（v0.5.0）
+  - 999dced 结算面板添加用时统计（mm:ss格式）
+- 冲突文件（game.scene、GameManager.ts）取远程版本（更新更完整）
+- GameManager.ts 远程版本已含 try-catch 帧异常隔离，容器直接挂 this.node（Canvas）
+
+十九、visibleSize 运行时 undefined 修复（游戏无法推进根因）
+----------------------------------------
+- 问题：hud-view.ts 和 responsive-layout.ts 从 'cc' 导入 visibleSize，运行时为 undefined
+- 导致 checkResponsiveLayout() 每帧抛 TypeError: Cannot read properties of undefined (reading 'height')
+- 修复：两处均改为 view.getVisibleSize() 运行时调用，移除 visibleSize 静态导入
