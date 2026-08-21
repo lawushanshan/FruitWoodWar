@@ -2721,7 +2721,7 @@ export class GameManager extends Component {
             let size = 40;
             let emoji = '🏭';
             if (b.type === 'factory') {
-                size = 40 + ((b.level || 1) - 1) * 8; // 精英厂更大
+                size = 40; // 统一尺寸，等级由星标区分（v0.4.5 去掉升级变大避免挤压）
                 emoji = UNIT_EMOJI[b.unitType as UnitRoleId] || '🏭';
             }
             if (b.type === 'academy') { color = new Color(170, 120, 220); size = 52; emoji = '🎓'; }
