@@ -45,14 +45,14 @@ export class ColorSpriteFactory {
     private getSharedRectFrame(): SpriteFrame {
         if (this.sharedRectFrame) return this.sharedRectFrame;
         const tex = new Texture2D();
-        // 一个白像素（RGBA8888）
-        const pixel = new Uint8Array([255, 255, 255, 255]);
+        // 一个白像素（RGBA8888）。注意：reset 后必须显式 uploadData 上传像素，
+        // 否则纹理为空 → 所有 Sprite 不可见（全屏黑）
         tex.reset({
             width: 1,
             height: 1,
             format: Texture2D.PixelFormat.RGBA8888,
-            data: pixel,
         });
+        tex.uploadData(new Uint8Array([255, 255, 255, 255]));
         const sf = new SpriteFrame();
         sf.texture = tex;
         this.sharedRectFrame = sf;
@@ -144,12 +144,13 @@ export class ColorSpriteFactory {
         }
 
         const tex = new Texture2D();
+        // reset 后显式上传像素（data 不在 ITexture2DCreateInfo 中，静默忽略会导致空纹理）
         tex.reset({
             width: fw,
             height: fh,
             format: Texture2D.PixelFormat.RGBA8888,
-            data: pixels,
         });
+        tex.uploadData(pixels);
         const sf = new SpriteFrame();
         sf.texture = tex;
         this.cache.set(key, sf);
@@ -168,11 +169,15 @@ export class ColorSpriteFactory {
         uiTransform.contentSize = new Size(w, h);
         uiTransform.anchorPoint = new Vec2(0.5, 0.5);
         const sprite = node.addComponent(Sprite);
-        const sf = this.getSpriteFrame(color, w, h, shape);
-        if (sf) sprite.spriteFrame = sf;
-        // 统一使用 UITransform 的尺寸（不依赖 SpriteFrame trim 数据）
+        // 必须在挂 SpriteFrame 之前固定 sizeMode/type：
+        // 默认 RAW 模式下赋值 spriteFrame 会立刻把节点重置为纹理尺寸
+        // （共享矩形帧是 1×1 像素，会把所有节点缩成 1×1 → 全屏不可见）
         sprite.sizeMode = Sprite.SizeMode.CUSTOM;
         sprite.type = Sprite.Type.SIMPLE;
+        const sf = this.getSpriteFrame(color, w, h, shape);
+        if (sf) sprite.spriteFrame = sf;
+        // 挂帧后再断言一次尺寸（防御引擎版本在赋值路径上改写 contentSize）
+        uiTransform.contentSize = new Size(w, h);
         if (shape === 'rect') {
             // 矩形：通过 Sprite.color 染色实现颜色
             sprite.color = color.clone();

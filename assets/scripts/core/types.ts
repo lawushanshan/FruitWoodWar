@@ -158,6 +158,8 @@ export interface BuildingState {
     waveTimer: number;
     /** 工厂等级（1~3，等级影响出兵属性与建筑血量） */
     level: 1 | 2 | 3;
+    /** 建筑类别标记：工厂无此字段；学院为可被拆除的实体建筑 */
+    kind?: 'academy';
 }
 
 /** 防御塔运行时状态 */
@@ -327,6 +329,8 @@ export interface GameState {
     nextId: number;
     /** 是否启用双倍工资（广告激励） */
     doubleSalary: boolean;
+    /** 禁用卡牌触发（批量平衡模拟用） */
+    disableCards: boolean;
 }
 
 // ==================== 命令 ====================
@@ -353,4 +357,6 @@ export interface StartOptions {
     difficulty?: Difficulty;
     /** 是否启用双倍工资（广告激励，表现层在开局前确认后传入） */
     doubleSalary?: boolean;
+    /** 禁用卡牌触发（批量平衡模拟用：隔离玩家卡牌优势，纯测阵营强度） */
+    disableCards?: boolean;
 }

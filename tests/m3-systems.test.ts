@@ -134,17 +134,21 @@ describe('建筑：学院 / 光环塔 / 全军强化', () => {
         expect(lv3.ok).toBe(false);
     });
 
-    it('光环塔：250 金、每方限 1 座、全队攻速 +15%', () => {
+    it('光环塔：250 金、每方限 1 座、400px 内己方攻速 +15%（范围外无效）', () => {
         const engine = makeEngine();
         const s = writableState(engine);
         s.gold.blue = 0;
         s.gold.red = 1000;
-        expect(effectiveAttackSpeedMult(s, 'red')).toBe(1);
+        expect(effectiveAttackSpeedMult(s, 'red', -420, 0)).toBe(1);
 
         const built = engine.execute({ type: 'build', itemId: 'aura', position: { x: -420, y: 0 } });
         expect(built.ok).toBe(true);
         expect(s.gold.red).toBe(750);
-        expect(effectiveAttackSpeedMult(s, 'red')).toBeCloseTo(1.15, 5);
+        // 塔周围 400px 内生效
+        expect(effectiveAttackSpeedMult(s, 'red', -420, 0)).toBeCloseTo(1.15, 5);
+        expect(effectiveAttackSpeedMult(s, 'red', -100, 0)).toBeCloseTo(1.15, 5);
+        // 400px 外不生效（v0.4：光环不再全场）
+        expect(effectiveAttackSpeedMult(s, 'red', 0, 0)).toBe(1);
 
         // 限 1 座
         const again = engine.execute({ type: 'build', itemId: 'aura', position: POS });
@@ -152,7 +156,7 @@ describe('建筑：学院 / 光环塔 / 全军强化', () => {
 
         // 光环塔被拆后失效
         s.towers = s.towers.filter(t => !(t.side === 'red' && t.kind === 'aura'));
-        expect(effectiveAttackSpeedMult(s, 'red')).toBe(1);
+        expect(effectiveAttackSpeedMult(s, 'red', -420, 0)).toBe(1);
     });
 
     it('全军强化：需学院 Lv2，400 金起 ×1.15 递增，每层 +8% 攻击', () => {

@@ -21,7 +21,7 @@
  *  - 攻城：矩形 22×14
  */
 
-import { Node, Color, Sprite, UIOpacity } from 'cc';
+import { Node, Color, Sprite, UIOpacity, Label, UITransform, Size } from 'cc';
 import { ColorSpriteFactory, Shape } from './color-sprite-factory';
 import { NodePool } from './node-pool';
 import { setUniformScale } from './scale-helper';
@@ -112,25 +112,43 @@ export class GameView {
             aliveIds.add(b.id);
             let node = this.buildingNodes.get(b.id);
             if (!node) {
-                // 根据建筑类型选形状
+                // 根据建筑类型选形状：工厂方形 40×40；学院六角 46×46
                 let shape: Shape = 'rect';
                 let w = 40, h = 40;
                 let colorKey = 'building';
-                if (!b.unitType) {
-                    // 非兵工厂（不应该出现在 buildings 里，但防御性处理）
-                    shape = 'rect';
+                if (b.kind === 'academy') {
+                    shape = 'hexagon';
+                    w = 46; h = 46;
+                    colorKey = 'academy';
                 }
                 const colors = ENTITY_COLORS[colorKey];
-                node = this.pool.acquire(`building_${b.side}`, () =>
+                node = this.pool.acquire(`building_${b.kind ?? 'factory'}_${b.side}`, () =>
                     this.spriteFactory.createColorNode(colors[b.side], w, h, shape),
                 );
                 node.parent = this.container;
+                // 工厂挂星标子节点（Lv2 ★ / Lv3 ★★）
+                if (b.kind !== 'academy') {
+                    const badge = new Node('StarBadge');
+                    badge.layer = node.layer;
+                    badge.parent = node;
+                    const ut = badge.addComponent(UITransform);
+                    ut.contentSize = new Size(40, 14);
+                    const label = badge.addComponent(Label);
+                    label.string = '';
+                    label.fontSize = 12;
+                    label.color = new Color(255, 215, 94);
+                    label.lineHeight = 12;
+                    badge.setPosition(0, 26, 0);
+                }
                 this.buildingNodes.set(b.id, node);
             }
             node.setPosition(b.x, b.y, 0);
-            // 精英等级用缩放表示
-            const levelScale = b.level === 1 ? 1 : b.level === 2 ? 1.15 : 1.3;
-            setUniformScale(node, levelScale);
+            // 工厂等级用星标区分（v0.5：建筑不再随等级变大，避免视觉挤压）
+            const badge = node.getChildByName('StarBadge');
+            if (badge) {
+                const label = badge.getComponent(Label);
+                if (label) label.string = b.level === 2 ? '★' : b.level === 3 ? '★★' : '';
+            }
         }
         this.cleanupDead(aliveIds, this.buildingNodes, 'building');
     }

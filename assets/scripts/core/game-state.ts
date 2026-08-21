@@ -90,6 +90,7 @@ export function createInitialState(options: StartOptions): GameState {
         aiMemory: { playerCompSnapshot: emptyComp() },
         nextId: 1,
         doubleSalary: options.doubleSalary ?? false,
+        disableCards: options.disableCards ?? false,
     };
 
     // 双方大本营水晶（4000 血）

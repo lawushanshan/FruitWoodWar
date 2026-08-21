@@ -10,7 +10,7 @@
  */
 
 import {
-    Node, Label, Color, UITransform, Size, Vec2, Button, EventHandler,
+    Node, Label, Color, UITransform, Size, Vec2, Button, EventHandler, Sprite,
 } from 'cc';
 import { ColorSpriteFactory } from './color-sprite-factory';
 import { FACTION_CONFIG, FACTION_IDS } from '../config/faction-config';
@@ -24,6 +24,9 @@ const RARITY_COLORS: Record<string, Color> = {
     legendary: new Color(255, 215, 94),
 };
 
+/** 卡牌选择倒计时（秒）：超时自动选第一张，防止选卡暂停导致游戏假死 */
+const CARD_CHOICE_TIMEOUT_S = 15;
+
 export class PanelController {
 
     // ---- 面板节点 ----
@@ -35,8 +38,21 @@ export class PanelController {
     // ---- 动态标签 ----
     private diffLabel: Label | null = null;
     private cardSubLabel: Label | null = null;
+    private cardCountdownLabel: Label | null = null;
     private endStatsLabel: Label | null = null;
     private toastLabel: Label | null = null;
+
+    // ---- 卡牌倒计时 ----
+    /** 倒计时剩余秒数；<=0 表示无进行中的选卡 */
+    private cardTimeoutSeconds = 0;
+
+    // ---- 建筑升级面板 ----
+    private upgradePanel: Node | null = null;
+    private upgradeInfoLabel: Label | null = null;
+    private upgradeCostLabel: Label | null = null;
+    private upgradeBtnNode: Node | null = null;
+    /** 当前升级面板指向的建筑 id */
+    private upgradeBuildingId: string | null = null;
 
     /** Toast 自动隐藏定时器 */
     private toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -76,10 +92,11 @@ export class PanelController {
         if (this.startPanel) this.startPanel.active = false;
     }
 
-    /** 显示卡牌选择面板（引擎进入 card-pause 时调用） */
+    /** 显示卡牌选择面板（引擎进入 card-pause 时调用），启动 N 秒倒计时 */
     showCards(state: GameState) {
         if (!this.cardPanel) return;
         this.cardPanel.active = true;
+        this.cardTimeoutSeconds = CARD_CHOICE_TIMEOUT_S;
 
         // 清除旧卡牌节点
         const oldCards = this.cardPanel.children.filter(c => c.name.startsWith('Card_'));
@@ -101,6 +118,26 @@ export class PanelController {
     /** 隐藏卡牌面板 */
     hideCards() {
         if (this.cardPanel) this.cardPanel.active = false;
+        this.cardTimeoutSeconds = 0;
+    }
+
+    /**
+     * 卡牌倒计时（GameManager 每帧调用，含 card-pause 阶段）。
+     * 倒计时归零时回调 onTimeout（自动选第一张），防止选卡暂停导致游戏假死。
+     */
+    updateCardCountdown(dt: number, onTimeout: () => void) {
+        if (this.cardTimeoutSeconds <= 0) return;
+        this.cardTimeoutSeconds -= dt;
+        if (this.cardCountdownLabel) {
+            this.cardCountdownLabel.string =
+                this.cardTimeoutSeconds > 0
+                    ? `⏱ ${Math.ceil(this.cardTimeoutSeconds)} 秒后自动选择`
+                    : '';
+        }
+        if (this.cardTimeoutSeconds <= 0) {
+            this.cardTimeoutSeconds = 0;
+            onTimeout();
+        }
     }
 
     /** 显示结算面板（引擎进入 ended 时调用） */
@@ -155,6 +192,114 @@ export class PanelController {
     /** 获取当前选中的难度 */
     getSelectedDifficulty(): Difficulty {
         return this.difficulty;
+    }
+
+    // ==================== 建筑升级面板 ====================
+
+    /** 当前升级面板指向的建筑 id（无面板时为 null） */
+    getUpgradeBuildingId(): string | null {
+        return this.upgradeBuildingId;
+    }
+
+    /**
+     * 显示建筑升级面板（点击己方兵工厂时调用）。
+     * - Lv3 满级：隐藏升级按钮，显示"已升至最高级"
+     * - Lv2→3 无学院：按钮置灰 + 提前提示"需先建造战争学院"
+     */
+    showUpgrade(state: GameState, buildingId: string) {
+        this.createUpgradePanelOnce();
+        this.upgradeBuildingId = buildingId;
+        this.refreshUpgrade(state);
+        if (this.upgradePanel) this.upgradePanel.active = true;
+    }
+
+    /** 按最新状态刷新升级面板（升级/建学院后调用；面板显示中才刷新） */
+    refreshUpgrade(state: GameState) {
+        if (!this.upgradePanel || !this.upgradePanel.active || !this.upgradeBuildingId) return;
+        const b = state.buildings.find(x => x.id === this.upgradeBuildingId && x.side === state.playerSide);
+        if (!b || b.unitType === null) {
+            this.hideUpgrade();
+            return;
+        }
+        const stars = b.level === 2 ? '★' : b.level === 3 ? '★★' : '';
+        if (this.upgradeInfoLabel) {
+            this.upgradeInfoLabel.string =
+                `兵工厂 Lv${b.level}${stars}` +
+                (b.level === 3 ? '（已满级）' : b.level === 2 && state.academyLevel[state.playerSide] < 1 ? '（需战争学院 Lv1）' : '');
+        }
+        if (this.upgradeCostLabel) {
+            this.upgradeCostLabel.string =
+                b.level === 1 ? '升级费用：150 金（→Lv2★）'
+                : b.level === 2
+                    ? (state.academyLevel[state.playerSide] < 1
+                        ? '⚠ 需先建造「战争学院」才能升到 Lv3'
+                        : '升级费用：300 金（→Lv3★★）')
+                    : '已升至最高级，不再升级';
+        }
+        if (this.upgradeBtnNode) {
+            // 满级隐藏；无学院置灰
+            this.upgradeBtnNode.active = b.level < 3;
+            const bg = this.upgradeBtnNode.getChildByName('BtnBg');
+            if (bg) {
+                const sp = bg.getComponent(Sprite);
+                if (sp) {
+                    sp.color = b.level === 2 && state.academyLevel[state.playerSide] < 1
+                        ? new Color(70, 80, 88)
+                        : new Color(63, 109, 51);
+                }
+            }
+        }
+    }
+
+    /** 隐藏升级面板 */
+    hideUpgrade() {
+        if (this.upgradePanel) this.upgradePanel.active = false;
+        this.upgradeBuildingId = null;
+    }
+
+    private createUpgradePanelOnce() {
+        if (this.upgradePanel) return;
+
+        const panel = new Node('UpgradePanel');
+        panel.layer = this.gmNode.layer;
+        panel.parent = this.container;
+        panel.active = false;
+        const ut = panel.addComponent(UITransform);
+        ut.contentSize = new Size(320, 200);
+        ut.anchorPoint = new Vec2(0.5, 0.5);
+        panel.setPosition(0, -40, 0);
+
+        const bg = this.spriteFactory.createColorNode(new Color(5, 10, 14, 220), 320, 200);
+        bg.parent = panel;
+
+        this.upgradeInfoLabel = this.makeLabel('兵工厂 Lv1', 0, 70, Color.WHITE, panel, 20);
+        this.upgradeCostLabel = this.makeLabel('升级费用：150 金', 0, 20, new Color(255, 215, 94), panel, 16);
+
+        // 升级按钮（含背景节点名 BtnBg，供置灰刷新）
+        const btn = new Node('UpgradeBtn');
+        btn.layer = this.gmNode.layer;
+        btn.parent = panel;
+        const bUt = btn.addComponent(UITransform);
+        bUt.contentSize = new Size(160, 44);
+        const btnBg = this.spriteFactory.createColorNode(new Color(63, 109, 51), 160, 44);
+        btnBg.name = 'BtnBg';
+        btnBg.parent = btn;
+        const bLabel = btn.addComponent(Label);
+        bLabel.string = '⬆ 升级';
+        bLabel.fontSize = 18;
+        bLabel.color = Color.WHITE;
+        btn.setPosition(0, -60, 0);
+
+        const button = btn.addComponent(Button);
+        button.transition = Button.Transition.SCALE;
+        const handler = new EventHandler();
+        handler.target = this.gmNode;
+        handler.component = 'GameManager';
+        handler.handler = 'onBuildingUpgradeClick';
+        button.clickEvents = [handler];
+
+        this.upgradeBtnNode = btn;
+        this.upgradePanel = panel;
     }
 
     // ==================== EventHandler 回调（由 GameManager 路由） ====================
@@ -328,6 +473,9 @@ export class PanelController {
         this.cardSubLabel.color = new Color(159, 180, 196);
         this.cardSubLabel.lineHeight = 22;
         sub.setPosition(0, 180, 0);
+
+        // 倒计时标签（副标题下方）
+        this.cardCountdownLabel = this.makeLabel('', 0, 150, new Color(255, 160, 90), this.cardPanel, 16);
     }
 
     private createEndPanel() {

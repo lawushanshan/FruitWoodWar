@@ -22,6 +22,7 @@ const RAIN_DURATION = 9999;
 
 /** 若当前波次命中卡牌触发点则进入暂停并抽 3 张卡；返回是否触发 */
 export function triggerCardChoiceIfDue(state: GameState, random: RandomSource): boolean {
+    if (state.disableCards) return false;
     const wave = state.wave;
     if (GAME_CONFIG.cardTriggerWaves.includes(wave) && !state.cards.triggeredWaves[wave]) {
         state.cards.triggeredWaves[wave] = true;
@@ -136,7 +137,7 @@ function applyCardEffect(state: GameState, cardId: string): void {
                     hp: 200,
                     maxHp: 200,
                     atk: 15,
-                    speed: 30,
+                    speed: 48, // v0.4 修复：过慢会卡住不动，对齐常规坦克速度量级
                     range: 50,
                     atkSpeed: 0.8,
                     atkCd: 0,

@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { GameEngine } from '../assets/scripts/core/game-engine';
 import { SeededRandomSource } from '../assets/scripts/core/random';
 import { buildingCostInState, cheapestFactoryId } from '../assets/scripts/config/building-config';
+import { BUILD_GRID } from '../assets/scripts/config/build-grid';
 import type { FactionId } from '../assets/scripts/core/types';
 
 /** 单局时间上限（秒）；决战时刻为 M3 范围，超时记为未分胜负 */
@@ -33,7 +34,7 @@ interface MatchSummary {
 /** 跑一局：红方镜像 AI 策略 + 自动选卡 */
 function playMatch(red: FactionId, blue: FactionId, seed: number): MatchSummary {
     const engine = new GameEngine(new SeededRandomSource(seed));
-    engine.reset({ playerFaction: red, aiFaction: blue, difficulty: 'normal' });
+    engine.reset({ playerFaction: red, aiFaction: blue, difficulty: 'normal', disableCards: true });
 
     const dt = 1 / 30;
     let maxGold = 0;
@@ -42,16 +43,14 @@ function playMatch(red: FactionId, blue: FactionId, seed: number): MatchSummary 
 
     while (engine.state.phase !== 'ended' && engine.state.time < MATCH_CAP_S) {
         const s = engine.state;
-        // 红方自动策略：与蓝方 AI 同款（最便宜工厂，上限 8 座）
-        const myFactories = s.buildings.filter(b => b.side === 'red').length;
-        if (myFactories < FACTORY_CAP) {
+        // 红方自动策略：与蓝方 AI 同款（最便宜工厂，上限 8 座），建造位置同样走网格
+        const myBuildings = s.buildings.filter(b => b.side === 'red');
+        if (myBuildings.length < FACTORY_CAP) {
             const itemId = cheapestFactoryId(s.factions.red);
             if (s.gold.red >= buildingCostInState(s, 'red', itemId)) {
-                engine.execute({
-                    type: 'build',
-                    itemId,
-                    position: { x: -350 + engine.random.range(0, 100), y: -50 + engine.random.range(-30, 30) },
-                });
+                const occupied = new Set(myBuildings.map(b => `${Math.round(b.x)},${Math.round(b.y)}`));
+                const cell = BUILD_GRID.cells().find(c => !occupied.has(`${c.x},${c.y}`)) ?? { x: -400, y: -100 };
+                engine.execute({ type: 'build', itemId, position: cell });
             }
         }
         engine.step(dt);

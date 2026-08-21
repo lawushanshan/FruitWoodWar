@@ -13,7 +13,8 @@
 import { GAME_CONFIG } from '../../config/game-config';
 import { FACTION_CONFIG } from '../../config/faction-config';
 import { UNIT_CONFIG, counterMultiplier } from '../../config/unit-config';
-import { eliteBountyMult } from '../../config/building-config';
+import { eliteBountyMult, AURA_TOWER_CONFIG, BASE_TOWER_CONFIG } from '../../config/building-config';
+import { syncAcademyLevel } from './building-system';
 import type {
     BuildingState,
     CrystalState,
@@ -44,16 +45,30 @@ export function auraAlive(state: GameState, side: Side): boolean {
     return state.towers.some(t => t.side === side && t.kind === 'aura');
 }
 
-/** 某边当前攻速倍率：永久 buff × 光环塔 × 临时 buff */
-export function effectiveAttackSpeedMult(state: GameState, side: Side): number {
+/**
+ * 某边当前攻速倍率：永久 buff × 光环塔 × 临时 buff。
+ * 光环只在塔周围 AURA_TOWER_CONFIG.buffRadius（400px）内生效（v0.4：不再全场）。
+ * 传入了单位位置时按位置判定；未传入时仅在无光环塔时给 1（保守值）。
+ */
+export function effectiveAttackSpeedMult(state: GameState, side: Side, x?: number, y?: number): number {
     let mult = state.buffs[side].attackSpeed;
-    if (auraAlive(state, side)) {
+    if (x !== undefined && y !== undefined && auraCovers(state, side, x, y)) {
         mult *= 1 + GAME_CONFIG.auraAttackSpeedBonus;
     }
     for (const tb of state.tempBuffs) {
         if (tb.side === side && tb.type === 'attackSpeedMult') mult *= tb.mult;
     }
     return mult;
+}
+
+/** 某边的光环塔是否覆盖指定位置（欧氏距离内） */
+export function auraCovers(state: GameState, side: Side, x: number, y: number): boolean {
+    for (const t of state.towers) {
+        if (t.side !== side || t.kind !== 'aura') continue;
+        const d = Math.hypot(t.x - x, t.y - y);
+        if (d <= AURA_TOWER_CONFIG.buffRadius) return true;
+    }
+    return false;
 }
 
 /** 某边当前攻击倍率：永久 buff × 临时 buff × 狼群（按友军数量加成） */
@@ -87,7 +102,6 @@ export function stepCombat(state: GameState, dt: number, random: RandomSource): 
         updateUnit(state, u, dt, random);
     }
     for (const t of state.towers) {
-        if (t.kind === 'aura') continue; // 光环塔不攻击
         updateTower(state, t, dt);
     }
 }
@@ -109,6 +123,9 @@ export function cleanupDead(state: GameState): void {
     state.units = state.units.filter(u => u.hp > 0);
     state.buildings = state.buildings.filter(b => b.hp > 0);
     state.towers = state.towers.filter(t => t.hp > 0);
+    // 学院被拆：等级与已生效加成随之回落
+    syncAcademyLevel(state, 'red');
+    syncAcademyLevel(state, 'blue');
 }
 
 /** 识别目标类别：建筑有 unitType 字段，单位有 type 字段，塔有 atk 字段，其余为水晶 */
@@ -149,7 +166,7 @@ function updateUnit(state: GameState, u: UnitState, dt: number, random: RandomSo
         if (dist <= u.range) {
             if (u.atkCd <= 0) {
                 attack(state, u, target, random);
-                u.atkCd = 1 / (u.atkSpeed * effectiveAttackSpeedMult(state, u.side));
+                u.atkCd = 1 / (u.atkSpeed * effectiveAttackSpeedMult(state, u.side, u.x, u.y));
             }
         } else {
             const speedMult = spdMult * effectiveSpeedMult(state, u.side);
@@ -242,8 +259,9 @@ function attack(state: GameState, attacker: UnitState, target: AttackTarget, ran
     if (state.buffs[attacker.side].execute && target.hp < target.maxHp * 0.3) dmg *= 2;
 
     // 按目标类别结算倍率
-    if (kind === 'unit') {
-        dmg *= counterMultiplier(attacker.type, target.type);
+    const unitTarget = kind === 'unit' ? (target as UnitState) : null;
+    if (unitTarget) {
+        dmg *= counterMultiplier(attacker.type, unitTarget.type);
     } else if (kind === 'crystal') {
         // 攻城全额（含 ×15），非攻城 ×0.75
         dmg *= attacker.type === 'siege' ? GAME_CONFIG.siegeVsBuildingMult : GAME_CONFIG.crystalDamageReduce;
@@ -272,9 +290,9 @@ function attack(state: GameState, attacker: UnitState, target: AttackTarget, ran
     }
 
     // 流血（利爪撕裂）：攻击附带持续伤害
-    if (kind === 'unit' && dmg > 0 && state.buffs[attacker.side].bleed > 0) {
-        target.bleedDps = dmg * state.buffs[attacker.side].bleed;
-        target.bleedDur = BLEED_DURATION;
+    if (unitTarget && dmg > 0 && state.buffs[attacker.side].bleed > 0) {
+        unitTarget.bleedDps = dmg * state.buffs[attacker.side].bleed;
+        unitTarget.bleedDur = BLEED_DURATION;
     }
 
     // AOE 兵种 innate 溅射：对目标周围敌方单位造成 50% 伤害
@@ -307,9 +325,9 @@ function attack(state: GameState, attacker: UnitState, target: AttackTarget, ran
         if (lifeOnKill > 0) {
             attacker.hp = Math.min(attacker.maxHp, attacker.hp + attacker.maxHp * lifeOnKill);
         }
-        if (kind === 'unit') {
+        if (unitTarget) {
             // 击杀赏金：兵种赏金 × 精英倍率
-            state.gold[attacker.side] += UNIT_CONFIG[target.type].bounty * eliteBountyMult(target.level);
+            state.gold[attacker.side] += UNIT_CONFIG[unitTarget.type].bounty * eliteBountyMult(unitTarget.level);
         } else if (kind === 'building') {
             // 拆厂赏金：+50 金
             state.gold[attacker.side] += GAME_CONFIG.razeBounty;
@@ -317,7 +335,11 @@ function attack(state: GameState, attacker: UnitState, target: AttackTarget, ran
     }
 }
 
-/** 更新防御塔：冷却后攻击射程内最近的敌方单位 */
+/**
+ * 更新防御塔（基地塔与光环塔）：冷却后攻击射程内最近的敌方单位。
+ * - 基地塔：攻 80 / 攻速 1.2 / 射程 360，主目标全额 + 40% 溅射（半径 80px）
+ * - 光环塔：攻 40 / 攻速 0.8 / 射程 280，主目标全额 + 30% 溅射（半径 70px）
+ */
 function updateTower(state: GameState, t: TowerState, dt: number): void {
     if (t.atkCd > 0) {
         t.atkCd -= dt;
@@ -334,9 +356,19 @@ function updateTower(state: GameState, t: TowerState, dt: number): void {
         }
     }
     if (target) {
+        const splashConf = t.kind === 'aura' ? AURA_TOWER_CONFIG : BASE_TOWER_CONFIG;
         const hpBefore = target.hp;
         target.hp -= t.atk;
         if (target.hp < 0) target.hp = 0;
+        // 范围攻击：主目标周围敌方单位受到溅射比例伤害
+        const splashDmg = t.atk * splashConf.splashFraction;
+        for (const e of state.units) {
+            if (e.side === t.side || e === target || e.hp <= 0) continue;
+            if (Math.abs(e.x - target.x) + Math.abs(e.y - target.y) < splashConf.splashRadius) {
+                e.hp -= splashDmg;
+                if (e.hp < 0) e.hp = 0;
+            }
+        }
         t.atkCd = 1 / t.atkSpeed;
         if (hpBefore > 0 && target.hp <= 0) {
             state.stats.kills[t.side]++;

@@ -1,0 +1,63 @@
+架构回归与单体演进合并 —— 2026-08-21（v1.1.0）
+========================================
+
+背景
+--------
+08-19 rebase 远程 12 个提交时，GameManager.ts 冲突取了远程单体版本（3038 行），
+导致 M1~M6 拆分的 core/presentation 新架构整体脱钩：场景只挂单体脚本，
+core/game-engine 与八大系统、GameView/HudView/PanelController、AdManager 全部
+成为只有 vitest 在跑的死代码；运行时数值（旧 config/GameConfig.ts）停留在
+v1.0.0 调参之前（fruit 0.78/0.9、wood 1.35/0.5），与文档冻结值分叉。
+
+本次改动
+--------
+一、恢复架构
+- GameManager.ts 重写为 501→674 行装配器（基于 rebase 前的 9dd1a74 版本演进），
+  场景 game.scene 同步恢复装配器挂载参数
+- 删除 assets/scripts/config/GameConfig.ts（重复数值源）与 core/CombatRules.ts
+  及其测试（GameConfig.test / M2Systems.test / CombatRules.test），
+  新增 tests/config.test.ts 对新 config 逐项断言冻结值
+
+二、单体玩法演进移植进 core / presentation
+- config/build-grid.ts（新增）：9列×8行建造网格，行 ±100~±250（v0.5.1 收拢）
+- combat-system：基地塔/光环塔范围攻击（主目标全额+溅射比例伤害）；
+  光环塔参与攻击；攻速光环按单位位置判定（塔 400px 内）
+- building-system：学院实体化（可放置/可被拆，被拆等级回落+回收 Lv2 加成）；
+  光环塔带攻击属性创建
+- card-system：树人速度 30→48（修复卡住）；新增 disableCards 模拟开关
+- ai-system：建造位置走镜像网格（x 330~470 玩家区镜像深度），防重叠
+- game-view：学院六角 46px、工厂星标（Lv2★/Lv3★★）、建筑固定 40px 不再变大
+- panel-controller：卡牌 15 秒倒计时自动选第一张（防假死）；
+  建筑升级面板（满级隐藏按钮、无学院置灰+提示提前、建学院后自动恢复）
+- GameManager：网格+预览建造（吸附/红绿反馈/网格底图/ESC 取消/连续建造）；
+  点击己方工厂打开升级面板；engine.step 帧异常隔离
+
+三、验证
+- 95 条 vitest 全部通过（12→10 文件，新增 config.test 20 条断言组）
+- tsc 类型检查通过（仅剩存量 color-sprite-factory 类型噪音）
+- 批量模拟 3×100 局：无死局/无经济膨胀，对局 400s 落在 5~8 分钟设计区间；
+  阵营排序 wood > animal > fruit，水果垫底加剧（登记 M4 调参候选）
+
+遗留
+--------
+- fruit hpMult 0.85→0.90 调参候选，需真人试玩验证
+- 待用户在 Cocos Creator 打开工程确认场景运行、真机构建测试
+
+二十、预览黑屏修复（用户反馈"启动游戏后背景全黑，看不到水晶塔等元素"）
+--------
+两个叠加的渲染 bug，都在 presentation/color-sprite-factory.ts：
+
+① Sprite 赋值顺序：默认 RAW sizeMode 下 sprite.spriteFrame = sf 会立刻把节点
+   UITransform 重置为纹理尺寸。共享矩形帧是 1×1 像素 → 所有实体被缩成 1×1。
+   修复：先设 sizeMode=CUSTOM/type=SIMPLE 再挂帧，挂帧后再断言一次 contentSize。
+   （单体版没踩坑是因为它每个颜色生成整尺寸纹理，RAW 重置后尺寸恰好相同）
+
+② 纹理像素从未上传：Texture2D.reset({..., data: pixels}) 中的 data 字段根本
+   不存在于 ITexture2DCreateInfo（此前 tsc 报过此错被当作类型噪音忽略——实际
+   是真 bug：reset 静默忽略 data，纹理为空 → 所有 Sprite 透明）。
+   修复：reset 后显式调用 tex.uploadData(pixels)。
+
+实测验证（浏览器预览 + 页面内探针）：
+- 背景/路面/建造区/水晶(红255,100,100/蓝100,150,255)/HUD/建造栏像素采样正常
+- 引擎快进 36s：第 1 波出兵 3 个、建筑 2、基地塔 4、水晶 4000/4000、phase=playing
+- 87 条 vitest 通过；tsc 通过（此前的两条"存量噪音"已随本修复消除）

@@ -57,7 +57,7 @@ describe('战斗系统：攻城与水晶', () => {
         const s = writableState(engine);
         clearBattlefield(s);
         s.units = [makeUnit({ side: 'red', id: 'r1', type: 'siege', x: 0, y: 0, atk: 12, range: 325, speed: 0, hp: 9999, maxHp: 9999 })];
-        s.towers.push({ id: 't1', side: 'blue', x: 300, y: 0, hp: 1000, maxHp: 1000, range: 300, atk: 65, atkSpeed: 1.2, atkCd: 99 });
+        s.towers.push({ id: 't1', side: 'blue', kind: 'base', x: 300, y: 0, hp: 1000, maxHp: 1000, range: 300, atk: 65, atkSpeed: 1.2, atkCd: 99 });
         engine.step(1 / 60);
         expect(s.towers[0].hp).toBeCloseTo(1000 - 180, 5);
     });

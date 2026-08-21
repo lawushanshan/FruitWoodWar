@@ -4,7 +4,7 @@
  * - 兵工厂价格 = 基准价 × 阵营倍率 × 同类递增（每多 1 座同类厂 +25%）
  * - 工厂升级：Lv2 150 金（属性 ×1.5）、Lv3 300 金（属性 ×2.2，需学院 Lv1）
  * - 战争学院：Lv1 200 金（解锁 Lv3）、Lv2 再花 400 金（全队攻击 +10%、解锁全军强化）
- * - 光环塔：250 金 / 800 血，全队攻速 +15%，每方限 1 座
+ * - 光环塔：250 金 / 1600 血，攻速光环（400px 内 +15%）+ 弱化版范围攻击，每方限 1 座
  * - 全军强化：400 金起、每层 ×1.15 递增，全队攻击 +8%/层，无限叠加
  * - 基地防御塔为固定建筑（双方各 2 座，不可建造）
  */
@@ -24,7 +24,7 @@ export const BUILDING_CONFIG: Record<BuildingItemId, BuildingConfig> = {
     rush: { id: 'rush', kind: 'factory', name: '冲锋厂', hp: 700, cost: 160, icon: '⚡', unitType: 'rush' },
     siege: { id: 'siege', kind: 'factory', name: '攻城厂', hp: 900, cost: 200, icon: '🪨', unitType: 'siege' },
     academy: { id: 'academy', kind: 'academy', name: '战争学院', hp: 1000, cost: GAME_CONFIG.academyLv1Cost, icon: '🎓' },
-    aura: { id: 'aura', kind: 'aura', name: '光环塔', hp: 800, cost: 250, icon: '💠' },
+    aura: { id: 'aura', kind: 'aura', name: '光环塔', hp: 1600, cost: 250, icon: '💠' },
 };
 
 /**
@@ -32,11 +32,36 @@ export const BUILDING_CONFIG: Record<BuildingItemId, BuildingConfig> = {
  * 血 1000 / 攻 65 / 攻速 1.2 / 射程 6 格 = 300px。
  * 规则：敌方基地塔未被拆完前，水晶不可被攻击（防一波偷家）。
  */
+/**
+ * 基地防御塔（§6.4，双方固定 2 座，不可建造）：
+ * 血 1500 / 攻 80 / 攻速 1.2 / 射程 360px，范围攻击：主目标全额 + 40% 溅射（半径 80px）。
+ * 规则：敌方基地塔未被拆完前，水晶不可被攻击（防一波偷家）。
+ */
 export const BASE_TOWER_CONFIG = {
-    hp: 1000,
-    atk: 65,
+    hp: 1500,
+    atk: 80,
     atkSpeed: 1.2,
-    range: 300,
+    range: 360,
+    /** 溅射伤害比例（主目标的百分比） */
+    splashFraction: 0.4,
+    /** 溅射半径（px） */
+    splashRadius: 80,
+} as const;
+
+/**
+ * 光环塔（v0.4 远程演进合并）：
+ * 血 1600 / 攻 40 / 攻速 0.8 / 射程 280px，弱化版范围攻击（30% 溅射，半径 70px）；
+ * 攻速 +15% 光环仅在塔周围 400px 内生效（不再全场）。
+ */
+export const AURA_TOWER_CONFIG = {
+    hp: 1600,
+    atk: 40,
+    atkSpeed: 0.8,
+    range: 280,
+    splashFraction: 0.3,
+    splashRadius: 70,
+    /** 攻速光环生效半径（px） */
+    buffRadius: 400,
 } as const;
 
 /** 某边现有同类兵工厂数量（用于价格递增） */

@@ -10,6 +10,7 @@
  */
 
 import { BUILDING_CONFIG, buildingCostInState, cheapestFactoryId, researchCost, upgradeCost } from '../../config/building-config';
+import { BUILD_GRID } from '../../config/build-grid';
 import { GAME_CONFIG } from '../../config/game-config';
 import type { BuildingItemId, GameCommand, GameState, UnitType } from '../types';
 import type { RandomSource } from '../random';
@@ -53,9 +54,25 @@ function dominantType(comp: Record<UnitType, number>): UnitType | null {
     return best;
 }
 
-/** 蓝方工厂建造位置（随机） */
-function factoryPosition(random: RandomSource) {
-    return { x: 350 + random.range(0, 100), y: -50 + random.range(-30, 30) };
+/**
+ * 蓝方建造位置：从镜像网格中挑一个空闲格点（与玩家使用同一套网格，保证布局整齐且不重叠）。
+ * 建造深度与玩家常用区（红方 x≈-470~-330）镜像对应（蓝方 x≈330~470），
+ * 避免把工厂压到中线附近获得不公平的推进优势。
+ */
+function gridPosition(state: GameState, random: RandomSource): { x: number; y: number } {
+    const occupied = new Set(
+        [...state.buildings, ...state.towers.filter(t => t.kind === 'aura')]
+            .filter(e => e.side === 'blue')
+            .map(e => `${Math.round(e.x)},${Math.round(e.y)}`),
+    );
+    const free = BUILD_GRID.mirrorCells().filter(c => !occupied.has(`${c.x},${c.y}`));
+    if (free.length === 0) return { x: 420 + random.range(0, 100), y: -50 + random.range(-30, 30) };
+    // 优先玩家区镜像深度（x 330~470），不够时再向外扩展
+    const preferred = free.filter(c => c.x >= 330 && c.x <= 470);
+    const pool = preferred.length >= 8 ? preferred : free;
+    pool.sort((a, b) => (Math.abs(a.x - 400) - Math.abs(b.x - 400)) || (Math.abs(a.y) - Math.abs(b.y)));
+    const head = pool.slice(0, 16);
+    return head[Math.floor(random.next() * head.length)];
 }
 
 /** 蓝方 AI 每帧决策：返回 0 或 1 条命令（控制花钱节奏） */
@@ -73,14 +90,14 @@ export function aiDecide(state: GameState, random: RandomSource): GameCommand | 
     if (difficulty === 'hard') {
         const academyLevel = state.academyLevel.blue;
         if (academyLevel === 0 && myFactories.length >= 4 && gold >= GAME_CONFIG.academyLv1Cost) {
-            return { type: 'build', itemId: 'academy', position: factoryPosition(random) };
+            return { type: 'build', itemId: 'academy', position: gridPosition(state, random) };
         }
         if (academyLevel === 1 && gold >= GAME_CONFIG.academyLv2Cost + 100) {
-            return { type: 'build', itemId: 'academy', position: factoryPosition(random) };
+            return { type: 'build', itemId: 'academy', position: gridPosition(state, random) };
         }
         const hasAura = state.towers.some(t => t.side === 'blue' && t.kind === 'aura');
         if (academyLevel >= 1 && !hasAura && gold >= 250 + 100) {
-            return { type: 'build', itemId: 'aura', position: { x: 380 + random.range(-20, 20), y: random.range(-60, 60) } };
+            return { type: 'build', itemId: 'aura', position: gridPosition(state, random) };
         }
         if (academyLevel === 2 && gold >= researchCost(state.researchLayers.blue) + 150) {
             return { type: 'research' };
@@ -117,7 +134,7 @@ export function aiDecide(state: GameState, random: RandomSource): GameCommand | 
 
     const cost = buildingCostInState(state, 'blue', buildType);
     if (gold < cost) return null;
-    return { type: 'build', itemId: buildType, position: factoryPosition(random) };
+    return { type: 'build', itemId: buildType, position: gridPosition(state, random) };
 }
 
 /** 波次结算时调用：快照玩家兵种构成（供普通 AI 延迟克制） */

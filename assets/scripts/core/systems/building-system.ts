@@ -10,6 +10,7 @@
 
 import {
     BUILDING_CONFIG,
+    AURA_TOWER_CONFIG,
     applyBuildingLevelHp,
     buildingCostInState,
     researchCost,
@@ -19,6 +20,32 @@ import { GAME_CONFIG } from '../../config/game-config';
 import { FACTION_CONFIG } from '../../config/faction-config';
 import { nextEntityId } from '../game-state';
 import type { BuildingItemId, CommandResult, GameState, Position, Side } from '../types';
+
+/**
+ * 从场上学院实体同步推导学院等级（每次建造/拆除学院后调用）。
+ * 等级 = 存活学院建筑数（每方最多 2 座 → Lv2）。被拆掉一座，等级随之回落，
+ * 已生效的 Lv2 攻击加成按比例回收（保持 atk buff 与等级一致）。
+ */
+export function syncAcademyLevel(state: GameState, side: Side): void {
+    const count = state.buildings.filter(b => b.side === side && b.kind === 'academy' && b.hp > 0).length;
+    const newLevel = Math.min(2, count);
+    const oldLevel = state.academyLevel[side];
+    if (newLevel === oldLevel) return;
+    if (oldLevel === 2 && newLevel < 2) {
+        // 学院被拆：回收 Lv2 的 +10% 攻击（按当层系数除回）
+        state.buffs[side].atk /= 1.1;
+    } else if (oldLevel < 2 && newLevel === 2) {
+        state.buffs[side].atk *= 1.1;
+    }
+    state.academyLevel[side] = newLevel;
+}
+
+/** 学院升级提示文案 */
+function academyMessage(state: GameState, side: Side): string {
+    return state.academyLevel[side] === 2
+        ? '战争学院 Lv2！全队攻击+10%，解锁全军强化'
+        : '战争学院 Lv1！解锁兵工厂 Lv3 升级';
+}
 
 /** 处理建造命令（side 默认玩家方，AI 复用同一路径） */
 export function tryBuild(state: GameState, itemId: BuildingItemId, position: Position, side: Side = state.playerSide): CommandResult {
@@ -52,7 +79,7 @@ export function tryBuild(state: GameState, itemId: BuildingItemId, position: Pos
         return { ok: false, message: `金币不足！需要 ${cost} 金` };
     }
 
-    // 光环塔：作为无攻击力的塔实体（可被敌方拆掉，失去光环效果）
+    // 光环塔：可攻击的塔实体（弱化版范围攻击 + 400px 攻速光环，可被敌方拆掉）
     if (conf.kind === 'aura') {
         state.gold[side] -= cost;
         state.towers.push({
@@ -61,25 +88,33 @@ export function tryBuild(state: GameState, itemId: BuildingItemId, position: Pos
             kind: 'aura',
             x: position.x,
             y: position.y,
-            hp: conf.hp,
-            maxHp: conf.hp,
-            range: 0,
-            atk: 0,
-            atkSpeed: 1,
+            hp: AURA_TOWER_CONFIG.hp,
+            maxHp: AURA_TOWER_CONFIG.hp,
+            range: AURA_TOWER_CONFIG.range,
+            atk: AURA_TOWER_CONFIG.atk,
+            atkSpeed: AURA_TOWER_CONFIG.atkSpeed,
             atkCd: 0,
         });
-        return { ok: true, message: '建造了光环塔！全队攻速 +15%' };
+        return { ok: true, message: '建造了光环塔！周围 400px 己方攻速 +15%' };
     }
 
-    // 战争学院：提升等级并生效
+    // 战争学院：放置为可被拆除的实体建筑，等级由场上学院实体推导（被拆即失效）
     if (conf.kind === 'academy') {
         state.gold[side] -= cost;
-        state.academyLevel[side] += 1;
-        if (state.academyLevel[side] === 2) {
-            state.buffs[side].atk *= 1.1;
-            return { ok: true, message: '战争学院 Lv2！全队攻击+10%，解锁全军强化' };
-        }
-        return { ok: true, message: '战争学院 Lv1！解锁兵工厂 Lv3 升级' };
+        state.buildings.push({
+            id: nextEntityId(state),
+            side,
+            unitType: null,
+            kind: 'academy',
+            x: position.x,
+            y: position.y,
+            hp: conf.hp,
+            maxHp: conf.hp,
+            waveTimer: 0,
+            level: 1,
+        });
+        syncAcademyLevel(state, side);
+        return { ok: true, message: academyMessage(state, side) };
     }
 
     // 兵工厂
