@@ -265,3 +265,16 @@ S3 逐帧状态哈希：新增 core/state-hash.ts（FNV-1a，仅模拟字段、�
    千分位格式化）；determinism.test 新增三条：60s 每 30 帧哈希全等、
    帧率波动（累加器切分 vs 固定步长）终态哈希一致、灵敏度（金币+1 即变）。
 110 条测试通过，tsc 干净。
+
+三十八、联机 P1 服务骨架（DOCS/06 §8 P1）
+--------
+server/ 目录：Node20 + ws，node --experimental-strip-types 直跑 TS。
+- protocol.ts：双端共享消息类型（join/matched/start/frame/cmd/hash/result…）
+- gateway.ts：ws 连接/30s 心跳/失联清理/消息路由
+- match.ts：quick 排队配对 + friend 房间码；随机边/阵营/种子由服务器下发
+- room.ts：房间状态机——3s 倒计时→100ms 帧聚合广播（空帧也广播保证锁步
+  节奏）、命令按帧定序（防超界帧占内存）、哈希比对（不一致即 result desync）、
+  离场 15s 宽限判负、空转上限防泄漏
+- docker-compose：game-server(8100)+redis:7+postgres:16@55433（避让本机 55432）
+冒烟验证（本机双客户端）：匹配→倒计时→帧流（100ms/帧）→命令中继→
+哈希不一致检测 全部通过；server tsc 干净。
