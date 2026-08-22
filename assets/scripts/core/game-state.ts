@@ -71,7 +71,7 @@ export function createInitialState(options: StartOptions): GameState {
         time: 0,
         wave: 0,
         waveTimer: GAME_CONFIG.waveInterval,
-        playerSide: 'red',
+        playerSide: options.playerSide ?? 'red',
         factions: { red: options.playerFaction, blue: aiFaction },
         difficulty: options.difficulty ?? 'normal',
         gold: { red: GAME_CONFIG.startGold, blue: GAME_CONFIG.startGold },
@@ -90,6 +90,7 @@ export function createInitialState(options: StartOptions): GameState {
         aiMemory: { playerCompSnapshot: emptyComp() },
         nextId: 1,
         doubleSalary: options.doubleSalary ?? false,
+        aiEnabled: options.aiEnabled ?? true,
         disableCards: options.disableCards ?? false,
     };
 

@@ -340,6 +340,8 @@ export interface GameState {
     nextId: number;
     /** 是否启用双倍工资（广告激励） */
     doubleSalary: boolean;
+    /** 蓝方是否为 AI（联机对战 false，蓝方由远端玩家控制） */
+    aiEnabled: boolean;
     /** 禁用卡牌触发（批量平衡模拟用） */
     disableCards: boolean;
 }
@@ -370,4 +372,8 @@ export interface StartOptions {
     doubleSalary?: boolean;
     /** 禁用卡牌触发（批量平衡模拟用：隔离玩家卡牌优势，纯测阵营强度） */
     disableCards?: boolean;
+    /** 玩家所在边（联机对战可为 blue；默认 red） */
+    playerSide?: Side;
+    /** 是否启用蓝方 AI（联机对战为 false，蓝方由远端玩家控制） */
+    aiEnabled?: boolean;
 }

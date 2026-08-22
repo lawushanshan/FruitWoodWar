@@ -32,6 +32,11 @@ import { BUILD_GRID } from './config/build-grid';
 import { MAP_LAYOUT } from './config/map-layout';
 import { saveFromState } from './core/save-system';
 import { AdManager } from './platform/ad-manager';
+import { NetworkClient } from './network/network-client';
+import { SeededRandomSource } from './core/random';
+import { stateHash } from './core/state-hash';
+import type { ServerMessage } from './network/protocol';
+import { HASH_EVERY_FRAMES } from './network/protocol';
 import type { BuildingItemId, Phase } from './core/types';
 
 const { ccclass } = _decorator;
@@ -47,6 +52,14 @@ export class GameManager extends Component {
     private prevPhase: Phase = 'idle';
     /** 固定逻辑步长累加器（联机 P0-S1） */
     private logicAccumulator = 0;
+
+    // ---- 联机对战（P1） ----
+    private net: NetworkClient | null = null;
+    private online = false;
+    private mySide: 'red' | 'blue' = 'red';
+    /** 服务器帧号（联机模式由 frame 消息驱动） */
+    private onlineFrame = 0;
+    private lastHashReportFrame = 0;
 
     /** 表现层模块 */
     private gameView!: GameView;
@@ -270,11 +283,11 @@ export class GameManager extends Component {
             }
         });
 
-        if (this.engine.state.phase === 'playing') {
+        if (this.engine.state.phase === 'playing' && !this.online) {
             // 固定逻辑步长（联机 P0-S1）：渲染 dt 经累加器切成固定 1/30s 逻辑帧，
             // 帧率波动不再影响模拟结果（确定性前提），残余不足一步的量留到下一帧。
             // 单帧上限 0.25s：切后台回来不做长追帧，防止一次性结算大量逻辑。
-            this.logicAccumulator += Math.min(dt, 0.25);
+            // 联机模式不走此路径：由服务器 frame 消息驱动（见 onNetMessage）。
             let steps = 0;
             while (this.logicAccumulator >= FIXED_LOGIC_DT && steps < 12) {
                 try {
@@ -290,6 +303,7 @@ export class GameManager extends Component {
         } else {
             this.logicAccumulator = 0;
         }
+        // 联机模式的视觉同步照常每帧执行（模拟步进由帧消息驱动）
 
         const phase = this.engine.state.phase;
         if (phase !== this.prevPhase) {
@@ -506,6 +520,12 @@ export class GameManager extends Component {
                 return;
             }
             const cmd = makeBuildCommand(this.pendingBuild, this.engine.state, cell);
+            if (this.online) {
+                this.submitOnline(cmd);
+                this.cancelPlacement();
+                this.panels.showToast('已发送建造命令');
+                return;
+            }
             const result = this.engine.execute(cmd);
             if (result.message) this.panels.showToast(result.message);
             this.hudView.updatePrices(this.engine.state);
@@ -562,11 +582,16 @@ export class GameManager extends Component {
         return ut.convertToNodeSpaceAR(new Vec3(loc.x, loc.y, 0));
     }
 
+    /** 本方建造格点集（蓝方用镜像网格） */
+    private myGridCells(): Array<{ x: number; y: number }> {
+        return this.online && this.mySide === 'blue' ? BUILD_GRID.mirrorCells() : BUILD_GRID.cells();
+    }
+
     /** 最近格点吸附（超出 1.2 格距返回 null） */
     private snapToCell(x: number, y: number): { x: number; y: number } | null {
         let best: { x: number; y: number } | null = null;
         let bestDist = Infinity;
-        for (const c of BUILD_GRID.cells()) {
+        for (const c of this.myGridCells()) {
             const d = (c.x - x) ** 2 + (c.y - y) ** 2;
             if (d < bestDist) { bestDist = d; best = c; }
         }
@@ -628,7 +653,7 @@ export class GameManager extends Component {
         overlay.layer = this.node.layer;
         overlay.parent = this.gameContainer;
         this.gridOverlayNode = overlay;
-        const cells = BUILD_GRID.cells().map(c => ({ ...c }));
+        const cells = this.myGridCells().map(c => ({ ...c }));
         const nodeCells = new Map<string, Node>();
         for (const c of cells) {
             const cellNode = this.spriteFactory.createColorNode(new Color(255, 255, 255, 16), BUILD_GRID.cellSize - 6, BUILD_GRID.cellSize - 6);
@@ -680,6 +705,11 @@ export class GameManager extends Component {
         if (this.engine.state.phase !== 'playing') return;
         const buildingId = this.panels.getUpgradeBuildingId();
         if (!buildingId) return;
+        if (this.online) {
+            this.submitOnline({ type: 'upgrade', buildingId });
+            this.panels.hideUpgrade();
+            return;
+        }
         const result = this.engine.execute({ type: 'upgrade', buildingId });
         if (result.ok) this.audio.play('upgrade');
         if (result.message) this.panels.showToast(result.message);
@@ -691,6 +721,7 @@ export class GameManager extends Component {
         if (this.engine.state.phase !== 'playing') return;
         const cmd = makeUpgradeCommand(this.engine.state);
         if (!cmd) { this.panels.showToast('没有可升级的兵工厂！'); return; }
+        if (this.online) { this.submitOnline(cmd); return; }
         const result = this.engine.execute(cmd);
         if (result.ok) this.audio.play('upgrade');
         if (result.message) this.panels.showToast(result.message);
@@ -698,6 +729,7 @@ export class GameManager extends Component {
 
     onResearchClick(_event: Event) {
         if (this.engine.state.phase !== 'playing') return;
+        if (this.online) { this.submitOnline(makeResearchCommand()); this.hudView.updatePrices(this.engine.state); return; }
         const result = this.engine.execute(makeResearchCommand());
         if (result.ok) this.audio.play('upgrade');
         if (result.message) this.panels.showToast(result.message);
@@ -772,6 +804,98 @@ export class GameManager extends Component {
 
         // 启动新手引导（首局玩家）
         this.tutorial.checkAndStart();
+    }
+
+    // ==================== 联机对战（P1） ====================
+
+    /** 开始面板"联机对战"入口：连接服务器并匹配 */
+    onOnlineClick(_event: Event) {
+        if (this.online) return;
+        const url = 'ws://127.0.0.1:8100'; // 本地联机服务；生产走平台配置
+        this.panels.showToast('正在连接联机服务器…');
+        this.net = new NetworkClient(url, { onMessage: (m) => this.onNetMessage(m) });
+        this.net.connect();
+        // 连接后自动加入快速匹配
+        setTimeout(() => {
+            if (this.net) {
+                this.net.send({ t: 'join', token: 'dev-' + Math.floor(Math.random() * 1e6), mode: 'quick' });
+                this.panels.showToast('匹配中…等待对手');
+            }
+        }, 600);
+    }
+
+    /** 服务器消息处理：matched → 建局；frame → 应用命令并推进；result → 结算 */
+    private onNetMessage(msg: ServerMessage) {
+        switch (msg.t) {
+            case 'matched': {
+                // 双端用同一 seed 建局；联机禁卡牌（S4 卡牌双端化在 P3 实装）
+                this.mySide = msg.yourSide;
+                this.online = true;
+                const my = msg.yourFaction, opp = msg.oppFaction;
+                this.engine = new GameEngine(new SeededRandomSource(msg.seed));
+                this.engine.reset({
+                    // 状态固定 red=对面阵营、blue=己方？No——按边分配：red 用 redFaction
+                    playerFaction: this.mySide === 'red' ? my : opp,
+                    aiFaction: this.mySide === 'red' ? opp : my,
+                    playerSide: this.mySide,
+                    aiEnabled: false,
+                    disableCards: true,
+                });
+                // 重置表现层
+                this.panels.hideStart();
+                this.gameView.clear();
+                this.battleEffects.clear();
+                this.floatingText.clear();
+                this.deathEffect.clear();
+                this.prevPhase = 'playing';
+                this.hudView.updatePrices(this.engine.state);
+                this.panels.showToast(`已匹配！你是${this.mySide === 'red' ? '红方' : '蓝方'}（${my}）`);
+                break;
+            }
+            case 'frame': {
+                // 帧驱动：按序应用本帧命令（含自己的——经服务器定序保证双端一致），再推进 3 个逻辑步（100ms）
+                if (!this.online || this.engine.state.phase !== 'playing') break;
+                this.onlineFrame = msg.frame;
+                for (const { side, cmd } of msg.cmds) {
+                    // 联机命令按提交方的真实边执行
+                    this.engine.execute(cmd as never, side);
+                }
+                for (let i = 0; i < 3; i++) {
+                    if (this.engine.state.phase === 'playing') this.engine.step(FIXED_LOGIC_DT);
+                }
+                // 每 HASH_EVERY_FRAMES 帧上报哈希
+                if (this.onlineFrame - this.lastHashReportFrame >= HASH_EVERY_FRAMES) {
+                    this.lastHashReportFrame = this.onlineFrame;
+                    this.net?.send({ t: 'hash', frame: this.onlineFrame, hash: stateHash(this.engine.state as never) });
+                }
+                break;
+            }
+            case 'opp_left':
+                this.panels.showToast('对手已离开，15 秒后判胜…');
+                break;
+            case 'opp_back':
+                this.panels.showToast('对手已回来');
+                break;
+            case 'result': {
+                const won = msg.winner === this.mySide;
+                this.panels.showToast(`对局结束：${won ? '胜利！' : '失败'}（${msg.reason}）`);
+                this.online = false;
+                this.net?.close();
+                this.net = null;
+                // 复用结算面板（联机结果以服务器为准）
+                this.panels.showEnd(this.engine.state, false);
+                break;
+            }
+            case 'error':
+                this.panels.showToast('联机错误：' + msg.msg);
+                break;
+        }
+    }
+
+    /** 联机模式命令提交：本地不执行，经服务器定序后随 frame 应用（双端一致） */
+    private submitOnline(cmd: import('./core/types').GameCommand): void {
+        this.net?.send({ t: 'cmd', frame: this.onlineFrame + 2, cmd: cmd as never });
+        this.panels.showToast('命令已发送');
     }
 
     onAgainClick(_event: Event) {

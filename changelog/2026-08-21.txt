@@ -278,3 +278,18 @@ server/ 目录：Node20 + ws，node --experimental-strip-types 直跑 TS。
 - docker-compose：game-server(8100)+redis:7+postgres:16@55433（避让本机 55432）
 冒烟验证（本机双客户端）：匹配→倒计时→帧流（100ms/帧）→命令中继→
 哈希不一致检测 全部通过；server tsc 干净。
+
+三十九、联机 P1 客户端接入（NetworkClient + 锁步集成）
+--------
+- assets/scripts/network/：protocol.ts（客户端副本，与 server/src/protocol.ts
+  同步）、network-client.ts（ws 连接/指数退避重连/命令上行/帧下行回调）
+- GameEngine/StartOptions：新增 playerSide/aiEnabled（联机蓝方由远端玩家
+  控制，跳过 aiDecide），GameState 加 aiEnabled 字段
+- GameManager：联机入口 onOnlineClick（连接+匹配）、onNetMessage（matched
+  用同 seed 建局+禁卡牌、frame 应用命令并 3 步推进+每 30 帧报哈希、result
+  结算、opp_left/back 提示）；建造/升级/科研命令联机走 submitOnline（本地
+  不执行，经服务器定序）；蓝方玩家建造走镜像网格
+- 开始面板新增"联机对战"按钮
+- 新增 tests/e2e-lockstep.test.ts：双真实 GameEngine 模拟服务器帧中继，
+  300 帧 stateHash 完全一致（无 desync）+ 双方命令对称生效
+112 条测试通过，tsc 干净。ws 传输层由 server 冒烟脚本单独验证。

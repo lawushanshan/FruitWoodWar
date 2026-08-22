@@ -390,6 +390,25 @@ export class PanelController {
         dsHandler.handler = 'onDoubleSalaryClick';
         dsButton.clickEvents = [dsHandler];
 
+        // 联机对战按钮（P1：连接 ws 服务器匹配真人对手）
+        const onlineBtn = new Node('OnlineBtn');
+        onlineBtn.layer = this.gmNode.layer;
+        onlineBtn.parent = this.startPanel;
+        const onUt = onlineBtn.addComponent(UITransform);
+        onUt.contentSize = new Size(200, 50);
+        const onBg = this.spriteFactory.createColorNode(new Color(50, 90, 140), 200, 50);
+        onBg.parent = onlineBtn;
+        this.makeLabel('🌐 联机对战', 0, 0, Color.WHITE, onlineBtn, 24);
+        onlineBtn.setPosition(0, -170, 0);
+
+        const onButton = onlineBtn.addComponent(Button);
+        onButton.transition = Button.Transition.SCALE;
+        const onHandler = new EventHandler();
+        onHandler.target = this.gmNode;
+        onHandler.component = 'GameManager';
+        onHandler.handler = 'onOnlineClick';
+        onButton.clickEvents = [onHandler];
+
         // 开始按钮
         const startBtn = new Node();
         startBtn.layer = this.gmNode.layer;

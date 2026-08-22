@@ -92,9 +92,11 @@ export class GameEngine {
         // 6. 临时 buff（回血/果雨生效 + 计时衰减）
         stepTempBuffs(s, dt, this.random);
 
-        // 7. AI 决策：命令统一走 execute 通道（以蓝方身份执行）
-        const cmd = aiDecide(s, this.random);
-        if (cmd) this.execute(cmd, 'blue');
+        // 7. AI 决策：命令统一走 execute 通道（以蓝方身份执行）；联机对战跳过（蓝方为远端玩家）
+        if (s.aiEnabled) {
+            const cmd = aiDecide(s, this.random);
+            if (cmd) this.execute(cmd, 'blue');
+        }
 
         // 8. 决战时刻与胜负判定
         stepVictory(s, dt);
