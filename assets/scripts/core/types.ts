@@ -37,7 +37,7 @@ export type Phase = 'idle' | 'playing' | 'card-pause' | 'ended';
 export type FxEvent =
     | { type: 'hit'; x: number; y: number; side: Side }
     | { type: 'aoe'; x: number; y: number; radius: number; side: Side }
-    | { type: 'tower'; x: number; y: number; radius: number; side: Side };
+    | { type: 'tower'; x: number; y: number; sx: number; sy: number; radius: number; side: Side };
 
 /** 平面坐标（像素） */
 export interface Position {

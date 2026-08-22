@@ -307,7 +307,11 @@ export class GameManager extends Component {
         for (const e of fx) {
             if (e.type === 'hit') {
                 this.battleEffects.playImpact(e.x, e.y, e.side);
-            } else if (e.type === 'aoe' || e.type === 'tower') {
+            } else if (e.type === 'aoe') {
+                this.battleEffects.playRangeEffect(e.x, e.y, e.radius, e.side);
+            } else if (e.type === 'tower') {
+                // 塔攻击：弹道 + 目标处溅射环
+                this.battleEffects.playProjectile(e.sx, e.sy, e.x, e.y, e.side);
                 this.battleEffects.playRangeEffect(e.x, e.y, e.radius, e.side);
             }
         }

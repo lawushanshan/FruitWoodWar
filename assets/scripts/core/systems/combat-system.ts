@@ -419,8 +419,8 @@ function updateTower(state: GameState, t: TowerState, dt: number, fx: FxEvent[])
             }
         }
         t.atkCd = 1 / t.atkSpeed;
-        // 塔的范围攻击表现事件
-        fx.push({ type: 'tower', x: target.x, y: target.y, radius: splashConf.splashRadius, side: t.side });
+        // 塔的范围攻击表现事件（含起点，供弹道表现）
+        fx.push({ type: 'tower', x: target.x, y: target.y, sx: t.x, sy: t.y, radius: splashConf.splashRadius, side: t.side });
         if (hpBefore > 0 && target.hp <= 0) {
             state.stats.kills[t.side]++;
             // 塔击杀同样发放击杀赏金（含精英倍率）

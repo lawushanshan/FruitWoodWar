@@ -137,15 +137,15 @@ function applyCardEffect(state: GameState, cardId: string): void {
                     level: 1,
                     x: -300 + Math.random() * 100,
                     y: -50 + Math.random() * 60 - 30,
-                    hp: 200,
-                    maxHp: 200,
-                    atk: 15,
+                    hp: 400,
+                    maxHp: 400,
+                    atk: 20,
                     speed: 48, // v0.4 修复：过慢会卡住不动，对齐常规坦克速度量级
                     range: 50,
                     atkSpeed: 0.8,
                     atkCd: 0,
                     firstStrikeDone: true, // 树人不享受冲锋首击
-                    shield: 0,
+                    shield: 200, // 高护甲：召唤树人定位为前排肉盾
                     stunDur: 0,
                     slowMult: 1,
                     slowDur: 0,

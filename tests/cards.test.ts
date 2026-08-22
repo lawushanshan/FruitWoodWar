@@ -204,13 +204,15 @@ describe('卡牌系统', () => {
         expect(s.units[0].stunDur).toBe(3);
     });
 
-    it('效果：百花绽放 召唤 3 个树人', () => {
+    it('效果：百花绽放 召唤 3 个高护甲树人', () => {
         const engine = makeEngine();
         const s = writableState(engine);
         s.units = [];
         forceChooseCard(engine, findCard('wood', 'bloom'));
         expect(s.units.filter(u => u.side === 'red').length).toBe(3);
-        expect(s.units[0].hp).toBe(200);
+        expect(s.units[0].hp).toBe(400);
+        expect(s.units[0].shield).toBe(200);
+        expect(s.units[0].atk).toBe(20);
     });
 
     it('效果：森林守护 水晶回血 500（不超上限）', () => {

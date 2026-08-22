@@ -25,7 +25,7 @@ interface EffectInstance {
     elapsed: number;
     duration: number;
     /** 效果类型 */
-    type: 'attack_flash' | 'crystal_shake' | 'building_explode' | 'impact_ring' | 'range_ring' | 'particle';
+    type: 'attack_flash' | 'crystal_shake' | 'building_explode' | 'impact_ring' | 'range_ring' | 'particle' | 'projectile';
     /** 起始位置 */
     startX: number;
     startY: number;
@@ -97,6 +97,26 @@ export class BattleEffects {
 
         // 少量粒子飞散（上限判定：受 MAX_ACTIVE_EFFECTS 约束）
         this.spawnParticles(x, y, color, 3);
+    }
+
+    /** 塔弹道表现：从塔指向目标的快速飞弹（直线移动 + 淡出） */
+    playProjectile(sx: number, sy: number, tx: number, ty: number, side: 'red' | 'blue') {
+        const color = side === 'red' ? new Color(255, 210, 140, 230) : new Color(150, 200, 255, 230);
+        const node = this.pool.acquire('projectile', () =>
+            this.spriteFactory.createColorNode(color, 8, 8, 'circle'),
+        );
+        node.parent = this.container;
+        node.setPosition(sx, sy, 0);
+        node.active = true;
+        setUniformScale(node, 1);
+        const opacity = node.getComponent(UIOpacity);
+        if (opacity) opacity.opacity = 255;
+
+        this.push({
+            node, elapsed: 0, duration: 0.12,
+            type: 'projectile', startX: sx, startY: sy, origScale: 1,
+            dx: tx - sx, dy: ty - sy,
+        });
     }
 
     /** 范围溅射表现：以目标为圆心的扩散环（AOE / 防御塔溅射） */
@@ -281,6 +301,16 @@ export class BattleEffects {
                 setUniformScale(node, 1 - progress * 0.8);
                 if (opacity) opacity.opacity = Math.floor(255 * (1 - progress));
                 break;
+            case 'projectile':
+                // 弹道：从塔直线飞向目标，末端快速淡出
+                node.setPosition(
+                    fx.startX + fx.dx * progress,
+                    fx.startY + fx.dy * progress,
+                    0,
+                );
+                setUniformScale(node, 1 - progress * 0.4);
+                if (opacity) opacity.opacity = Math.floor(255 * (1 - progress));
+                break;
 
             case 'crystal_shake': {
                 // 左右震动 + 淡出
@@ -320,6 +350,7 @@ export class BattleEffects {
             case 'impact_ring': return 'impact';
             case 'range_ring': return 'range';
             case 'particle': return 'particle';
+            case 'projectile': return 'projectile';
         }
     }
 }
