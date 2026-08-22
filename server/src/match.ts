@@ -27,6 +27,25 @@ export class MatchMaker {
         this.createRoom = createRoom;
     }
 
+    /** 创建好友房：生成房间码，房主等待对手 */
+    create(connId: string): string {
+        const code = this.genRoomCode();
+        // 覆盖旧码（同连接重复创建）
+        this.leaveQueue(connId);
+        const list = this.friendRooms.get(code) ?? [];
+        list.push({ connId, mode: 'friend', roomCode: code });
+        this.friendRooms.set(code, list);
+        return code;
+    }
+
+    private genRoomCode(): string {
+        // 6 位大写字母数字（去除易混淆的 0/O/1/I）
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        let code = '';
+        for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+        return code;
+    }
+
     join(connId: string, mode: 'quick' | 'friend', roomCode: string | null) {
         if (this.inRoom.has(connId)) return;
 

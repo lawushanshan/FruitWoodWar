@@ -304,3 +304,14 @@ server/ 目录：Node20 + ws，node --experimental-strip-types 直跑 TS。
    日志监听 :8100，容器内双客户端匹配→帧流冒烟通过。
 注：本机 node:22-alpine 拉取遇到镜像元数据损坏（failed size validation），
 且多个 registry-mirror 拉取卡住；改用本地已缓存的 lts-alpine 规避。
+
+四十一、联机流畅度 + 房间体验（P1 UX 优化）
+--------
+① 动作卡顿：联机锁步在 100ms 帧消息到达时一次性推进 3 步，其余时间状态
+   静止（10Hz 阶梯）。修复：game-view 对单位渲染位置做指数平滑插值
+   （仅联机 interpolate=true 时启用，单机零延迟不受影响），把跳变抹成连续。
+② 房间体验：新增 create_room（生成 6 位房号，去除易混淆 0/O/1/I）→
+   room_created 回传房号 → waiting 反馈；开始面板加"创建房间/加入房间"
+   按钮 + 房号输入框（EditBox）+ 联机状态行（房号/等待对手）；quick 匹配
+   也提示"匹配中…"。玩家不再不知道是否在匹配、可共享同一房间码。
+服务端容器重建，create→join→matched 冒烟通过；112 测试 + tsc 干净。

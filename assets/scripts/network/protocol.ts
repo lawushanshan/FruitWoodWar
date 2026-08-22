@@ -5,6 +5,7 @@
 /** 客户端 → 服务器 */
 export type ClientMessage =
     | { t: 'join'; token: string; mode: 'quick' | 'friend'; roomCode?: string }
+    | { t: 'create_room' }
     | { t: 'cmd'; frame: number; cmd: GameCommandPayload }
     | { t: 'hash'; frame: number; hash: string }
     | { t: 'cancel_match' }
@@ -13,6 +14,7 @@ export type ClientMessage =
 /** 服务器 → 客户端 */
 export type ServerMessage =
     | { t: 'waiting' } // 匹配中
+    | { t: 'room_created'; roomCode: string } // 已创建好友房，等待对手加入
     | { t: 'matched'; roomId: string; seed: number; yourSide: 'red' | 'blue'; yourFaction: FactionId; oppFaction: FactionId; roomCode?: string }
     | { t: 'start'; startInMs: number } // 双端同时倒计时后进入
     | { t: 'frame'; frame: number; cmds: Array<{ side: 'red' | 'blue'; cmd: GameCommandPayload }> }

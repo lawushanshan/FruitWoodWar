@@ -84,6 +84,8 @@ export class GameView {
 
     /** id → 当前渲染的重叠偏移（对目标偏移做指数平滑，消除量化边界跳变） */
     private unitOffsets: Map<string, { x: number; y: number }> = new Map();
+    /** id → 插值后的渲染位置（联机锁步 10Hz 帧间平滑，消除阶梯卡顿） */
+    private unitRenderPos: Map<string, { x: number; y: number }> = new Map();
 
     /** 对象池 */
     private pool: NodePool = new NodePool();
@@ -97,7 +99,7 @@ export class GameView {
     }
 
     /** 每帧调用：从 GameState 同步所有实体的视觉（dt 用于单位偏移平滑） */
-    sync(state: GameState, dt: number = 1 / 60) {
+    sync(state: GameState, dt: number = 1 / 60, interpolate: boolean = false) {
         // 水晶
         this.syncCrystals(state);
         // 建筑（含学院/光环塔）
@@ -105,7 +107,7 @@ export class GameView {
         // 塔（基地塔）
         this.syncTowers(state);
         // 单位（按兵种形状）
-        this.syncUnits(state, dt);
+        this.syncUnits(state, dt, interpolate);
     }
 
     /** 销毁所有节点（重新开局时调用） */
@@ -115,6 +117,7 @@ export class GameView {
         this.clearMap(this.towerNodes, 'tower');
         this.clearMap(this.unitNodes, 'unit');
         this.unitOffsets.clear();
+        this.unitRenderPos.clear();
         this.pool.clearAll();
     }
 
@@ -235,7 +238,7 @@ export class GameView {
         this.cleanupDead(aliveIds, this.towerNodes, 'tower');
     }
 
-    private syncUnits(state: GameState, dt: number) {
+    private syncUnits(state: GameState, dt: number, interpolate: boolean) {
         const aliveIds = new Set<string>();
 
         // 第一遍：统计同格单位数量（重叠判定）
@@ -282,8 +285,16 @@ export class GameView {
                 so.y += (target[1] - so.y) * smooth;
             }
 
-            // 渲染位置 = 逻辑位置（零延迟跟随）+ 平滑后的散开偏移
-            node.setPosition(u.x + so.x, u.y + so.y, 0);
+            // 渲染位置 = 逻辑位置（联机时插值平滑）+ 平滑后的散开偏移
+            let rx = u.x, ry = u.y;
+            if (interpolate) {
+                let rp = this.unitRenderPos.get(u.id);
+                if (!rp) { rp = { x: u.x, y: u.y }; this.unitRenderPos.set(u.id, rp); }
+                rp.x += (u.x - rp.x) * smooth;
+                rp.y += (u.y - rp.y) * smooth;
+                rx = rp.x; ry = rp.y;
+            }
+            node.setPosition(rx + so.x, ry + so.y, 0);
 
             // 精英等级用缩放表示
             const levelScale = u.level === 1 ? 1 : u.level === 2 ? 1.2 : 1.4;
@@ -293,9 +304,12 @@ export class GameView {
             this.updateStatusBadge(node, u);
         }
 
-        // 清理死亡单位的偏移记录
+        // 清理死亡单位的偏移与插值记录
         for (const id of this.unitOffsets.keys()) {
             if (!aliveIds.has(id)) this.unitOffsets.delete(id);
+        }
+        for (const id of this.unitRenderPos.keys()) {
+            if (!aliveIds.has(id)) this.unitRenderPos.delete(id);
         }
         this.cleanupDead(aliveIds, this.unitNodes, 'unit');
     }

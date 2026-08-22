@@ -60,6 +60,7 @@ export class GameManager extends Component {
     /** 服务器帧号（联机模式由 frame 消息驱动） */
     private onlineFrame = 0;
     private lastHashReportFrame = 0;
+    private roomCode: string | null = null;
 
     /** 表现层模块 */
     private gameView!: GameView;
@@ -321,7 +322,7 @@ export class GameManager extends Component {
             this.detectEffects();
             this.consumeFx();
             this.detectTutorial();
-            this.gameView.sync(this.engine.state, dt);
+            this.gameView.sync(this.engine.state, dt, this.online);
             this.hudView.update(this.engine.state);
             this.floatingText.update(dt);
             this.deathEffect.update(dt);
@@ -849,6 +850,7 @@ export class GameManager extends Component {
                 this.deathEffect.clear();
                 this.prevPhase = 'playing';
                 this.hudView.updatePrices(this.engine.state);
+                this.panels.updateOnlineStatus('');
                 this.panels.showToast(`已匹配！你是${this.mySide === 'red' ? '红方' : '蓝方'}（${my}）`);
                 break;
             }
@@ -870,6 +872,15 @@ export class GameManager extends Component {
                 }
                 break;
             }
+            case 'room_created': {
+                this.roomCode = msg.roomCode;
+                this.panels.showToast('房号：' + msg.roomCode + '　等待对手加入…');
+                this.panels.updateOnlineStatus('房号 ' + msg.roomCode + ' · 等待对手');
+                break;
+            }
+            case 'waiting':
+                this.panels.showToast('匹配中…');
+                break;
             case 'opp_left':
                 this.panels.showToast('对手已离开，15 秒后判胜…');
                 break;
@@ -896,6 +907,32 @@ export class GameManager extends Component {
     private submitOnline(cmd: import('./core/types').GameCommand): void {
         this.net?.send({ t: 'cmd', frame: this.onlineFrame + 2, cmd: cmd as never });
         this.panels.showToast('命令已发送');
+    }
+
+    /** 创建好友房：生成房间码并等待对手 */
+    onCreateRoomClick(_event: Event) {
+        this.ensureNet();
+        if (!this.net) return;
+        this.net.send({ t: 'create_room' });
+        this.panels.showToast('正在创建房间…');
+    }
+
+    /** 加入好友房：输入房间码后匹配 */
+    /** 加入好友房：从输入框读房码后匹配 */
+    onJoinRoomClick(_event: Event, _code?: string) {
+        const c = this.panels.getRoomCodeInput().toUpperCase();
+        if (!c) { this.panels.showToast('请输入房间码'); return; }
+        this.ensureNet();
+        if (!this.net) return;
+        this.net.send({ t: 'join', token: 'dev-' + Math.floor(Math.random() * 1e6), mode: 'friend', roomCode: c });
+        this.panels.showToast('加入房间 ' + c + '…');
+        this.panels.updateOnlineStatus('房间 ' + c + ' · 等待对手…');
+    }
+
+    private ensureNet() {
+        if (this.net) return;
+        this.net = new NetworkClient('ws://127.0.0.1:8100', { onMessage: (m) => this.onNetMessage(m) });
+        this.net.connect();
     }
 
     onAgainClick(_event: Event) {

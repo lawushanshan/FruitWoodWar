@@ -10,7 +10,7 @@
  */
 
 import {
-    Node, Label, Color, UITransform, Size, Vec2, Button, EventHandler, Sprite,
+    Node, Label, Color, UITransform, Size, Vec2, Button, EventHandler, Sprite, EditBox,
 } from 'cc';
 import { ColorSpriteFactory } from './color-sprite-factory';
 import { FACTION_CONFIG, FACTION_IDS } from '../config/faction-config';
@@ -37,6 +37,8 @@ export class PanelController {
 
     // ---- 动态标签 ----
     private diffLabel: Label | null = null;
+    private onlineStatusLabel: Label | null = null;
+    private roomCodeEdit: EditBox | null = null;
     private cardSubLabel: Label | null = null;
     private cardCountdownLabel: Label | null = null;
     private endStatsLabel: Label | null = null;
@@ -192,6 +194,18 @@ export class PanelController {
     /** 获取当前选中的难度 */
     getSelectedDifficulty(): Difficulty {
         return this.difficulty;
+    }
+
+    /** 读取房号输入框内容 */
+    getRoomCodeInput(): string {
+        return this.roomCodeEdit ? this.roomCodeEdit.string.trim() : '';
+    }
+
+    /** 更新联机状态提示（房号/等待等），显示在开始面板下方 */
+    updateOnlineStatus(text: string) {
+        if (!this.onlineStatusLabel) return;
+        this.onlineStatusLabel.string = text;
+        this.onlineStatusLabel.node.active = text.length > 0;
     }
 
     // ==================== 建筑升级面板 ====================
@@ -408,6 +422,62 @@ export class PanelController {
         onHandler.component = 'GameManager';
         onHandler.handler = 'onOnlineClick';
         onButton.clickEvents = [onHandler];
+
+        // 创建房间按钮
+        const createBtn = new Node('CreateRoomBtn');
+        createBtn.layer = this.gmNode.layer;
+        createBtn.parent = this.startPanel;
+        const crUt = createBtn.addComponent(UITransform);
+        crUt.contentSize = new Size(140, 44);
+        const crBg = this.spriteFactory.createColorNode(new Color(46, 90, 60), 140, 44);
+        crBg.parent = createBtn;
+        this.makeLabel('🔑 创建房间', 0, 0, Color.WHITE, createBtn, 18);
+        createBtn.setPosition(-220, -170, 0);
+        const crButton = createBtn.addComponent(Button);
+        crButton.transition = Button.Transition.SCALE;
+        const crHandler = new EventHandler();
+        crHandler.target = this.gmNode;
+        crHandler.component = 'GameManager';
+        crHandler.handler = 'onCreateRoomClick';
+        crButton.clickEvents = [crHandler];
+
+        // 加入房间按钮
+        const joinBtn = new Node('JoinRoomBtn');
+        joinBtn.layer = this.gmNode.layer;
+        joinBtn.parent = this.startPanel;
+        const jnUt = joinBtn.addComponent(UITransform);
+        jnUt.contentSize = new Size(140, 44);
+        const jnBg = this.spriteFactory.createColorNode(new Color(90, 70, 46), 140, 44);
+        jnBg.parent = joinBtn;
+        this.makeLabel('🔢 加入房间', 0, 0, Color.WHITE, joinBtn, 16);
+        joinBtn.setPosition(220, -170, 0);
+        const jnButton = joinBtn.addComponent(Button);
+        jnButton.transition = Button.Transition.SCALE;
+        const jnHandler = new EventHandler();
+        jnHandler.target = this.gmNode;
+        jnHandler.component = 'GameManager';
+        jnHandler.handler = 'onJoinRoomClick';
+        jnButton.clickEvents = [jnHandler];
+
+        // 联机状态标签（房号/等待提示）
+        this.onlineStatusLabel = this.makeLabel('', 0, -205, new Color(159, 220, 159), this.startPanel, 14);
+        this.onlineStatusLabel.node.active = false;
+
+        // 房号输入框（加入房间用）
+        const codeNode = new Node('RoomCodeInput');
+        codeNode.layer = this.gmNode.layer;
+        codeNode.parent = this.startPanel;
+        const codeUt = codeNode.addComponent(UITransform);
+        codeUt.contentSize = new Size(150, 40);
+        codeUt.anchorPoint = new Vec2(0.5, 0.5);
+        const codeBg = this.spriteFactory.createColorNode(new Color(20, 30, 40), 150, 40);
+        codeBg.parent = codeNode;
+        const ed = codeNode.addComponent(EditBox);
+        ed.string = '';
+        ed.placeholder = '房号';
+        ed.maxLength = 6;
+        codeNode.setPosition(450, -170, 0);
+        this.roomCodeEdit = ed;
 
         // 开始按钮
         const startBtn = new Node();

@@ -81,6 +81,12 @@ export class Gateway {
             case 'join':
                 this.matcher.join(conn.id, msg.mode, msg.roomCode ?? null);
                 break;
+            case 'create_room': {
+                const code = this.matcher.create(conn.id);
+                this.send(conn.id, { t: 'room_created', roomCode: code });
+                this.send(conn.id, { t: 'waiting' });
+                break;
+            }
             case 'cancel_match':
                 this.matcher.leaveQueue(conn.id);
                 break;
