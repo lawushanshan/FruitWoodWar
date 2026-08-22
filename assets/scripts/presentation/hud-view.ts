@@ -14,7 +14,7 @@ import {
 import { ColorSpriteFactory } from './color-sprite-factory';
 import { setUniformScale } from './scale-helper';
 import { GAME_CONFIG } from '../config/game-config';
-import { BUILDING_CONFIG, BUILDING_IDS, buildingCost, researchCost } from '../config/building-config';
+import { BUILDING_CONFIG, BUILDING_IDS, buildingCostInState, researchCost } from '../config/building-config';
 import type { BuildingItemId, GameState } from '../core/types';
 
 export class HudView {
@@ -79,7 +79,6 @@ export class HudView {
 
     /** 按当前游戏状态刷新建造栏价格（建造/升级/科研后调用） */
     updatePrices(state: GameState) {
-        const faction = state.factions[state.playerSide];
         const side = state.playerSide;
 
         for (const id of BUILDING_IDS) {
@@ -88,8 +87,8 @@ export class HudView {
             if (!label || !conf) continue;
 
             if (conf.kind === 'factory') {
-                // 工厂：显示首座价格（同类递增在实际建造时生效）
-                const cost = buildingCost(id, faction, 0);
+                // 工厂：显示实际下一座价格（含同类递增，与建造判定一致）
+                const cost = buildingCostInState(state, side, id);
                 label.string = cost + '金';
             } else if (conf.kind === 'academy') {
                 const level = state.academyLevel[side];

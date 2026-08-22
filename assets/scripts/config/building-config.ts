@@ -34,7 +34,7 @@ export const BUILDING_CONFIG: Record<BuildingItemId, BuildingConfig> = {
  */
 /**
  * 基地防御塔（§6.4，双方固定 2 座，不可建造）：
- * 血 1500 / 攻 80 / 攻速 1.2 / 射程 180px（v1.6 减半，让敌方兵种能靠前），
+ * 血 1500 / 攻 80 / 攻速 1.2 / 射程 270px（v1.6.1：先 360→180 减半节奏过快，回调到 180 的 3/2），
  * 范围攻击：主目标全额 + 40% 溅射（半径 80px）。
  * 规则：敌方基地塔未被拆完前，水晶不可被攻击（防一波偷家）。
  */
@@ -42,7 +42,7 @@ export const BASE_TOWER_CONFIG = {
     hp: 1500,
     atk: 80,
     atkSpeed: 1.2,
-    range: 180,
+    range: 270,
     /** 溅射伤害比例（主目标的百分比） */
     splashFraction: 0.4,
     /** 溅射半径（px） */

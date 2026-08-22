@@ -91,11 +91,11 @@ describe('兵种基准（unit-config）', () => {
 });
 
 describe('塔与网格（v1.1.0 合并远程演进）', () => {
-    it('基地塔：1500 血 / 攻 80 / 射程 180 / 40% 溅射', () => {
+    it('基地塔：1500 血 / 攻 80 / 射程 270 / 40% 溅射', () => {
         expect(BASE_TOWER_CONFIG.hp).toBe(1500);
         expect(BASE_TOWER_CONFIG.atk).toBe(80);
         expect(BASE_TOWER_CONFIG.atkSpeed).toBeCloseTo(1.2, 5);
-        expect(BASE_TOWER_CONFIG.range).toBe(180);
+        expect(BASE_TOWER_CONFIG.range).toBe(270);
         expect(BASE_TOWER_CONFIG.splashFraction).toBeCloseTo(0.4, 5);
         expect(BASE_TOWER_CONFIG.splashRadius).toBe(80);
     });
