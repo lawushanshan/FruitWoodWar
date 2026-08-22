@@ -14,7 +14,7 @@
 
 import {
     _decorator, Component, Node, Color, UITransform, Size, Vec2, Vec3,
-    Camera, EventTouch, Input, input, Layers, director, Sprite,
+    Camera, EventTouch, EventMouse, Input, input, Layers, director, Sprite,
 } from 'cc';
 import { GameEngine } from './core/game-engine';
 import { ColorSpriteFactory } from './presentation/color-sprite-factory';
@@ -66,6 +66,16 @@ export class GameManager extends Component {
     private previewValid = false;
     /** 网格底图节点（建造模式显示） */
     private gridOverlayNode: Node | null = null;
+
+    // ---- 移动端长按拖拽建造（v1.5.0） ----
+    /** 触摸是否已按住（TOUCH_START 后为真） */
+    private touchHeld = false;
+    /** 按住累计时长（秒）：达到长按阈值后才允许放置，防误触 */
+    private touchHoldTime = 0;
+    /** 长按判定阈值（秒） */
+    private static readonly TOUCH_HOLD_THRESHOLD = 0.25;
+    /** 最近一次真实鼠标按下时间（毫秒）：用于区分 PC 合成触摸与真实触摸 */
+    private lastMousePressMs = 0;
 
     // ---- 状态追踪（用于检测事件触发表现效果） ----
     /** 上一帧单位快照（id → 位置/阵营/兵种），用于死亡弹飞与出兵脉冲的准确定位 */
@@ -220,20 +230,27 @@ export class GameManager extends Component {
         this.panels.create();
 
         // 战场触摸事件（网格放置 + 点建筑升级）
+        this.gameContainer.on(Node.EventType.TOUCH_START, this.onGameTouchStart, this);
         this.gameContainer.on(Node.EventType.TOUCH_END, this.onGameTouch, this);
         this.gameContainer.on(Node.EventType.TOUCH_MOVE, this.onGameTouchMove, this);
         this.gameContainer.on(Node.EventType.TOUCH_CANCEL, this.onGameTouchCancel, this);
-        // ESC 取消建造模式（右键在部分平台不派发，统一走键盘）
+        // PC 右键取消建造：Node 上无稳定右键事件名，用全局 MOUSE_DOWN + getButton 判定
+        input.on(Input.EventType.MOUSE_DOWN, this.onGlobalMouseDown, this);
+        // ESC 取消建造模式
         input.on(Input.EventType.KEY_DOWN, this.onKeyDown, this);
     }
 
     start() { this.panels.showStart(); }
 
     onDestroy() {
+        input.off(Input.EventType.MOUSE_DOWN, this.onGlobalMouseDown, this);
         input.off(Input.EventType.KEY_DOWN, this.onKeyDown, this);
     }
 
     update(dt: number) {
+        // 长按计时：触摸按住期间累计，达到阈值后松手才允许放置（移动端防误触）
+        if (this.touchHeld) this.touchHoldTime += dt;
+
         // 卡牌倒计时在所有阶段推进（选卡暂停期间也要倒计时，防止假死）
         this.panels.updateCardCountdown(dt, () => {
             const s = this.engine.state;
@@ -414,10 +431,32 @@ export class GameManager extends Component {
         this.showPreview();
         this.showGridOverlay();
         const conf = BUILDING_CONFIG[itemId];
-        this.panels.showToast(`点击格子放置${conf.name}（ESC/右键取消）`);
+        this.panels.showToast(`点击格子放置${conf.name}（PC：右键/ESC 取消｜移动端：长按拖拽后松手放置）`);
+    }
+
+    /** 触摸按下：开始长按计时（移动端长按拖拽建造） */
+    private onGameTouchStart(_event: EventTouch) {
+        this.touchHeld = true;
+        this.touchHoldTime = 0;
+    }
+
+    /** PC 全局鼠标按下：右键取消建造模式；左键记录按下时间用于合成触摸判别 */
+    private onGlobalMouseDown(event: EventMouse) {
+        this.lastMousePressMs = Date.now();
+        if (event.getButton() === EventMouse.BUTTON_RIGHT) {
+            if (this.pendingBuild) {
+                this.cancelPlacement();
+                this.panels.showToast('取消建造');
+            }
+        }
     }
 
     private onGameTouch(event: EventTouch) {
+        // 触摸序列结束：复位长按状态；是否达到阈值决定移动端能否放置
+        const heldLongEnough = this.touchHoldTime >= GameManager.TOUCH_HOLD_THRESHOLD;
+        this.touchHeld = false;
+        this.touchHoldTime = 0;
+
         if (this.engine.state.phase !== 'playing') return;
         // 必须用 getUILocation()：设计分辨率 UI 坐标（0~1280/0~720）。
         // getLocation() 返回设备像素坐标，高 DPI 屏上会整体偏移导致网格错位
@@ -426,6 +465,13 @@ export class GameManager extends Component {
 
         // 建造模式：吸附格点放置
         if (this.pendingBuild) {
+            // 移动端防误触：真实触摸必须长按（≥0.25s）后松手才放置。
+            // PC 浏览器会把鼠标点击合成为触摸事件（event.touch 非空），
+            // 用"最近 50ms 内有真实鼠标按下"识别 PC 点击并直接放行
+            const fromRealMouse = Date.now() - this.lastMousePressMs < 50;
+            if (!fromRealMouse && !heldLongEnough) {
+                return; // 快速点按不放置（误触保护）
+            }
             const cell = this.snapToCell(localPos.x, localPos.y);
             if (!cell) {
                 this.panels.showToast('请在己方建造区网格内放置');
@@ -470,7 +516,9 @@ export class GameManager extends Component {
     }
 
     private onGameTouchCancel(_event: EventTouch) {
-        // 触摸被系统打断时保持预览，不执行放置
+        // 触摸被系统打断：复位长按状态，保持预览不放置
+        this.touchHeld = false;
+        this.touchHoldTime = 0;
     }
 
     private onKeyDown(event: any) {
