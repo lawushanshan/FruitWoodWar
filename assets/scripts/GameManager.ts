@@ -437,7 +437,7 @@ export class GameManager extends Component {
         this.showPreview();
         this.showGridOverlay();
         const conf = BUILDING_CONFIG[itemId];
-        this.panels.showToast(`点击格子放置${conf.name}（PC：右键/ESC 取消｜移动端：长按拖拽后松手放置）`);
+        this.panels.showToast(`选择格子放置${conf.name}（放错可右键/ESC 取消）`);
     }
 
     /** 触摸按下：开始长按计时（移动端长按拖拽建造） */
@@ -486,15 +486,19 @@ export class GameManager extends Component {
             }
             const cmd = makeBuildCommand(this.pendingBuild, this.engine.state, cell);
             const result = this.engine.execute(cmd);
+            if (result.message) this.panels.showToast(result.message);
+            this.hudView.updatePrices(this.engine.state);
             if (result.ok) {
                 this.audio.play('build');
                 this.floatingText.show('建造完成！', cell.x, cell.y + 30, new Color(100, 255, 100), 16, 0.6);
+                // 放置成功即结束本次建造（一次点击 = 一座建筑）；
+                // 右键/ESC 取消只用于放置前的反悔，避免连续模式下误点多造
+                this.cancelPlacement();
+            } else {
+                // 放置失败（金币不足等）：保持建造模式，玩家可换格重试
+                this.refreshGridOverlay();
+                this.updatePreviewAt(cell.x, cell.y);
             }
-            if (result.message) this.panels.showToast(result.message);
-            this.hudView.updatePrices(this.engine.state);
-            this.refreshGridOverlay();
-            // 保持建造模式（连续建造），预览更新到当前格
-            this.updatePreviewAt(cell.x, cell.y);
             return;
         }
 
