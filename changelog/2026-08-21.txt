@@ -315,3 +315,14 @@ server/ 目录：Node20 + ws，node --experimental-strip-types 直跑 TS。
    按钮 + 房号输入框（EditBox）+ 联机状态行（房号/等待对手）；quick 匹配
    也提示"匹配中…"。玩家不再不知道是否在匹配、可共享同一房间码。
 服务端容器重建，create→join→matched 冒烟通过；112 测试 + tsc 干净。
+
+四十二、"创建房间无反应"修复（P1 UX）
+--------
+根因：客户端在 WebSocket 尚未 open 时调用 send()，send 检查 readyState===OPEN
+失败直接丢弃；onCreateRoomClick 紧接着发 create_room，连接仍在 CONNECTING，
+命令丢失。（quick 匹配此前能成是因为 onOnlineClick 有 600ms 延迟等连接。）
+修复：NetworkClient 增加待发队列——连接未就绪时消息入队，open 后自动补发；
+手动 close 时清空；GameManager 连接建立/失败均给 toast 提示。
+另：弃用渲染错乱的 EditBox（占位符放大错位），房号改为浏览器 prompt 输入
+（H5 预览可用）；小游戏原生输入属 P2。
+112 测试 + tsc 干净。

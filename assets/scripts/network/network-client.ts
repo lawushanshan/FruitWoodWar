@@ -42,6 +42,10 @@ export class NetworkClient {
         }
         this.ws.onopen = () => {
             this.retries = 0;
+            // 补发连接期间排队的消息（修复"创建房间无反应"：send 在 OPEN 前直接丢弃）
+            const pending = this.sendQueue;
+            this.sendQueue = [];
+            for (const m of pending) this.rawSend(m);
             this.cbs.onOpen?.();
         };
         this.ws.onmessage = (ev) => {
@@ -55,6 +59,7 @@ export class NetworkClient {
             this.cbs.onClose?.();
             this.ws = null;
             if (!this.closedByUser) this.scheduleReconnect();
+            else this.flushQueue();
         };
         this.ws.onerror = () => {
             this.ws?.close();
@@ -67,7 +72,22 @@ export class NetworkClient {
         this.reconnectTimer = setTimeout(() => this.connect(), delay);
     }
 
+    private sendQueue: ClientMessage[] = [];
+
+    /** 发送消息；连接未就绪时入队，open 后自动补发（不丢失早期命令） */
     send(msg: ClientMessage): boolean {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            return this.rawSend(msg);
+        }
+        this.sendQueue.push(msg);
+        return true;
+    }
+
+    private flushQueue() {
+        this.sendQueue = [];
+    }
+
+    private rawSend(msg: ClientMessage): boolean {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             this.ws.send(JSON.stringify(msg));
             return true;
@@ -77,6 +97,7 @@ export class NetworkClient {
 
     close() {
         this.closedByUser = true;
+        this.sendQueue = [];
         if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
         this.ws?.close();
         this.ws = null;

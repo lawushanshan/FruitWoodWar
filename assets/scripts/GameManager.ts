@@ -918,9 +918,10 @@ export class GameManager extends Component {
     }
 
     /** 加入好友房：输入房间码后匹配 */
-    /** 加入好友房：从输入框读房码后匹配 */
+    /** 加入好友房：浏览器 prompt 输入房码（H5 预览；小游戏输入 UI 属 P2） */
     onJoinRoomClick(_event: Event, _code?: string) {
-        const c = this.panels.getRoomCodeInput().toUpperCase();
+        const c = this.promptRoomCode();
+        if (c === null) return; // 取消
         if (!c) { this.panels.showToast('请输入房间码'); return; }
         this.ensureNet();
         if (!this.net) return;
@@ -929,9 +930,25 @@ export class GameManager extends Component {
         this.panels.updateOnlineStatus('房间 ' + c + ' · 等待对手…');
     }
 
+    /** 房码输入：H5 用 window.prompt；小游戏环境降级提示（P2 补原生输入） */
+    private promptRoomCode(): string | null {
+        if (typeof window !== 'undefined' && typeof window.prompt === 'function') {
+            const v = (window.prompt('输入房间号（房主创建后可见）') || '').trim().toUpperCase();
+            return v === '' ? null : v;
+        }
+        this.panels.showToast('此平台暂不支持输入房号（P2 接入）');
+        return null;
+    }
+
     private ensureNet() {
         if (this.net) return;
-        this.net = new NetworkClient('ws://127.0.0.1:8100', { onMessage: (m) => this.onNetMessage(m) });
+        // onOpen 提示已连接；onClose 提示连接失败（连接建立前即关闭）
+        let opened = false;
+        this.net = new NetworkClient('ws://127.0.0.1:8100', {
+            onMessage: (m) => this.onNetMessage(m),
+            onOpen: () => { opened = true; this.panels.showToast('已连接联机服务器'); },
+            onClose: () => { if (!opened) this.panels.showToast('无法连接服务器（127.0.0.1:8100）'); },
+        });
         this.net.connect();
     }
 

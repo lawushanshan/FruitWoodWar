@@ -10,7 +10,7 @@
  */
 
 import {
-    Node, Label, Color, UITransform, Size, Vec2, Button, EventHandler, Sprite, EditBox,
+    Node, Label, Color, UITransform, Size, Vec2, Button, EventHandler, Sprite,
 } from 'cc';
 import { ColorSpriteFactory } from './color-sprite-factory';
 import { FACTION_CONFIG, FACTION_IDS } from '../config/faction-config';
@@ -38,7 +38,6 @@ export class PanelController {
     // ---- 动态标签 ----
     private diffLabel: Label | null = null;
     private onlineStatusLabel: Label | null = null;
-    private roomCodeEdit: EditBox | null = null;
     private cardSubLabel: Label | null = null;
     private cardCountdownLabel: Label | null = null;
     private endStatsLabel: Label | null = null;
@@ -194,11 +193,6 @@ export class PanelController {
     /** 获取当前选中的难度 */
     getSelectedDifficulty(): Difficulty {
         return this.difficulty;
-    }
-
-    /** 读取房号输入框内容 */
-    getRoomCodeInput(): string {
-        return this.roomCodeEdit ? this.roomCodeEdit.string.trim() : '';
     }
 
     /** 更新联机状态提示（房号/等待等），显示在开始面板下方 */
@@ -463,21 +457,6 @@ export class PanelController {
         this.onlineStatusLabel = this.makeLabel('', 0, -205, new Color(159, 220, 159), this.startPanel, 14);
         this.onlineStatusLabel.node.active = false;
 
-        // 房号输入框（加入房间用）
-        const codeNode = new Node('RoomCodeInput');
-        codeNode.layer = this.gmNode.layer;
-        codeNode.parent = this.startPanel;
-        const codeUt = codeNode.addComponent(UITransform);
-        codeUt.contentSize = new Size(150, 40);
-        codeUt.anchorPoint = new Vec2(0.5, 0.5);
-        const codeBg = this.spriteFactory.createColorNode(new Color(20, 30, 40), 150, 40);
-        codeBg.parent = codeNode;
-        const ed = codeNode.addComponent(EditBox);
-        ed.string = '';
-        ed.placeholder = '房号';
-        ed.maxLength = 6;
-        codeNode.setPosition(450, -170, 0);
-        this.roomCodeEdit = ed;
 
         // 开始按钮
         const startBtn = new Node();
