@@ -16,7 +16,7 @@ import type { FactionId } from '../assets/scripts/core/types';
 describe('全局参数（game-config）', () => {
     it('保持文档冻结的全局节奏值', () => {
         expect(GAME_CONFIG.crystalHp).toBe(4000);
-        expect(GAME_CONFIG.unitCap).toBe(60);
+        expect(GAME_CONFIG.unitCap).toBe(40);
         expect(GAME_CONFIG.aggroRangePx).toBe(260);
         expect(GAME_CONFIG.crystalDamageReduce).toBe(0.75);
         expect(GAME_CONFIG.suddenDeathTime).toBe(300);
@@ -91,11 +91,11 @@ describe('兵种基准（unit-config）', () => {
 });
 
 describe('塔与网格（v1.1.0 合并远程演进）', () => {
-    it('基地塔：1500 血 / 攻 80 / 射程 360 / 40% 溅射', () => {
+    it('基地塔：1500 血 / 攻 80 / 射程 180 / 40% 溅射', () => {
         expect(BASE_TOWER_CONFIG.hp).toBe(1500);
         expect(BASE_TOWER_CONFIG.atk).toBe(80);
         expect(BASE_TOWER_CONFIG.atkSpeed).toBeCloseTo(1.2, 5);
-        expect(BASE_TOWER_CONFIG.range).toBe(360);
+        expect(BASE_TOWER_CONFIG.range).toBe(180);
         expect(BASE_TOWER_CONFIG.splashFraction).toBeCloseTo(0.4, 5);
         expect(BASE_TOWER_CONFIG.splashRadius).toBe(80);
     });

@@ -85,7 +85,7 @@ export function createInitialState(options: StartOptions): GameState {
         academyLevel: { red: 0, blue: 0 },
         researchLayers: { red: 0, blue: 0 },
         comeback: { red: { streak: 0, active: false }, blue: { streak: 0, active: false } },
-        cards: { offers: [], triggeredWaves: { 5: false, 15: false, 20: false } },
+        cards: { offers: [], triggeredWaves: { 5: false, 10: false, 15: false }, usedCardIds: [] },
         stats: { kills: { red: 0, blue: 0 }, result: null },
         aiMemory: { playerCompSnapshot: emptyComp() },
         nextId: 1,

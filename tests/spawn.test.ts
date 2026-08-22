@@ -74,7 +74,7 @@ describe('出兵系统', () => {
         expect(spawned).toBeGreaterThan(0);
     });
 
-    it('人口满 60 时工厂暂停出兵', () => {
+    it('人口满上限时工厂暂停出兵', () => {
         const engine = makeEngine();
         const s = writableState(engine);
         for (let i = 0; i < GAME_CONFIG.unitCap; i++) {
@@ -86,10 +86,10 @@ describe('出兵系统', () => {
         expect(redPop).toBe(GAME_CONFIG.unitCap);
     });
 
-    it('人口 58 时最多补到上限 60', () => {
+    it('人口接近上限时最多补到上限', () => {
         const engine = makeEngine();
         const s = writableState(engine);
-        for (let i = 0; i < 58; i++) {
+        for (let i = 0; i < GAME_CONFIG.unitCap - 2; i++) {
             s.units.push(makeUnit({ side: 'red', id: `fill-${i}` }));
         }
         addFactory(engine, 'tank');

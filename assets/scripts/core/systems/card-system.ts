@@ -1,7 +1,7 @@
 /**
  * 卡牌系统（M3：27 张卡牌效果全部实装，增益只作用于玩家方）
  *
- * 触发：第 5/15/20 波暂停，从玩家阵营卡池抽 3 选 1。
+ * 触发：第 5/10/15 波暂停，从玩家阵营卡池抽 3 选 1（跨波次去重，抽过的不再出现）。
  * 效果类型：永久增益 / 即时效果 / 召唤 / 临时 buff（攻速、攻击、速度、回血）/ 周期效果（果雨）
  * / 被动触发（反伤、狼群、流血、死亡爆炸、处决、击杀回血）。
  */
@@ -33,9 +33,11 @@ export function triggerCardChoiceIfDue(state: GameState, random: RandomSource): 
     return false;
 }
 
-/** 从玩家阵营卡池中不重复抽取 3 张 */
+/** 从玩家阵营卡池中不重复抽取 3 张（跨波次去重：已用过的卡不再入池） */
 function drawOffers(state: GameState, random: RandomSource): void {
-    const pool = [...CARD_CONFIG[state.factions[state.playerSide]]];
+    const pool = CARD_CONFIG[state.factions[state.playerSide]].filter(
+        c => !state.cards.usedCardIds.includes(c.id),
+    );
     const offers: CardConfig[] = [];
     for (let i = 0; i < 3 && pool.length > 0; i++) {
         offers.push(pool.splice(random.int(pool.length), 1)[0]);
@@ -43,13 +45,14 @@ function drawOffers(state: GameState, random: RandomSource): void {
     state.cards.offers = offers;
 }
 
-/** 处理选卡命令：应用效果并恢复对战 */
+/** 处理选卡命令：应用效果、登记已用卡并恢复对战 */
 export function chooseCard(state: GameState, cardId: string, _random: RandomSource): CommandResult {
     const card = state.cards.offers.find(c => c.id === cardId);
     if (!card) {
         return { ok: false };
     }
     state.cards.offers = [];
+    state.cards.usedCardIds.push(card.id);
     applyCardEffect(state, cardId);
     state.phase = 'playing';
     return { ok: true };
