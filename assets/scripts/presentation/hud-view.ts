@@ -32,6 +32,8 @@ export class HudView {
     private topBar: Node | null = null;
     /** 建筑按钮价格标签（按 BuildingItemId 索引） */
     private buildCostLabels: Map<BuildingItemId, Label> = new Map();
+    /** 建筑按钮同类已建数量标签（价格递增可视化） */
+    private buildCountLabels: Map<BuildingItemId, Label> = new Map();
     /** 科研按钮价格标签 */
     private researchCostLabel: Label | null = null;
 
@@ -90,6 +92,14 @@ export class HudView {
                 // 工厂：显示实际下一座价格（含同类递增，与建造判定一致）
                 const cost = buildingCostInState(state, side, id);
                 label.string = cost + '金';
+                // 同类已建数量：让价格递增对玩家透明
+                const countLabel = this.buildCountLabels.get(id);
+                if (countLabel) {
+                    const built = state.buildings.filter(
+                        b => b.side === side && b.unitType === conf.unitType,
+                    ).length;
+                    countLabel.string = built > 0 ? `已建${built}座·递增` : '';
+                }
             } else if (conf.kind === 'academy') {
                 const level = state.academyLevel[side];
                 if (level >= 2) {
@@ -241,10 +251,16 @@ export class HudView {
         nameLabel.node.setPosition(0, -8, 0);
 
         // 价格
-        const costLabel = this.createLabel(cost + '金', 11, new Color(255, 215, 94), new Size(60, 14));
+        const costLabel = this.createLabel(cost + '金', 11, new Color(255, 215, 94), new Size(82, 14));
         costLabel.node.parent = btn;
         costLabel.node.setPosition(0, -22, 0);
         this.buildCostLabels.set(id, costLabel);
+
+        // 同类已建数量（价格递增可视化：已建 N 座 → 下一座更贵）
+        const countLabel = this.createLabel('', 9, new Color(160, 180, 200), new Size(82, 12));
+        countLabel.node.parent = btn;
+        countLabel.node.setPosition(0, -32, 0);
+        this.buildCountLabels.set(id, countLabel);
 
         // 点击事件 → GameManager.onBuildClick
         const button = btn.addComponent(Button);
