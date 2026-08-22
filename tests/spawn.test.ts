@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { GAME_CONFIG } from '../assets/scripts/config/game-config';
-import { makeEngine, makeUnit, writableState } from './helpers';
+import { makeEngine, makeUnit, writableState, runSeconds } from './helpers';
 
 /** 在红方加一座指定兵种工厂（出兵倒计时可控） */
 function addFactory(engine: ReturnType<typeof makeEngine>, unitType: 'tank' | 'ranged' | 'aoe' | 'rush' | 'siege', waveTimer = 0.01) {
@@ -95,5 +95,28 @@ describe('出兵系统', () => {
         addFactory(engine, 'tank');
         engine.step(0.02);
         expect(s.units.filter(u => u.side === 'red').length).toBe(GAME_CONFIG.unitCap);
+    });
+});
+
+describe('战争学院不出兵（回归）', () => {
+    it('只建学院时不会产生任何单位', () => {
+        const engine = makeEngine();
+        const s = writableState(engine);
+        s.gold.red = 10000;
+        // 建两座学院（Lv2）
+        engine.execute({ type: 'build', itemId: 'academy', position: { x: -300, y: 100 } });
+        engine.execute({ type: 'build', itemId: 'academy', position: { x: -300, y: -100 } });
+        // 清空可能存在的 AI 单位/建筑，只保留玩家学院
+        s.units = [];
+        s.buildings = s.buildings.filter(b => b.side === 'red' && b.kind === 'academy');
+        s.gold.blue = 0;
+        s.towers = [];
+        const before = s.buildings.length;
+        expect(before).toBe(2);
+
+        runSeconds(engine, 30); // 跨过多个出兵间隔
+        // 学院不应出兵
+        expect(s.units.length).toBe(0);
+        expect(s.buildings.length).toBe(before);
     });
 });

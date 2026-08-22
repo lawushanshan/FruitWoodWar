@@ -19,6 +19,8 @@ import type { RandomSource } from '../random';
 /** 推进所有兵工厂的出兵倒计时并触发出兵 */
 export function stepSpawners(state: GameState, dt: number, random: RandomSource): void {
     for (const b of state.buildings) {
+        // 战争学院不是兵工厂（unitType 为 null 且 kind=academy），不出兵
+        if (b.kind === 'academy') continue;
         b.waveTimer -= dt;
         if (b.waveTimer <= 0) {
             spawnWave(state, b, random);
