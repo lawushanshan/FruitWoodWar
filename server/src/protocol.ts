@@ -6,9 +6,12 @@
 /** 客户端 → 服务器 */
 export type ClientMessage =
     | { t: 'join'; token: string; mode: 'quick' | 'friend'; roomCode?: string }
+    | { t: 'rejoin'; token: string } // 断线重连（token = matched 下发的 rejoinToken）
     | { t: 'create_room' }
     | { t: 'cmd'; frame: number; cmd: GameCommandPayload }
     | { t: 'hash'; frame: number; hash: string }
+    | { t: 'game_end'; winner: 'red' | 'blue' }
+    | { t: 'ping' } // 延迟测量（服务器回 pong）
     | { t: 'cancel_match' }
     | { t: 'leave' };
 
@@ -16,11 +19,13 @@ export type ClientMessage =
 export type ServerMessage =
     | { t: 'waiting' } // 匹配中
     | { t: 'room_created'; roomCode: string } // 已创建好友房，等待对手加入
-    | { t: 'matched'; roomId: string; seed: number; yourSide: 'red' | 'blue'; yourFaction: FactionId; oppFaction: FactionId; roomCode?: string }
+    | { t: 'matched'; roomId: string; seed: number; yourSide: 'red' | 'blue'; yourFaction: FactionId; oppFaction: FactionId; roomCode?: string; rejoinToken: string } // 含重连凭证
+    | { t: 'resume'; roomId: string; seed: number; yourSide: 'red' | 'blue'; yourFaction: FactionId; oppFaction: FactionId; frame: number; history: Array<{ frame: number; side: 'red' | 'blue'; cmd: GameCommandPayload }> } // 断线重连：重建引擎并快追到 frame
     | { t: 'start'; startInMs: number } // 双端同时倒计时后进入
     | { t: 'frame'; frame: number; cmds: Array<{ side: 'red' | 'blue'; cmd: GameCommandPayload }> }
+    | { t: 'pong' } // ping 回应
     | { t: 'opp_left' } // 对手离开（15s 宽限倒计时开始）
-    | { t: 'opp_back' }
+    | { t: 'opp_back' } // 对手已回来
     | { t: 'result'; winner: 'red' | 'blue'; reason: 'crystal' | 'surrender' | 'timeout' | 'desync' }
     | { t: 'error'; msg: string };
 

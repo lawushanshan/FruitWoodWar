@@ -46,12 +46,15 @@ export class MatchMaker {
         return code;
     }
 
-    join(connId: string, mode: 'quick' | 'friend', roomCode: string | null) {
-        if (this.inRoom.has(connId)) return;
+    /** 加入队列/房间；返回 null 表示成功，否则为给客户端的错误提示 */
+    join(connId: string, mode: 'quick' | 'friend', roomCode: string | null): string | null {
+        if (this.inRoom.has(connId)) return '你已在对局中';
 
         if (mode === 'friend' && roomCode) {
-            const list = this.friendRooms.get(roomCode) ?? [];
-            if (list.some(w => w.connId === connId)) return;
+            const list = this.friendRooms.get(roomCode);
+            // 房号不存在/已过期/房主已走：明确报错，不能让玩家干等
+            if (!list || list.length === 0) return '房间不存在或已关闭（请核对房号）';
+            if (list.some(w => w.connId === connId)) return null;
             list.push({ connId, mode, roomCode });
             this.friendRooms.set(roomCode, list);
             if (list.length >= 2) {
@@ -60,11 +63,11 @@ export class MatchMaker {
                 this.inRoom.add(a.connId); this.inRoom.add(b.connId);
                 this.pairUp(a.connId, b.connId, roomCode);
             }
-            return;
+            return null;
         }
 
         // quick：排队并尝试配对
-        if (this.queue.some(w => w.connId === connId)) return;
+        if (this.queue.some(w => w.connId === connId)) return null;
         this.queue.push({ connId, mode: 'quick', roomCode: null });
         while (this.queue.length >= 2) {
             const a = this.queue.shift()!;
@@ -72,6 +75,7 @@ export class MatchMaker {
             this.inRoom.add(a.connId); this.inRoom.add(b.connId);
             this.pairUp(a.connId, b.connId);
         }
+        return null;
     }
 
     private pairUp(a: string, b: string, roomCode?: string) {

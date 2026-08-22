@@ -56,6 +56,8 @@ export class GameManager extends Component {
     // ---- 联机对战（P1） ----
     private net: NetworkClient | null = null;
     private online = false;
+    /** 联机对局已收到服务器终局（本地模拟冻结，防结算面板背后继续打架） */
+    private onlineEnded = false;
     private mySide: 'red' | 'blue' = 'red';
     /** 服务器帧号（联机模式由 frame 消息驱动） */
     private onlineFrame = 0;
@@ -265,11 +267,36 @@ export class GameManager extends Component {
         input.on(Input.EventType.KEY_DOWN, this.onKeyDown, this);
     }
 
-    start() { this.panels.showStart(); }
+    start() {
+        this.panels.showStart();
+        // 页面刷新恢复：若 sessionStorage 里有重连凭证，尝试找回对局
+        this.tryRejoinFromStorage();
+    }
+
+    /** 刷新/崩溃后恢复：有凭证则连服务器 rejoin，成功后直接回到对局 */
+    private tryRejoinFromStorage() {
+        let token = '';
+        try { token = sessionStorage.getItem('fww_rejoin') ?? ''; } catch { return; }
+        if (!token) return;
+        this.rejoinToken = token;
+        this.rejoining = true;
+        this.panels.showToast('检测到未完成的对局，正在恢复…', 8000);
+        this.ensureNet();
+        // onOpen 回调里会自动发 rejoin（见 ensureNet 的 rejoining 分支）
+        // 兜底：重连失败（对局已结束）则清凭证回开始面板
+        setTimeout(() => {
+            if (this.rejoining) {
+                this.rejoining = false;
+                try { sessionStorage.removeItem('fww_rejoin'); } catch { /* */ }
+                this.panels.showToast('对局已结束或无法恢复');
+            }
+        }, 12_000);
+    }
 
     onDestroy() {
         input.off(Input.EventType.MOUSE_DOWN, this.onGlobalMouseDown, this);
         input.off(Input.EventType.KEY_DOWN, this.onKeyDown, this);
+        this.stopPingLoop();
     }
 
     update(dt: number) {
@@ -280,11 +307,13 @@ export class GameManager extends Component {
         this.panels.updateCardCountdown(dt, () => {
             const s = this.engine.state;
             if (s.phase === 'card-pause' && s.cards.offers.length > 0) {
+                // 联机：自动选卡同样经服务器定序（保证双端一致）
+                if (this.online) { this.submitOnline(makeCardCommand(s.cards.offers[0].id)); return; }
                 this.engine.execute(makeCardCommand(s.cards.offers[0].id));
             }
         });
 
-        if (this.engine.state.phase === 'playing' && !this.online) {
+        if (this.engine.state.phase === 'playing' && !this.online && !this.onlineEnded) {
             // 固定逻辑步长（联机 P0-S1）：渲染 dt 经累加器切成固定 1/30s 逻辑帧，
             // 帧率波动不再影响模拟结果（确定性前提），残余不足一步的量留到下一帧。
             // 单帧上限 0.25s：切后台回来不做长追帧，防止一次性结算大量逻辑。
@@ -314,6 +343,12 @@ export class GameManager extends Component {
                 const canRevive = AdManager.getInstance().canWatch('revive');
                 this.panels.showEnd(this.engine.state, canRevive);
                 this.onGameEnd();
+                // 联机模式：本地模拟出胜负后上报服务器，由服务器广播权威 result
+                // （否则服务器永远不知道水晶被拆，房间只能靠 10 分钟空转超时才结束）
+                if (this.online && this.net) {
+                    const winner = this.engine.state.stats.result?.winner;
+                    if (winner) this.net.send({ t: 'game_end', winner });
+                }
             }
             this.prevPhase = phase;
         }
@@ -445,7 +480,8 @@ export class GameManager extends Component {
     /** 游戏结束时的表现 */
     private onGameEnd() {
         const s = this.engine.state;
-        const won = s.stats.result?.winner === 'red';
+        // 胜负按玩家所在边判定（联机时玩家可能是蓝方）
+        const won = s.stats.result?.winner === s.playerSide;
         this.audio.play(won ? 'victory' : 'defeat');
 
         if (s.stats.result) {
@@ -738,11 +774,26 @@ export class GameManager extends Component {
     }
 
     onCardClick(_event: Event, cardId: string) {
+        // 联机：选卡经服务器定序，随 frame 以选卡方的边执行（双方引擎一致）
+        if (this.online) {
+            this.submitOnline(makeCardCommand(cardId));
+            return;
+        }
         const result = this.engine.execute(makeCardCommand(cardId));
         if (result.ok) {
             this.panels.showToast('卡牌生效！');
             this.audio.play('build');
         }
+    }
+
+    /** 顶部卡牌图标行点击：打开本局卡牌详情面板 */
+    onCardHistoryClick(_event: Event) {
+        this.panels.showCardHistory(this.engine.state);
+    }
+
+    /** 卡牌详情面板关闭按钮 */
+    onCloseCardHistoryClick(_event: Event) {
+        this.panels.hideCardHistory();
     }
 
     onFactionClick(_event: Event, faction: string) { this.panels.onFactionClick(_event, faction); }
@@ -768,6 +819,8 @@ export class GameManager extends Component {
     onStartClick(_event: Event) {
         // 初始化音频（需用户交互后才能播放）
         this.audio.init();
+        this.online = false;
+        this.onlineEnded = false;
 
         const adManager = AdManager.getInstance();
         const doubleSalary = adManager.isDoubleSalaryEnabled();
@@ -807,61 +860,143 @@ export class GameManager extends Component {
         this.tutorial.checkAndStart();
     }
 
-    // ==================== 联机对战（P1） ====================
+    // ==================== 联机对战（P1：好友房创建/加入） ====================
+    // 注：原"联机对战"快速匹配入口已移除——单人多次点击会排队多条连接，
+    // 自己和自己配对成局；好友房（创建/加入）语义清楚且必须两人，保留。
 
-    /** 开始面板"联机对战"入口：连接服务器并匹配 */
-    onOnlineClick(_event: Event) {
-        if (this.online) return;
-        const url = 'ws://127.0.0.1:8100'; // 本地联机服务；生产走平台配置
-        this.panels.showToast('正在连接联机服务器…');
-        this.net = new NetworkClient(url, { onMessage: (m) => this.onNetMessage(m) });
-        this.net.connect();
-        // 连接后自动加入快速匹配
-        setTimeout(() => {
-            if (this.net) {
-                this.net.send({ t: 'join', token: 'dev-' + Math.floor(Math.random() * 1e6), mode: 'quick' });
-                this.panels.showToast('匹配中…等待对手');
-            }
-        }, 600);
+    /** 断线重连凭证（matched 下发；对局中掉线自动凭它恢复） */
+    private rejoinToken: string | null = null;
+    /** 正在重连（抑制期间的帧消息处理） */
+    private rejoining = false;
+    /** ping 测量：发送时间戳；收到 pong 计 RTT */
+    private pingSentAt = 0;
+    private pingTimer: ReturnType<typeof setInterval> | null = null;
+
+    /** 联机建局共用：同 seed 建引擎 + 重置表现层（matched 与 resume 复用） */
+    private setupOnlineEngine(seed: number, side: 'red' | 'blue', myFaction: string, oppFaction: string) {
+        this.engine = new GameEngine(new SeededRandomSource(seed));
+        this.engine.reset({
+            playerFaction: (side === 'red' ? myFaction : oppFaction) as never,
+            aiFaction: (side === 'red' ? oppFaction : myFaction) as never,
+            playerSide: side,
+            aiEnabled: false,
+            disableCards: false, // S4：联机卡牌已双端化——效果按选卡方的真实边结算，锁步一致
+        });
+        // 重置表现层
+        this.panels.hideStart();
+        this.gameView.clear();
+        this.battleEffects.clear();
+        this.floatingText.clear();
+        this.deathEffect.clear();
+        this.prevPhase = 'playing';
+        this.hudView.updatePrices(this.engine.state);
+        this.hudView.showOnlineBadge(side);
+        this.panels.updateOnlineStatus('');
+        this.panels.hideRoomCode();
     }
 
-    /** 服务器消息处理：matched → 建局；frame → 应用命令并推进；result → 结算 */
+    /** 每 5 秒 ping 一次测 RTT（联机期间持续；重复调用安全） */
+    private startPingLoop() {
+        if (this.pingTimer) return;
+        this.pingTimer = setInterval(() => {
+            if (!this.net || !this.online) { this.stopPingLoop(); return; }
+            this.pingSentAt = Date.now();
+            this.net.send({ t: 'ping' });
+        }, 5000);
+    }
+
+    private stopPingLoop() {
+        if (this.pingTimer) { clearInterval(this.pingTimer); this.pingTimer = null; }
+        this.hudView.updatePing(-1);
+    }
+
+    /** 对手操作提示：对手建造/升级/科研时在对手半场弹出浮动文字 */
+    private showOppAction(cmd: import('./network/protocol').GameCommandPayload) {
+        const oppSide: 'red' | 'blue' = this.mySide === 'red' ? 'blue' : 'red';
+        let text = '';
+        let x = oppSide === 'red' ? -330 : 330;
+        let y = 300;
+        if (cmd.type === 'build') {
+            const conf = BUILDING_CONFIG[cmd.itemId as BuildingItemId];
+            text = `对手建造了${conf ? conf.name : '建筑'}！`;
+            x = cmd.position.x; y = cmd.position.y + 30;
+        } else if (cmd.type === 'upgrade') {
+            const b = this.engine.state.buildings.find(bb => bb.id === cmd.buildingId);
+            const name = b && b.unitType && BUILDING_CONFIG[b.unitType] ? BUILDING_CONFIG[b.unitType].name : '工厂';
+            text = `对手升级了${name}！`;
+            if (b) { x = b.x; y = b.y + 30; }
+        } else if (cmd.type === 'research') {
+            text = '对手进行了全军强化！';
+        } else {
+            return; // choose-card 联机未启用
+        }
+        this.floatingText.show(text, x, y, new Color(255, 140, 120), 16, 1.2);
+    }
+
+    /** 服务器消息处理：matched → 建局；resume → 重连恢复；frame → 应用命令并推进；result → 结算 */
     private onNetMessage(msg: ServerMessage) {
         switch (msg.t) {
             case 'matched': {
                 // 双端用同一 seed 建局；联机禁卡牌（S4 卡牌双端化在 P3 实装）
                 this.mySide = msg.yourSide;
                 this.online = true;
-                const my = msg.yourFaction, opp = msg.oppFaction;
-                this.engine = new GameEngine(new SeededRandomSource(msg.seed));
-                this.engine.reset({
-                    // 状态固定 red=对面阵营、blue=己方？No——按边分配：red 用 redFaction
-                    playerFaction: this.mySide === 'red' ? my : opp,
-                    aiFaction: this.mySide === 'red' ? opp : my,
-                    playerSide: this.mySide,
-                    aiEnabled: false,
-                    disableCards: true,
-                });
-                // 重置表现层
+                this.onlineEnded = false;
+                this.rejoinToken = msg.rejoinToken ?? null;
+                this.roomCode = null; // 已配对，房号使命完成
+                this.setupOnlineEngine(msg.seed, msg.yourSide, msg.yourFaction, msg.oppFaction);
+                this.panels.showToast(`已匹配！你是${this.mySide === 'red' ? '红方' : '蓝方'}（${msg.yourFaction}）`);
+                this.startPingLoop();
+                // 持久化重连凭证（页面刷新/崩溃后可凭它恢复对局）
+                try { sessionStorage.setItem('fww_rejoin', msg.rejoinToken ?? ''); } catch { /* 隐私模式等 */ }
+                break;
+            }
+            case 'resume': {
+                // 断线重连：同 seed 重建引擎 → 按服务器命令历史回放 → 快追到当前帧
+                this.mySide = msg.yourSide;
+                this.online = true;
+                this.onlineEnded = false;
+                this.rejoining = false;
                 this.panels.hideStart();
-                this.gameView.clear();
-                this.battleEffects.clear();
-                this.floatingText.clear();
-                this.deathEffect.clear();
-                this.prevPhase = 'playing';
-                this.hudView.updatePrices(this.engine.state);
-                this.panels.updateOnlineStatus('');
-                this.panels.showToast(`已匹配！你是${this.mySide === 'red' ? '红方' : '蓝方'}（${my}）`);
+                this.setupOnlineEngine(msg.seed, msg.yourSide, msg.yourFaction, msg.oppFaction);
+                // 回放命令历史（按 frame 升序：帧推进中在正确帧应用命令）
+                let histIdx = 0;
+                const history = msg.history;
+                for (let f = 1; f <= msg.frame; f++) {
+                    while (histIdx < history.length && history[histIdx].frame === f) {
+                        const h = history[histIdx++];
+                        this.engine.execute(h.cmd as never, h.side);
+                    }
+                    for (let i = 0; i < 3; i++) {
+                        if (this.engine.state.phase === 'playing') this.engine.step(FIXED_LOGIC_DT);
+                    }
+                }
+                this.onlineFrame = msg.frame;
+                this.lastHashReportFrame = msg.frame;
+                this.panels.showToast('已重新连接，对局恢复！');
+                this.startPingLoop();
+                console.log(`[GameManager] rejoin 完成：追帧到 ${msg.frame}，回放 ${history.length} 条命令`);
                 break;
             }
             case 'frame': {
-                // 帧驱动：按序应用本帧命令（含自己的——经服务器定序保证双端一致），再推进 3 个逻辑步（100ms）
-                if (!this.online || this.engine.state.phase !== 'playing') break;
+                if (!this.online) break;
+                // 重连追帧期间到达的帧（序号落后于 resume 快照）直接丢弃，
+                // 追帧完成后由服务器帧号接管
+                if (this.rejoining) break;
+                if (msg.frame <= this.onlineFrame) break; // 迟到/重复帧
                 this.onlineFrame = msg.frame;
                 for (const { side, cmd } of msg.cmds) {
                     // 联机命令按提交方的真实边执行
                     this.engine.execute(cmd as never, side);
+                    // 对手操作提示：增强"真人对战感"（自己命令的反馈走建造/升级本地路径）
+                    if (side !== this.mySide) this.showOppAction(cmd);
                 }
+                // 命令执行后刷新建造栏价格（联机建造/升级/科研经服务器回包生效，
+                // 本地提交路径不执行引擎所以价格不会动——这里统一兜底刷新，
+                // 让"同类递增 +25%"立刻反映到按钮价格上）
+                if (msg.cmds.length > 0) this.hudView.updatePrices(this.engine.state);
+                // 选卡暂停期间不推进模拟（等双方选完恢复 playing 再继续步进）；
+                // 命令（含 choose-card）照常应用——否则选卡命令永远到不了引擎
+                if (this.engine.state.phase !== 'playing') break;
                 for (let i = 0; i < 3; i++) {
                     if (this.engine.state.phase === 'playing') this.engine.step(FIXED_LOGIC_DT);
                 }
@@ -874,15 +1009,25 @@ export class GameManager extends Component {
             }
             case 'room_created': {
                 this.roomCode = msg.roomCode;
-                this.panels.showToast('房号：' + msg.roomCode + '　等待对手加入…');
-                this.panels.updateOnlineStatus('房号 ' + msg.roomCode + ' · 等待对手');
+                // 房号是加入房间的唯一凭证：大卡片常驻展示 + toast 双保险
+                this.panels.showRoomCode(msg.roomCode);
+                this.panels.showToast('房号：' + msg.roomCode, 10_000);
+                this.panels.updateOnlineStatus('等待对手加入…');
                 break;
             }
             case 'waiting':
+                // 好友房房主：不要用"匹配中…"盖掉房号提示（服务器在建房后会立刻补发 waiting）
+                if (this.roomCode) break;
                 this.panels.showToast('匹配中…');
                 break;
+            case 'pong':
+                if (this.pingSentAt > 0) {
+                    this.hudView.updatePing(Date.now() - this.pingSentAt);
+                    this.pingSentAt = 0;
+                }
+                break;
             case 'opp_left':
-                this.panels.showToast('对手已离开，15 秒后判胜…');
+                this.panels.showToast('对手连接中断，15 秒内可重连…', 8000);
                 break;
             case 'opp_back':
                 this.panels.showToast('对手已回来');
@@ -891,16 +1036,39 @@ export class GameManager extends Component {
                 const won = msg.winner === this.mySide;
                 this.panels.showToast(`对局结束：${won ? '胜利！' : '失败'}（${msg.reason}）`);
                 this.online = false;
+                this.onlineEnded = true;
+                this.rejoining = false;
+                this.rejoinToken = null;
+                this.stopPingLoop();
+                this.hudView.hideOnlineBadge();
+                try { sessionStorage.removeItem('fww_rejoin'); } catch { /* */ }
                 this.net?.close();
                 this.net = null;
-                // 复用结算面板（联机结果以服务器为准）
-                this.panels.showEnd(this.engine.state, false);
+                this.panels.hideRoomCode();
+                this.panels.updateOnlineStatus('');
+                // 复用结算面板（联机结果以服务器为准；本地模拟可能尚未结束，
+                // 传入服务器结果兜底，且按玩家所在边判定胜负）
+                this.panels.showEnd(this.engine.state, false, { winner: msg.winner, reason: msg.reason });
                 break;
             }
             case 'error':
                 this.panels.showToast('联机错误：' + msg.msg);
+                this.panels.updateOnlineStatus('');
                 break;
         }
+    }
+
+    /** 房号卡片「取消等待」：退出排队并断开连接 */
+    onCancelRoomClick(_event: Event) {
+        if (this.net) {
+            this.net.send({ t: 'cancel_match' });
+            this.net.close();
+            this.net = null;
+        }
+        this.roomCode = null;
+        this.panels.hideRoomCode();
+        this.panels.updateOnlineStatus('');
+        this.panels.showToast('已取消联机');
     }
 
     /** 联机模式命令提交：本地不执行，经服务器定序后随 frame 应用（双端一致） */
@@ -946,8 +1114,26 @@ export class GameManager extends Component {
         let opened = false;
         this.net = new NetworkClient('ws://127.0.0.1:8100', {
             onMessage: (m) => this.onNetMessage(m),
-            onOpen: () => { opened = true; this.panels.showToast('已连接联机服务器'); },
-            onClose: () => { if (!opened) this.panels.showToast('无法连接服务器（127.0.0.1:8100）'); },
+            onOpen: () => {
+                opened = true;
+                this.panels.showToast('已连接联机服务器');
+                // 对局中掉线重连成功：立刻凭 token 找回房间（不用等服务器消息）
+                if (this.rejoining && this.rejoinToken) {
+                    this.net?.send({ t: 'rejoin', token: this.rejoinToken });
+                }
+            },
+            onClose: () => {
+                if (!opened) {
+                    this.panels.showToast('无法连接服务器（127.0.0.1:8100）');
+                    return;
+                }
+                // 对局中断线：进入重连模式（NetworkClient 自动指数退避重连）
+                if (this.online && !this.onlineEnded) {
+                    this.rejoining = true;
+                    this.panels.showToast('⚠ 连接断开，正在尝试重连…', 10_000);
+                    this.panels.updateOnlineStatus('连接断开，重连中…');
+                }
+            },
         });
         this.net.connect();
     }

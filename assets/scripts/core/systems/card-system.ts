@@ -33,11 +33,28 @@ export function triggerCardChoiceIfDue(state: GameState, random: RandomSource): 
     return false;
 }
 
-/** 从玩家阵营卡池中不重复抽取 3 张（跨波次去重：已用过的卡不再入池） */
+/**
+ * 从卡池中不重复抽取 3 张（跨波次去重：已用过的卡不再入池）。
+ * 单机：玩家自己阵营的卡池（保留阵营风味）。
+ * 联机一致性（aiEnabled=false）：卡池 = 双方阵营卡池的并集（排序去重），
+ * 保证双端 offers 完全相同——否则红蓝引擎各按自己阵营抽卡，
+ * 选卡命令无法在对端 offers 中命中（chooseCard 查 offers 会失败）。
+ */
 function drawOffers(state: GameState, random: RandomSource): void {
-    const pool = CARD_CONFIG[state.factions[state.playerSide]].filter(
-        c => !state.cards.usedCardIds.includes(c.id),
-    );
+    const mine = CARD_CONFIG[state.factions[state.playerSide]] ?? [];
+    let candidates = mine;
+    if (!state.aiEnabled) {
+        const theirs = CARD_CONFIG[state.factions[state.playerSide === 'red' ? 'blue' : 'red']] ?? [];
+        candidates = [...mine, ...theirs];
+    }
+    const seen = new Set<string>();
+    const pool = candidates
+        .filter(c => {
+            if (seen.has(c.id) || state.cards.usedCardIds.includes(c.id)) return false;
+            seen.add(c.id);
+            return true;
+        })
+        .sort((a, b) => (a.id < b.id ? -1 : 1));
     const offers: CardConfig[] = [];
     for (let i = 0; i < 3 && pool.length > 0; i++) {
         offers.push(pool.splice(random.int(pool.length), 1)[0]);
@@ -46,14 +63,15 @@ function drawOffers(state: GameState, random: RandomSource): void {
 }
 
 /** 处理选卡命令：应用效果、登记已用卡并恢复对战 */
-export function chooseCard(state: GameState, cardId: string, random: RandomSource): CommandResult {
+export function chooseCard(state: GameState, cardId: string, random: RandomSource, side: 'red' | 'blue' = state.playerSide): CommandResult {
+    // 联机锁步：双方在各自引擎执行同一条 choose-card 命令，效果按选卡方的真实边结算
     const card = state.cards.offers.find(c => c.id === cardId);
     if (!card) {
         return { ok: false };
     }
     state.cards.offers = [];
     state.cards.usedCardIds.push(card.id);
-    applyCardEffect(state, cardId, random);
+    applyCardEffect(state, cardId, random, side);
     state.phase = 'playing';
     return { ok: true };
 }
@@ -63,16 +81,16 @@ function tempBuff(side: TempBuff['side'], type: TempBuff['type'], mult: number, 
     return { side, type, mult, damage: 0, interval: 0, tickTimer: 0, dur };
 }
 
-/** 卡牌效果结算：全部只作用于玩家方（红方）；spawnRandom 供召唤类效果取位置 */
-function applyCardEffect(state: GameState, cardId: string, spawnRandom: RandomSource): void {
-    const buff = state.buffs.red; // 玩家方增益
-    const redUnits = () => state.units.filter(u => u.side === 'red');
-    const blueUnits = () => state.units.filter(u => u.side === 'blue');
+/** 卡牌效果结算：作用于选卡方所在边（单机=玩家方；联机=选卡方的真实边）；spawnRandom 供召唤类效果取位置 */
+function applyCardEffect(state: GameState, cardId: string, spawnRandom: RandomSource, side: 'red' | 'blue' = state.playerSide): void {
+    const buff = state.buffs[side]; // 选卡方增益
+    const myUnits = () => state.units.filter(u => u.side === side);
+    const enemyUnits = () => state.units.filter(u => u.side !== side);
 
     switch (cardId) {
         // ================= 水果王国 =================
         case 'heal': // 全体治疗 30%
-            redUnits().forEach(u => {
+            myUnits().forEach(u => {
                 u.hp = Math.min(u.maxHp, u.hp + u.maxHp * 0.3);
             });
             break;
@@ -83,10 +101,10 @@ function applyCardEffect(state: GameState, cardId: string, spawnRandom: RandomSo
             buff.splashMult *= 1.6;
             break;
         case 'sunburst': // 10 秒内攻速翻倍
-            state.tempBuffs.push(tempBuff('red', 'attackSpeedMult', 2, 10));
+            state.tempBuffs.push(tempBuff(side, 'attackSpeedMult', 2, 10));
             break;
         case 'tropical': // 全场敌方 -200
-            blueUnits().forEach(u => {
+            enemyUnits().forEach(u => {
                 u.hp -= 200;
             });
             break;
@@ -95,19 +113,19 @@ function applyCardEffect(state: GameState, cardId: string, spawnRandom: RandomSo
             buff.attackSpeed *= 1.2;
             break;
         case 'shield': // 全体获得 150 护盾
-            redUnits().forEach(u => {
+            myUnits().forEach(u => {
                 u.shield += 150;
             });
             break;
         case 'regen': // 10 秒内持续回血（每秒 3% 最大血量）
-            state.tempBuffs.push(tempBuff('red', 'regen', 0.03, 10));
+            state.tempBuffs.push(tempBuff(side, 'regen', 0.03, 10));
             break;
         case 'rain': // 每 5 秒对随机敌人造成 100 伤害（持续到对局结束）
-            state.tempBuffs.push({ side: 'red', type: 'rain', mult: 0, damage: RAIN_DAMAGE, interval: RAIN_INTERVAL, tickTimer: RAIN_INTERVAL, dur: RAIN_DURATION });
+            state.tempBuffs.push({ side, type: 'rain', mult: 0, damage: RAIN_DAMAGE, interval: RAIN_INTERVAL, tickTimer: RAIN_INTERVAL, dur: RAIN_DURATION });
             break;
         // ================= 绿木林 =================
         case 'rootNet': // 敌人减速 40% 持续 8 秒
-            blueUnits().forEach(u => {
+            enemyUnits().forEach(u => {
                 u.slowMult = 0.6;
                 u.slowDur = 8;
             });
@@ -116,12 +134,12 @@ function applyCardEffect(state: GameState, cardId: string, spawnRandom: RandomSo
             buff.hp *= 1.3;
             break;
         case 'spore': // 全场敌方 -150（灰盒简化：无释放位置概念）
-            blueUnits().forEach(u => {
+            enemyUnits().forEach(u => {
                 u.hp -= 150;
             });
             break;
         case 'vine': // 敌人定身 3 秒
-            blueUnits().forEach(u => {
+            enemyUnits().forEach(u => {
                 u.stunDur = 3;
             });
             break;
@@ -132,11 +150,12 @@ function applyCardEffect(state: GameState, cardId: string, spawnRandom: RandomSo
             for (let i = 0; i < 3; i++) {
                 state.units.push({
                     id: nextEntityId(state),
-                    side: 'red',
+                    side,
                     type: 'tank',
                     level: 1,
-                    // P0-S2：位置经注入随机源（帧同步确定性；禁 Math.random）
-                    x: -300 + spawnRandom.range(0, 100),
+                    // P0-S2：位置经注入随机源（帧同步确定性；禁 Math.random）；
+                    // 联机双端一致的前提：坐标基于 side 对称生成（红方负 x、蓝方正 x）
+                    x: (side === 'red' ? -1 : 1) * (300 + spawnRandom.range(0, 100)),
                     y: -50 + spawnRandom.range(-30, 30),
                     hp: 400,
                     maxHp: 400,
@@ -163,7 +182,7 @@ function applyCardEffect(state: GameState, cardId: string, spawnRandom: RandomSo
             break;
         case 'forest': // 水晶回血 500
         {
-            const rc = state.crystals.find(c => c.side === 'red');
+            const rc = state.crystals.find(c => c.side === side);
             if (rc) rc.hp = Math.min(rc.maxHp, rc.hp + 500);
             break;
         }
@@ -179,7 +198,7 @@ function applyCardEffect(state: GameState, cardId: string, spawnRandom: RandomSo
             buff.attackSpeed *= 1.3;
             break;
         case 'howl': // 10 秒内攻击 +50%
-            state.tempBuffs.push(tempBuff('red', 'atkMult', 1.5, 10));
+            state.tempBuffs.push(tempBuff(side, 'atkMult', 1.5, 10));
             break;
         case 'pack': // 每有一个友军攻击 +5%
             buff.packBonus = 0.05;
@@ -188,7 +207,7 @@ function applyCardEffect(state: GameState, cardId: string, spawnRandom: RandomSo
             buff.execute = true;
             break;
         case 'stampede': // 全体加速 50% 持续 10 秒
-            state.tempBuffs.push(tempBuff('red', 'speedMult', 1.5, 10));
+            state.tempBuffs.push(tempBuff(side, 'speedMult', 1.5, 10));
             break;
         case 'claw': // 攻击附带流血（3 秒内造成 20% 伤害）
             buff.bleed = 0.2;

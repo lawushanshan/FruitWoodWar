@@ -42,6 +42,12 @@ export class HudView {
     private cardHistoryLabel: Label | null = null;
     private lastCardCount = -1;
 
+    /** 联机身份标识（你是红方/蓝方），显示在顶部栏下方左侧 */
+    private sideBadgeLabel: Label | null = null;
+    /** 联机延迟指示（ping ms），显示在身份标识旁 */
+    private pingLabel: Label | null = null;
+    private onlineBadgeNode: Node | null = null;
+
     /** 上次可视高度（用于检测屏幕变化） */
     private lastVisibleHeight: number = 0;
 
@@ -61,21 +67,94 @@ export class HudView {
         this.createTopBar();
         this.createBuildBar();
         this.createCardHistory();
+        this.createOnlineBadge();
     }
 
-    /** 顶部栏下方的已抽卡牌历史行（图标串联） */
+    /** 联机身份标识 + ping 指示（顶部栏下方左侧；仅联机对局显示） */
+    private createOnlineBadge() {
+        const node = new Node('OnlineBadge');
+        node.layer = this.gmNode.layer;
+        node.parent = this.container;
+        const ut = node.addComponent(UITransform);
+        ut.contentSize = new Size(360, 22);
+        ut.anchorPoint = new Vec2(0, 1);
+
+        const badge = new Node('SideBadge');
+        badge.layer = this.gmNode.layer;
+        badge.parent = node;
+        const bUt = badge.addComponent(UITransform);
+        bUt.contentSize = new Size(150, 22);
+        this.sideBadgeLabel = badge.addComponent(Label);
+        this.sideBadgeLabel.string = '';
+        this.sideBadgeLabel.fontSize = 15;
+        this.sideBadgeLabel.lineHeight = 20;
+        this.sideBadgeLabel.color = new Color(255, 220, 120);
+        badge.setPosition(0, 0, 0);
+
+        const ping = new Node('PingLabel');
+        ping.layer = this.gmNode.layer;
+        ping.parent = node;
+        const pUt = ping.addComponent(UITransform);
+        pUt.contentSize = new Size(120, 22);
+        this.pingLabel = ping.addComponent(Label);
+        this.pingLabel.string = '';
+        this.pingLabel.fontSize = 14;
+        this.pingLabel.lineHeight = 20;
+        this.pingLabel.color = new Color(159, 200, 180);
+        ping.setPosition(170, 0, 0);
+
+        node.active = false;
+        this.onlineBadgeNode = node;
+    }
+
+    /** 联机对局开始时调用：显示身份（你是红方/蓝方） */
+    showOnlineBadge(side: 'red' | 'blue') {
+        if (!this.sideBadgeLabel) return;
+        this.sideBadgeLabel.string = side === 'red' ? '🔴 你是红方' : '🔵 你是蓝方';
+        if (this.onlineBadgeNode) this.onlineBadgeNode.active = true;
+    }
+
+    /** 联机结束时隐藏 */
+    hideOnlineBadge() {
+        if (this.onlineBadgeNode) this.onlineBadgeNode.active = false;
+        if (this.pingLabel) this.pingLabel.string = '';
+    }
+
+    /** 更新 ping 显示（GameManager 测得 RTT 后调用；<0 清除） */
+    updatePing(rttMs: number) {
+        if (!this.pingLabel) return;
+        if (rttMs < 0) { this.pingLabel.string = ''; return; }
+        this.pingLabel.string = `📶 ${Math.round(rttMs)}ms`;
+        this.pingLabel.color = rttMs < 80
+            ? new Color(120, 230, 140)
+            : rttMs < 200
+                ? new Color(255, 210, 100)
+                : new Color(255, 130, 120);
+    }
+
+    /** 顶部栏下方的已抽卡牌历史行（图标串联，点击查看卡牌详情面板） */
     private createCardHistory() {
         const node = new Node('CardHistory');
         node.layer = this.gmNode.layer;
         node.parent = this.container;
         const ut = node.addComponent(UITransform);
-        ut.contentSize = new Size(400, 20);
+        ut.contentSize = new Size(420, 36); // 加大点击热区，方便点开查看
         ut.anchorPoint = new Vec2(1, 1);
         this.cardHistoryLabel = node.addComponent(Label);
         this.cardHistoryLabel.string = '';
         this.cardHistoryLabel.fontSize = 14;
         this.cardHistoryLabel.lineHeight = 16;
         this.cardHistoryLabel.color = new Color(230, 210, 250);
+
+        // 点击 → 打开卡牌详情面板（GameManager 路由到 PanelController.showCardHistory）
+        const button = node.addComponent(Button);
+        button.transition = Button.Transition.SCALE;
+        button.zoomScale = 1.05;
+        const handler = new EventHandler();
+        handler.target = this.gmNode;
+        handler.component = 'GameManager';
+        handler.handler = 'onCardHistoryClick';
+        button.clickEvents = [handler];
     }
 
     // ==================== 每帧更新 ====================
@@ -96,7 +175,7 @@ export class HudView {
                 }
                 return '';
             });
-            this.cardHistoryLabel.string = used.length > 0 ? '🃏 ' + icons.join(' ') : '';
+            this.cardHistoryLabel.string = used.length > 0 ? '🃏 ' + icons.join(' ') + '（点击查看）' : '';
         }
 
         const ps = state.playerSide;
@@ -206,6 +285,10 @@ export class HudView {
         // 卡牌历史行：顶部栏下方、右侧对齐
         if (this.cardHistoryLabel) {
             this.cardHistoryLabel.node.setPosition(visWidth / 2 - 12, visHeight / 2 - 50, 0);
+        }
+        // 联机身份标识：顶部栏下方、左侧对齐
+        if (this.onlineBadgeNode) {
+            this.onlineBadgeNode.setPosition(-visWidth / 2 + 12, visHeight / 2 - 50, 0);
         }
 
         // 底部建造栏始终固定在屏幕底部

@@ -78,8 +78,18 @@ export class Gateway {
 
     private route(conn: ClientConn, msg: ClientMessage) {
         switch (msg.t) {
-            case 'join':
-                this.matcher.join(conn.id, msg.mode, msg.roomCode ?? null);
+            case 'join': {
+                const err = this.matcher.join(conn.id, msg.mode, msg.roomCode ?? null);
+                if (err) this.send(conn.id, { t: 'error', msg: err });
+                break;
+            }
+            case 'rejoin':
+                if (!this.rooms.onRejoin(conn.id, msg.token)) {
+                    this.send(conn.id, { t: 'error', msg: '重连失败：对局不存在或已结束' });
+                }
+                break;
+            case 'ping':
+                this.send(conn.id, { t: 'pong' });
                 break;
             case 'create_room': {
                 const code = this.matcher.create(conn.id);
@@ -95,6 +105,9 @@ export class Gateway {
                 break;
             case 'hash':
                 if (conn.roomId) this.rooms.onHash(conn.roomId, conn.id, msg.frame, msg.hash);
+                break;
+            case 'game_end':
+                if (conn.roomId) this.rooms.onGameEnd(conn.roomId, conn.id, msg.winner);
                 break;
             case 'leave':
                 if (conn.roomId) this.rooms.onLeave(conn.roomId, conn.id);

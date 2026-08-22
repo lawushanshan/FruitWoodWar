@@ -14,6 +14,8 @@ import {
 } from 'cc';
 import { ColorSpriteFactory } from './color-sprite-factory';
 import { FACTION_CONFIG, FACTION_IDS } from '../config/faction-config';
+import { BUILDING_CONFIG } from '../config/building-config';
+import { CARD_CONFIG } from '../config/card-config';
 import { getCardPanelSubtitle } from '../core/systems/card-system';
 import type { CardConfig, Difficulty, FactionId, GameState } from '../core/types';
 
@@ -141,15 +143,34 @@ export class PanelController {
         }
     }
 
-    /** 显示结算面板（引擎进入 ended 时调用） */
-    showEnd(state: GameState, canRevive: boolean = false) {
+    /**
+     * 显示结算面板（引擎进入 ended 时调用）。
+     * @param onlineResult 联机模式：本地引擎可能尚未跑出 stats.result（如对手投降），
+     *                     用服务器权威结果兜底展示。
+     */
+    showEnd(state: GameState, canRevive: boolean = false, onlineResult?: { winner: 'red' | 'blue'; reason: string }) {
         if (!this.endPanel) return;
         this.endPanel.active = true;
 
         const result = state.stats.result;
-        if (!result || !this.endStatsLabel) return;
+        if (!this.endStatsLabel) return;
 
-        const won = result.winner === 'red';
+        // 胜负按玩家所在边判定（联机时玩家可能是蓝方；旧逻辑固定 red 会导致蓝方玩家赢了也显示失败）
+        const won = result
+            ? result.winner === state.playerSide
+            : onlineResult
+                ? onlineResult.winner === state.playerSide
+                : false;
+        if (!result && onlineResult) {
+            // 本地模拟未结束（服务器判胜负）：展示服务器结果
+            this.endStatsLabel.string =
+                (won ? '🎉 胜利！' : '😢 失败\n') +
+                `（服务器判定：${onlineResult.reason}）`;
+            if (this.reviveBtn) this.reviveBtn.active = false;
+            return;
+        }
+        if (!result) return;
+
         const minutes = Math.floor(result.duration / 60);
         const seconds = Math.floor(result.duration % 60);
         this.endStatsLabel.string =
@@ -171,8 +192,8 @@ export class PanelController {
         if (this.endPanel) this.endPanel.active = false;
     }
 
-    /** 显示 Toast 提示（3 秒自动消失） */
-    showToast(msg: string) {
+    /** 显示 Toast 提示（默认 3 秒自动消失，可指定时长） */
+    showToast(msg: string, durationMs: number = 3000) {
         if (!this.toastLabel) return;
         this.toastLabel.string = msg;
         const toast = this.toastLabel.node;
@@ -182,7 +203,7 @@ export class PanelController {
         if (this.toastTimer) clearTimeout(this.toastTimer);
         this.toastTimer = setTimeout(() => {
             if (toast) toast.active = false;
-        }, 3000);
+        }, durationMs);
     }
 
     /** 获取当前选中的阵营 */
@@ -200,6 +221,65 @@ export class PanelController {
         if (!this.onlineStatusLabel) return;
         this.onlineStatusLabel.string = text;
         this.onlineStatusLabel.node.active = text.length > 0;
+    }
+
+    // ==================== 房号大卡片（创建房间后展示） ====================
+
+    private roomCard: Node | null = null;
+    private roomCodeLabel: Label | null = null;
+
+    /** 醒目展示好友房房号：建房后调用，让玩家一眼看到要把哪个号发给好友 */
+    showRoomCode(code: string) {
+        this.createRoomCardOnce();
+        if (this.roomCodeLabel) this.roomCodeLabel.string = code;
+        if (this.roomCard) this.roomCard.active = true;
+    }
+
+    hideRoomCode() {
+        if (this.roomCard) this.roomCard.active = false;
+    }
+
+    private createRoomCardOnce() {
+        if (this.roomCard) return;
+        const card = new Node('RoomCard');
+        card.layer = this.gmNode.layer;
+        card.parent = this.container;
+        card.active = false;
+        const ut = card.addComponent(UITransform);
+        ut.contentSize = new Size(520, 150);
+        ut.anchorPoint = new Vec2(0.5, 0.5);
+        card.setPosition(0, 140, 0); // 开始面板中上部，覆盖副标题位置（建房等待时这是最优先信息）
+
+        // 深色底 + 亮边框
+        const bg = this.spriteFactory.createColorNode(new Color(10, 24, 16, 245), 520, 150);
+        bg.parent = card;
+        const border = this.spriteFactory.createColorNode(new Color(80, 220, 120), 528, 158);
+        border.parent = card;
+        border.setPosition(0, 0, -1); // 边框垫底
+
+        this.makeLabel('房间已创建，等待好友加入', 0, 52, new Color(120, 255, 159), card, 20);
+        this.roomCodeLabel = this.makeLabel('------', 0, 0, new Color(255, 215, 94), card, 44);
+        this.makeLabel('把房号发给好友，对方点「🔢 加入房间」输入即可', 0, -46, new Color(200, 220, 200), card, 15);
+
+        // 取消等待按钮（反悔入口：取消排队并关闭连接）
+        const cancelBtn = new Node('CancelRoomBtn');
+        cancelBtn.layer = this.gmNode.layer;
+        cancelBtn.parent = card;
+        const cxUt = cancelBtn.addComponent(UITransform);
+        cxUt.contentSize = new Size(110, 32);
+        cancelBtn.setPosition(200, 55, 0);
+        const cxBg = this.spriteFactory.createColorNode(new Color(120, 60, 50, 230), 110, 32);
+        cxBg.parent = cancelBtn;
+        this.makeLabel('✕ 取消', 0, 0, Color.WHITE, cancelBtn, 14);
+        const cxButton = cancelBtn.addComponent(Button);
+        cxButton.transition = Button.Transition.SCALE;
+        const cxHandler = new EventHandler();
+        cxHandler.target = this.gmNode;
+        cxHandler.component = 'GameManager';
+        cxHandler.handler = 'onCancelRoomClick';
+        cxButton.clickEvents = [cxHandler];
+
+        this.roomCard = card;
     }
 
     // ==================== 建筑升级面板 ====================
@@ -230,9 +310,11 @@ export class PanelController {
             return;
         }
         const stars = b.level === 2 ? '★' : b.level === 3 ? '★★' : '';
+        // 建筑显示自己的名字（坦克厂/远程厂/……），不再统一叫"兵工厂"
+        const bName = (b.unitType !== null && BUILDING_CONFIG[b.unitType]) ? BUILDING_CONFIG[b.unitType].name : '兵工厂';
         if (this.upgradeInfoLabel) {
             this.upgradeInfoLabel.string =
-                `兵工厂 Lv${b.level}${stars}` +
+                `${bName} Lv${b.level}${stars}` +
                 (b.level === 3 ? '（已满级）' : b.level === 2 && state.academyLevel[state.playerSide] < 1 ? '（需战争学院 Lv1）' : '');
         }
         if (this.upgradeCostLabel) {
@@ -263,6 +345,94 @@ export class PanelController {
     hideUpgrade() {
         if (this.upgradePanel) this.upgradePanel.active = false;
         this.upgradeBuildingId = null;
+    }
+
+    // ==================== 卡牌历史查看面板 ====================
+
+    /** 卡牌历史面板（点顶部卡牌图标行打开） */
+    private cardHistoryPanel: Node | null = null;
+    private cardHistoryContent: Node | null = null;
+
+    /** 查找卡牌配置（跨稀有度类别搜索） */
+    private findCardConfig(id: string): CardConfig | null {
+        for (const list of Object.values(CARD_CONFIG)) {
+            const c = list.find(x => x.id === id);
+            if (c) return c;
+        }
+        return null;
+    }
+
+    /** 显示本局已抽卡牌详情（名称 + 描述），点顶部 🃏 图标行打开 */
+    showCardHistory(state: GameState) {
+        this.createCardHistoryPanelOnce();
+        // 重建列表
+        if (this.cardHistoryContent) {
+            this.cardHistoryContent.removeAllChildren();
+            const used = state.cards.usedCardIds;
+            if (used.length === 0) {
+                this.makeLabel('本局还没有抽到卡牌（第 5/10/15 波触发）', 0, 0, new Color(159, 180, 196), this.cardHistoryContent, 16);
+            } else {
+                used.forEach((id, i) => {
+                    const c = this.findCardConfig(id);
+                    if (!c) return;
+                    const y = 130 - i * 52;
+                    this.makeLabel(`${c.icon} ${c.name}`, -170, y, Color.WHITE, this.cardHistoryContent, 18);
+                    this.makeLabel(c.desc, 60, y, new Color(159, 180, 196), this.cardHistoryContent, 14);
+                });
+            }
+            // 对手卡牌说明（当前设计：卡牌只作用于玩家方；联机模式卡牌整体禁用）
+            const oppNote = state.aiEnabled ? '对手（AI）没有卡牌' : '联机模式：卡牌已禁用';
+            this.makeLabel(oppNote, 0, -240, new Color(120, 140, 160), this.cardHistoryContent, 13);
+        }
+        if (this.cardHistoryPanel) this.cardHistoryPanel.active = true;
+    }
+
+    hideCardHistory() {
+        if (this.cardHistoryPanel) this.cardHistoryPanel.active = false;
+    }
+
+    private createCardHistoryPanelOnce() {
+        if (this.cardHistoryPanel) return;
+        const panel = new Node('CardHistoryPanel');
+        panel.layer = this.gmNode.layer;
+        panel.parent = this.container;
+        panel.active = false;
+        const ut = panel.addComponent(UITransform);
+        ut.contentSize = new Size(560, 580);
+        ut.anchorPoint = new Vec2(0.5, 0.5);
+
+        const bg = this.spriteFactory.createColorNode(new Color(5, 10, 14, 230), 560, 580);
+        bg.parent = panel;
+
+        this.makeLabel('🃏 本局卡牌', 0, 250, new Color(255, 215, 94), panel, 24);
+
+        // 滚动不便实现，列表容器预留 8 张的展示空间（超出截断展示前 8 张 + 提示）
+        const content = new Node('Content');
+        content.layer = this.gmNode.layer;
+        content.parent = panel;
+        const cUt = content.addComponent(UITransform);
+        cUt.contentSize = new Size(520, 480);
+        this.cardHistoryContent = content;
+
+        // 关闭按钮
+        const closeBtn = new Node('CloseBtn');
+        closeBtn.layer = this.gmNode.layer;
+        closeBtn.parent = panel;
+        const cbUt = closeBtn.addComponent(UITransform);
+        cbUt.contentSize = new Size(120, 40);
+        const cbBg = this.spriteFactory.createColorNode(new Color(70, 80, 88), 120, 40);
+        cbBg.parent = closeBtn;
+        this.makeLabel('关闭', 0, 0, Color.WHITE, closeBtn, 16);
+        closeBtn.setPosition(0, -255, 0);
+        const cButton = closeBtn.addComponent(Button);
+        cButton.transition = Button.Transition.SCALE;
+        const cHandler = new EventHandler();
+        cHandler.target = this.gmNode;
+        cHandler.component = 'GameManager';
+        cHandler.handler = 'onCloseCardHistoryClick';
+        cButton.clickEvents = [cHandler];
+
+        this.cardHistoryPanel = panel;
     }
 
     private createUpgradePanelOnce() {
@@ -388,7 +558,7 @@ export class PanelController {
         const dsBg = this.spriteFactory.createColorNode(new Color(212, 116, 26), 200, 40);
         dsBg.parent = doubleBtn;
         this.makeLabel('📺 双倍工资', 0, 0, Color.WHITE, doubleBtn, 16);
-        doubleBtn.setPosition(0, -160, 0);
+        doubleBtn.setPosition(0, -155, 0);
 
         const dsButton = doubleBtn.addComponent(Button);
         dsButton.transition = Button.Transition.SCALE;
@@ -398,35 +568,17 @@ export class PanelController {
         dsHandler.handler = 'onDoubleSalaryClick';
         dsButton.clickEvents = [dsHandler];
 
-        // 联机对战按钮（P1：连接 ws 服务器匹配真人对手）
-        const onlineBtn = new Node('OnlineBtn');
-        onlineBtn.layer = this.gmNode.layer;
-        onlineBtn.parent = this.startPanel;
-        const onUt = onlineBtn.addComponent(UITransform);
-        onUt.contentSize = new Size(200, 50);
-        const onBg = this.spriteFactory.createColorNode(new Color(50, 90, 140), 200, 50);
-        onBg.parent = onlineBtn;
-        this.makeLabel('🌐 联机对战', 0, 0, Color.WHITE, onlineBtn, 24);
-        onlineBtn.setPosition(0, -170, 0);
-
-        const onButton = onlineBtn.addComponent(Button);
-        onButton.transition = Button.Transition.SCALE;
-        const onHandler = new EventHandler();
-        onHandler.target = this.gmNode;
-        onHandler.component = 'GameManager';
-        onHandler.handler = 'onOnlineClick';
-        onButton.clickEvents = [onHandler];
-
-        // 创建房间按钮
+        // 创建房间 / 加入房间（联机入口只保留这两个：快速匹配容易"自己匹配到自己"
+        // 造成一人成局，且对玩家来说"创建/加入"语义更清楚）
         const createBtn = new Node('CreateRoomBtn');
         createBtn.layer = this.gmNode.layer;
         createBtn.parent = this.startPanel;
         const crUt = createBtn.addComponent(UITransform);
-        crUt.contentSize = new Size(140, 44);
-        const crBg = this.spriteFactory.createColorNode(new Color(46, 90, 60), 140, 44);
+        crUt.contentSize = new Size(190, 52);
+        const crBg = this.spriteFactory.createColorNode(new Color(46, 90, 60), 190, 52);
         crBg.parent = createBtn;
-        this.makeLabel('🔑 创建房间', 0, 0, Color.WHITE, createBtn, 18);
-        createBtn.setPosition(-220, -170, 0);
+        this.makeLabel('🔑 创建房间', 0, 0, Color.WHITE, createBtn, 20);
+        createBtn.setPosition(-115, -210, 0);
         const crButton = createBtn.addComponent(Button);
         crButton.transition = Button.Transition.SCALE;
         const crHandler = new EventHandler();
@@ -440,11 +592,11 @@ export class PanelController {
         joinBtn.layer = this.gmNode.layer;
         joinBtn.parent = this.startPanel;
         const jnUt = joinBtn.addComponent(UITransform);
-        jnUt.contentSize = new Size(140, 44);
-        const jnBg = this.spriteFactory.createColorNode(new Color(90, 70, 46), 140, 44);
+        jnUt.contentSize = new Size(190, 52);
+        const jnBg = this.spriteFactory.createColorNode(new Color(50, 90, 140), 190, 52);
         jnBg.parent = joinBtn;
-        this.makeLabel('🔢 加入房间', 0, 0, Color.WHITE, joinBtn, 16);
-        joinBtn.setPosition(220, -170, 0);
+        this.makeLabel('🔢 加入房间', 0, 0, Color.WHITE, joinBtn, 20);
+        joinBtn.setPosition(115, -210, 0);
         const jnButton = joinBtn.addComponent(Button);
         jnButton.transition = Button.Transition.SCALE;
         const jnHandler = new EventHandler();
@@ -453,8 +605,8 @@ export class PanelController {
         jnHandler.handler = 'onJoinRoomClick';
         jnButton.clickEvents = [jnHandler];
 
-        // 联机状态标签（房号/等待提示）
-        this.onlineStatusLabel = this.makeLabel('', 0, -205, new Color(159, 220, 159), this.startPanel, 14);
+        // 联机状态标签（等待提示等；房号用大卡片展示，见 showRoomCode）
+        this.onlineStatusLabel = this.makeLabel('', 0, -252, new Color(120, 255, 159), this.startPanel, 16);
         this.onlineStatusLabel.node.active = false;
 
 
@@ -467,7 +619,7 @@ export class PanelController {
         const sbBg = this.spriteFactory.createColorNode(new Color(63, 109, 51), 200, 50);
         sbBg.parent = startBtn;
         this.makeLabel('开始游戏', 0, 0, Color.WHITE, startBtn, 24);
-        startBtn.setPosition(0, -220, 0);
+        startBtn.setPosition(0, -300, 0);
 
         const sButton = startBtn.addComponent(Button);
         sButton.transition = Button.Transition.SCALE;

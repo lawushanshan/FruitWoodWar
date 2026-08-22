@@ -38,9 +38,10 @@ export function stepVictory(state: GameState, dt: number): void {
 /** 结束对局并计算星级与结算数据 */
 function endGame(state: GameState, winner: Side): void {
     state.phase = 'ended';
-    const won = winner === 'red';
-    const rc = state.crystals.find(c => c.side === 'red')!;
-    const hpRatio = rc.hp / rc.maxHp;
+    // 胜负/星级按玩家所在边判定（联机时玩家可能是蓝方）
+    const won = winner === state.playerSide;
+    const pc = state.crystals.find(c => c.side === state.playerSide)!;
+    const hpRatio = pc.hp / pc.maxHp;
     const stars = won ? (hpRatio >= 0.5 ? 3 : 2) : 1;
     state.stats.result = {
         winner,

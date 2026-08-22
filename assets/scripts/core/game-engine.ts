@@ -112,7 +112,8 @@ export class GameEngine {
             case 'research':
                 return tryResearch(this._state, side);
             case 'choose-card':
-                return chooseCard(this._state, cmd.cardId, this.random);
+                // side = 选卡方所在边（联机锁步：双方引擎以同一 side 执行同一条命令）
+                return chooseCard(this._state, cmd.cardId, this.random, side);
             default:
                 return { ok: false };
         }
