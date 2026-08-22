@@ -244,3 +244,106 @@ function clearBattlefieldForCards(s: ReturnType<typeof writableState>) {
     s.towers = [];
     s.gold.blue = 0;
 }
+
+describe('卡牌效果补全（v1.6.3 覆盖剩余 11 张）', () => {
+    it('效果：鲜榨回复 全体治疗 30% 血量', () => {
+        const engine = makeEngine();
+        const s = writableState(engine);
+        s.units = [makeUnit({ side: 'red', id: 'r1', hp: 100, maxHp: 1000 })];
+        forceChooseCard(engine, findCard('fruit', 'heal'));
+        expect(s.units[0].hp).toBeCloseTo(400, 5); // 100 + 300
+    });
+
+    it('效果：果弹飞溅 攻击附带 60% 溅射', () => {
+        const engine = makeEngine();
+        const s = writableState(engine);
+        forceChooseCard(engine, findCard('fruit', 'splash'));
+        expect(s.buffs.red.splashMult).toBeCloseTo(1.6, 5);
+    });
+
+    it('效果：果族狂怒 攻击+35% 攻速+20% 永久', () => {
+        const engine = makeEngine();
+        const s = writableState(engine);
+        forceChooseCard(engine, findCard('fruit', 'fruitRage'));
+        expect(s.buffs.red.atk).toBeCloseTo(1.35, 5);
+        expect(s.buffs.red.attackSpeed).toBeCloseTo(1.2, 5);
+    });
+
+    it('效果：根系网络 敌人减速 40% 持续 8 秒', () => {
+        const engine = makeEngine();
+        const s = writableState(engine);
+        s.units = [makeUnit({ side: 'blue', id: 'b1', x: 900 })];
+        forceChooseCard(engine, findCard('wood', 'rootNet'));
+        expect(s.units[0].slowMult).toBeCloseTo(0.6, 5);
+        expect(s.units[0].slowDur).toBe(8);
+    });
+
+    it('效果：生命之树 全体血量 +30% 永久（作用于新出单位）', () => {
+        const engine = makeEngine();
+        const s = writableState(engine);
+        forceChooseCard(engine, findCard('wood', 'hpUp'));
+        expect(s.buffs.red.hp).toBeCloseTo(1.3, 5);
+    });
+
+    it('效果：孢子爆发 全场敌方 -150', () => {
+        const engine = makeEngine();
+        const s = writableState(engine);
+        s.units = [makeUnit({ side: 'blue', id: 'b1', hp: 500, maxHp: 500, x: 900 })];
+        forceChooseCard(engine, findCard('wood', 'spore'));
+        expect(s.units[0].hp).toBe(350);
+    });
+
+    it('效果：树皮铠甲 全体减伤 20% 永久', () => {
+        const engine = makeEngine();
+        const s = writableState(engine);
+        forceChooseCard(engine, findCard('wood', 'bark'));
+        expect(s.buffs.red.damageReduce).toBeCloseTo(0.8, 5);
+    });
+
+    it('效果：致命一击 全体暴击率 +30%', () => {
+        const engine = makeEngine();
+        const s = writableState(engine);
+        forceChooseCard(engine, findCard('animal', 'crit'));
+        expect(s.buffs.red.crit).toBeCloseTo(0.3, 5);
+    });
+
+    it('效果：嗜血狂潮 击杀回血 20%', () => {
+        const engine = makeEngine();
+        const s = writableState(engine);
+        forceChooseCard(engine, findCard('animal', 'bloodlust'));
+        expect(s.buffs.red.lifeOnKill).toBeCloseTo(0.2, 5);
+    });
+
+    it('效果：狂暴本能 攻击+40% 攻速+30% 永久', () => {
+        const engine = makeEngine();
+        const s = writableState(engine);
+        forceChooseCard(engine, findCard('animal', 'frenzy'));
+        expect(s.buffs.red.atk).toBeCloseTo(1.4, 5);
+        expect(s.buffs.red.attackSpeed).toBeCloseTo(1.3, 5);
+    });
+
+    it('效果：捕食者 对低血量敌人伤害 +100%', () => {
+        const engine = makeEngine();
+        const s = writableState(engine);
+        forceChooseCard(engine, findCard('animal', 'predator'));
+        expect(s.buffs.red.execute).toBe(true);
+    });
+
+    it('跨波次去重：抽过的卡不再出现在备选', async () => {
+        const { triggerCardChoiceIfDue } = await import('../assets/scripts/core/systems/card-system');
+        const engine = makeEngine();
+        engine.reset({ playerFaction: 'wood' });
+        const s = writableState(engine);
+        const used = CARD_CONFIG.wood.slice(0, 7).map(c => c.id); // 已用 7 张
+        s.cards.usedCardIds = used;
+        s.wave = 10;
+        s.cards.triggeredWaves[10] = false;
+        const triggered = triggerCardChoiceIfDue(s, engine.random);
+        expect(triggered).toBe(true);
+        // 卡池 9 张，已用 7 张 → 只剩 2 张可抽
+        expect(s.cards.offers.length).toBe(2);
+        for (const c of s.cards.offers) {
+            expect(used).not.toContain(c.id);
+        }
+    });
+});

@@ -15,6 +15,7 @@ import { ColorSpriteFactory } from './color-sprite-factory';
 import { setUniformScale } from './scale-helper';
 import { GAME_CONFIG } from '../config/game-config';
 import { BUILDING_CONFIG, BUILDING_IDS, buildingCostInState, researchCost } from '../config/building-config';
+import { CARD_CONFIG } from '../config/card-config';
 import type { BuildingItemId, GameState } from '../core/types';
 
 export class HudView {
@@ -37,6 +38,10 @@ export class HudView {
     /** 科研按钮价格标签 */
     private researchCostLabel: Label | null = null;
 
+    /** 已抽卡牌历史行（顶部栏下方，展示玩家本局已选卡图标） */
+    private cardHistoryLabel: Label | null = null;
+    private lastCardCount = -1;
+
     /** 上次可视高度（用于检测屏幕变化） */
     private lastVisibleHeight: number = 0;
 
@@ -55,6 +60,22 @@ export class HudView {
     create() {
         this.createTopBar();
         this.createBuildBar();
+        this.createCardHistory();
+    }
+
+    /** 顶部栏下方的已抽卡牌历史行（图标串联） */
+    private createCardHistory() {
+        const node = new Node('CardHistory');
+        node.layer = this.gmNode.layer;
+        node.parent = this.container;
+        const ut = node.addComponent(UITransform);
+        ut.contentSize = new Size(400, 20);
+        ut.anchorPoint = new Vec2(1, 1);
+        this.cardHistoryLabel = node.addComponent(Label);
+        this.cardHistoryLabel.string = '';
+        this.cardHistoryLabel.fontSize = 14;
+        this.cardHistoryLabel.lineHeight = 16;
+        this.cardHistoryLabel.color = new Color(230, 210, 250);
     }
 
     // ==================== 每帧更新 ====================
@@ -63,6 +84,20 @@ export class HudView {
     update(state: GameState) {
         // 检测屏幕尺寸变化，调整布局
         this.checkResponsiveLayout();
+
+        // 已抽卡牌历史（数量变化时才重建，避免每帧拼字符串）
+        const used = state.cards.usedCardIds;
+        if (used.length !== this.lastCardCount && this.cardHistoryLabel) {
+            this.lastCardCount = used.length;
+            const icons = used.map(id => {
+                for (const list of Object.values(CARD_CONFIG)) {
+                    const c = list.find(x => x.id === id);
+                    if (c) return c.icon;
+                }
+                return '';
+            });
+            this.cardHistoryLabel.string = used.length > 0 ? '🃏 ' + icons.join(' ') : '';
+        }
 
         const ps = state.playerSide;
         if (this.goldLabel) this.goldLabel.string = '💰 ' + state.gold[ps];
@@ -167,6 +202,10 @@ export class HudView {
         // 顶部栏始终固定在屏幕顶部
         if (this.topBar) {
             this.topBar.setPosition(0, visHeight / 2, 0);
+        }
+        // 卡牌历史行：顶部栏下方、右侧对齐
+        if (this.cardHistoryLabel) {
+            this.cardHistoryLabel.node.setPosition(visWidth / 2 - 12, visHeight / 2 - 50, 0);
         }
 
         // 底部建造栏始终固定在屏幕底部
