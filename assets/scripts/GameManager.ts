@@ -76,6 +76,8 @@ export class GameManager extends Component {
     private static readonly TOUCH_HOLD_THRESHOLD = 0.25;
     /** 最近一次真实鼠标按下时间（毫秒）：用于区分 PC 合成触摸与真实触摸 */
     private lastMousePressMs = 0;
+    /** 本次触摸序列是否由鼠标合成（TOUCH_START 瞬间判定，PC 点击跳过长按阈值） */
+    private touchFromMouse = false;
 
     // ---- 状态追踪（用于检测事件触发表现效果） ----
     /** 上一帧单位快照（id → 位置/阵营/兵种），用于死亡弹飞与出兵脉冲的准确定位 */
@@ -434,10 +436,12 @@ export class GameManager extends Component {
         this.panels.showToast(`点击格子放置${conf.name}（PC：右键/ESC 取消｜移动端：长按拖拽后松手放置）`);
     }
 
-    /** 触摸按下：开始长按计时（移动端长按拖拽建造） */
+    /** 触摸按下：开始长按计时（移动端长按拖拽建造）；
+     *  同时判定本次触摸序列是否由鼠标合成（mousedown 与 TOUCH_START 同瞬间派发） */
     private onGameTouchStart(_event: EventTouch) {
         this.touchHeld = true;
         this.touchHoldTime = 0;
+        this.touchFromMouse = Date.now() - this.lastMousePressMs < 200;
     }
 
     /** PC 全局鼠标按下：右键取消建造模式；左键记录按下时间用于合成触摸判别 */
@@ -467,9 +471,9 @@ export class GameManager extends Component {
         if (this.pendingBuild) {
             // 移动端防误触：真实触摸必须长按（≥0.25s）后松手才放置。
             // PC 浏览器会把鼠标点击合成为触摸事件（event.touch 非空），
-            // 用"最近 50ms 内有真实鼠标按下"识别 PC 点击并直接放行
-            const fromRealMouse = Date.now() - this.lastMousePressMs < 50;
-            if (!fromRealMouse && !heldLongEnough) {
+            // 在按下瞬间已判定 touchFromMouse（不能在松手时回看——正常点击
+            // 持续 100~200ms，超过窗口就会被误判成真实触摸导致左键失效）
+            if (!this.touchFromMouse && !heldLongEnough) {
                 return; // 快速点按不放置（误触保护）
             }
             const cell = this.snapToCell(localPos.x, localPos.y);
