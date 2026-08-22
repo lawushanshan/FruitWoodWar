@@ -36,12 +36,17 @@ import type { BuildingItemId, Phase } from './core/types';
 
 const { ccclass } = _decorator;
 
+/** 固定逻辑步长（秒）：模拟帧率与渲染帧率解耦（联机确定性前提） */
+const FIXED_LOGIC_DT = 1 / 30;
+
 @ccclass('GameManager')
 export class GameManager extends Component {
 
     /** 模拟核心 */
     private engine: GameEngine = new GameEngine();
     private prevPhase: Phase = 'idle';
+    /** 固定逻辑步长累加器（联机 P0-S1） */
+    private logicAccumulator = 0;
 
     /** 表现层模块 */
     private gameView!: GameView;
@@ -266,12 +271,24 @@ export class GameManager extends Component {
         });
 
         if (this.engine.state.phase === 'playing') {
-            // 帧异常隔离：模拟异常不允许冻结胜负判定与渲染
-            try {
-                this.engine.step(dt);
-            } catch (e) {
-                console.error('[GameEngine.step] 帧内异常（已跳过该帧）:', e);
+            // 固定逻辑步长（联机 P0-S1）：渲染 dt 经累加器切成固定 1/30s 逻辑帧，
+            // 帧率波动不再影响模拟结果（确定性前提），残余不足一步的量留到下一帧。
+            // 单帧上限 0.25s：切后台回来不做长追帧，防止一次性结算大量逻辑。
+            this.logicAccumulator += Math.min(dt, 0.25);
+            let steps = 0;
+            while (this.logicAccumulator >= FIXED_LOGIC_DT && steps < 12) {
+                try {
+                    this.engine.step(FIXED_LOGIC_DT);
+                } catch (e) {
+                    console.error('[GameEngine.step] 帧内异常（已跳过该帧）:', e);
+                }
+                this.logicAccumulator -= FIXED_LOGIC_DT;
+                steps++;
+                // 模拟中进入暂停/结束（如选卡）时立刻停止追帧
+                if (this.engine.state.phase !== 'playing') break;
             }
+        } else {
+            this.logicAccumulator = 0;
         }
 
         const phase = this.engine.state.phase;

@@ -46,14 +46,14 @@ function drawOffers(state: GameState, random: RandomSource): void {
 }
 
 /** 处理选卡命令：应用效果、登记已用卡并恢复对战 */
-export function chooseCard(state: GameState, cardId: string, _random: RandomSource): CommandResult {
+export function chooseCard(state: GameState, cardId: string, random: RandomSource): CommandResult {
     const card = state.cards.offers.find(c => c.id === cardId);
     if (!card) {
         return { ok: false };
     }
     state.cards.offers = [];
     state.cards.usedCardIds.push(card.id);
-    applyCardEffect(state, cardId);
+    applyCardEffect(state, cardId, random);
     state.phase = 'playing';
     return { ok: true };
 }
@@ -63,8 +63,8 @@ function tempBuff(side: TempBuff['side'], type: TempBuff['type'], mult: number, 
     return { side, type, mult, damage: 0, interval: 0, tickTimer: 0, dur };
 }
 
-/** 卡牌效果结算：全部只作用于玩家方（红方） */
-function applyCardEffect(state: GameState, cardId: string): void {
+/** 卡牌效果结算：全部只作用于玩家方（红方）；spawnRandom 供召唤类效果取位置 */
+function applyCardEffect(state: GameState, cardId: string, spawnRandom: RandomSource): void {
     const buff = state.buffs.red; // 玩家方增益
     const redUnits = () => state.units.filter(u => u.side === 'red');
     const blueUnits = () => state.units.filter(u => u.side === 'blue');
@@ -135,8 +135,9 @@ function applyCardEffect(state: GameState, cardId: string): void {
                     side: 'red',
                     type: 'tank',
                     level: 1,
-                    x: -300 + Math.random() * 100,
-                    y: -50 + Math.random() * 60 - 30,
+                    // P0-S2：位置经注入随机源（帧同步确定性；禁 Math.random）
+                    x: -300 + spawnRandom.range(0, 100),
+                    y: -50 + spawnRandom.range(-30, 30),
                     hp: 400,
                     maxHp: 400,
                     atk: 20,
