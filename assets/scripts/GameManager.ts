@@ -14,7 +14,7 @@
 
 import {
     _decorator, Component, Node, Color, UITransform, Size, Vec2, Vec3,
-    Camera, EventTouch, EventMouse, Input, input, Layers, director, Sprite,
+    Camera, EventTouch, EventMouse, Input, input, Layers, director, Sprite, sys,
 } from 'cc';
 import { GameEngine } from './core/game-engine';
 import { ColorSpriteFactory } from './presentation/color-sprite-factory';
@@ -74,10 +74,14 @@ export class GameManager extends Component {
     private touchHoldTime = 0;
     /** 长按判定阈值（秒） */
     private static readonly TOUCH_HOLD_THRESHOLD = 0.25;
-    /** 最近一次真实鼠标按下时间（毫秒）：用于区分 PC 合成触摸与真实触摸 */
-    private lastMousePressMs = 0;
-    /** 本次触摸序列是否由鼠标合成（TOUCH_START 瞬间判定，PC 点击跳过长按阈值） */
-    private touchFromMouse = false;
+    /**
+     * 是否要求长按放置：移动端/小游戏（真实触摸设备）为 true，PC 为 false。
+     * 用平台判定而非事件时序猜测——PC 浏览器把鼠标点击合成为触摸事件，
+     * 事件派发顺序与时间窗口在不同版本上不可靠（v1.5.1 的教训）。
+     */
+    private static readonly REQUIRE_HOLD = sys.isMobile
+        || sys.platform === sys.Platform.WECHAT_GAME
+        || sys.platform === sys.Platform.BYTEDANCE_MINI_GAME;
 
     // ---- 状态追踪（用于检测事件触发表现效果） ----
     /** 上一帧单位快照（id → 位置/阵营/兵种），用于死亡弹飞与出兵脉冲的准确定位 */
@@ -436,17 +440,14 @@ export class GameManager extends Component {
         this.panels.showToast(`点击格子放置${conf.name}（PC：右键/ESC 取消｜移动端：长按拖拽后松手放置）`);
     }
 
-    /** 触摸按下：开始长按计时（移动端长按拖拽建造）；
-     *  同时判定本次触摸序列是否由鼠标合成（mousedown 与 TOUCH_START 同瞬间派发） */
+    /** 触摸按下：开始长按计时（移动端长按拖拽建造） */
     private onGameTouchStart(_event: EventTouch) {
         this.touchHeld = true;
         this.touchHoldTime = 0;
-        this.touchFromMouse = Date.now() - this.lastMousePressMs < 200;
     }
 
-    /** PC 全局鼠标按下：右键取消建造模式；左键记录按下时间用于合成触摸判别 */
+    /** PC 全局鼠标按下：右键取消建造模式 */
     private onGlobalMouseDown(event: EventMouse) {
-        this.lastMousePressMs = Date.now();
         if (event.getButton() === EventMouse.BUTTON_RIGHT) {
             if (this.pendingBuild) {
                 this.cancelPlacement();
@@ -469,11 +470,9 @@ export class GameManager extends Component {
 
         // 建造模式：吸附格点放置
         if (this.pendingBuild) {
-            // 移动端防误触：真实触摸必须长按（≥0.25s）后松手才放置。
-            // PC 浏览器会把鼠标点击合成为触摸事件（event.touch 非空），
-            // 在按下瞬间已判定 touchFromMouse（不能在松手时回看——正常点击
-            // 持续 100~200ms，超过窗口就会被误判成真实触摸导致左键失效）
-            if (!this.touchFromMouse && !heldLongEnough) {
+            // 移动端防误触：真实触摸设备必须长按（≥0.25s）后松手才放置；
+            // PC 直接即点即放（平台判定，不依赖不可靠的事件时序）
+            if (GameManager.REQUIRE_HOLD && !heldLongEnough) {
                 return; // 快速点按不放置（误触保护）
             }
             const cell = this.snapToCell(localPos.x, localPos.y);

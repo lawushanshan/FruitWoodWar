@@ -169,3 +169,13 @@ PC 合成触摸——但正常点击持续 100~200ms，松手时早已超过 50m
 修复：判定移到按下瞬间（mousedown 与 TOUCH_START 同帧派发）：
 TOUCH_START 时记录 touchFromMouse = 距最近鼠标按下 <200ms，本序列内不变；
 松手时据此跳过长按阈值。移动端无鼠标事件，标志恒为 false，长按保护不变。
+
+二十八、PC 左键即点即放二次修复（v1.5.1 时序方案仍不可靠）
+--------
+v1.5.1 的"TOUCH_START 瞬间回看 200ms 鼠标窗口"仍依赖事件派发顺序与时间窗——
+不同版本浏览器上 mousedown 与合成 TOUCH_START 的先后/时差不保证，用户实测
+左键仍不生效。
+正确方案：放弃时序猜测，改平台判定——
+REQUIRE_HOLD = sys.isMobile || 微信小游戏 || 抖音小游戏
+真实触摸平台要求长按 ≥0.25s 松手放置；PC（含桌面浏览器）直接即点即放，
+不经过任何启发式判断。删除 lastMousePressMs / touchFromMouse 及相关时序逻辑。
