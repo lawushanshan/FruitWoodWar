@@ -293,3 +293,14 @@ server/ 目录：Node20 + ws，node --experimental-strip-types 直跑 TS。
 - 新增 tests/e2e-lockstep.test.ts：双真实 GameEngine 模拟服务器帧中继，
   300 帧 stateHash 完全一致（无 desync）+ 双方命令对称生效
 112 条测试通过，tsc 干净。ws 传输层由 server 冒烟脚本单独验证。
+
+四十、Docker 构建修复（联机服务容器化）
+--------
+① Dockerfile 基础镜像 node:20-alpine → node:lts-alpine：--experimental-
+   strip-types 是 Node 22.6+ 特性，20 无法运行；本地已有 lts-alpine(v24.18)。
+② 移除误导的 COPY shared（P1 服务端纯中继不依赖客户端 core，shared 留给
+   P2/P3 复用 core 时引入）；npm install 补上 package-lock.json 保证可复现。
+③ docker compose up --build 已验证：game-server/redis/postgres 三容器起，
+   日志监听 :8100，容器内双客户端匹配→帧流冒烟通过。
+注：本机 node:22-alpine 拉取遇到镜像元数据损坏（failed size validation），
+且多个 registry-mirror 拉取卡住；改用本地已缓存的 lts-alpine 规避。

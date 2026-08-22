@@ -1,16 +1,16 @@
 # 联机服务 Dockerfile（DOCS/06 §6）
-FROM node:20-alpine AS deps
+# 注：P1 服务端为纯中继（gateway/match/room），不依赖客户端 core。
+# P2/P3 需要复用 core 时再引入 shared（assets/scripts/{core,config} 软链）。
+FROM node:lts-alpine AS deps
 WORKDIR /app
-COPY package.json ./
+COPY package.json package-lock.json ./
 RUN npm install --omit=dev
 
-FROM node:20-alpine
+FROM node:lts-alpine
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json ./
 COPY tsconfig.json ./
 COPY src ./src
-# 共享客户端的模拟核心与配置（帧同步同代码基线）
-COPY shared ./shared
 EXPOSE 8100
 CMD ["node", "--experimental-strip-types", "--no-warnings", "src/index.ts"]
