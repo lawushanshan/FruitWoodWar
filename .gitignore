@@ -26,3 +26,12 @@ Thumbs.db
 # Cocos
 settings/v2/packages/builder.json
 settings/v2/packages/project.json
+
+# 密钥（绝不提交）
+tools/.env
+*.env
+!tools/.env.example
+
+# 美术原图与生成产物（体积大，不入库；定稿后按需单独提交 assets/resources/art）
+tools/raw_art/
+tools/anchor_*.png
