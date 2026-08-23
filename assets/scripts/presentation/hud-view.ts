@@ -12,11 +12,24 @@ import {
     Node, Label, Color, UITransform, Size, Vec2, Button, EventHandler, view,
 } from 'cc';
 import { ColorSpriteFactory } from './color-sprite-factory';
+import { ArtLibrary } from './art-library';
 import { setUniformScale } from './scale-helper';
 import { GAME_CONFIG } from '../config/game-config';
 import { BUILDING_CONFIG, BUILDING_IDS, buildingCostInState, researchCost } from '../config/building-config';
 import { CARD_CONFIG } from '../config/card-config';
 import type { BuildingItemId, GameState } from '../core/types';
+
+/** 图标槽：登记一个可升级的图标位置（emoji → 贴图） */
+interface IconSlot {
+    parent: Node;
+    artPath: string;
+    emoji: string;
+    x: number;
+    y: number;
+    size: number;
+    emojiFontSize: number;
+    node: Node | null;
+}
 
 export class HudView {
 
@@ -53,13 +66,63 @@ export class HudView {
 
     private container: Node;
     private spriteFactory: ColorSpriteFactory;
+    /** 美术资源库（可选：图标贴图可用时替换 emoji） */
+    private art: ArtLibrary | null = null;
+    /** 图标槽（预载完成后可升级 emoji → 贴图） */
+    private iconSlots: IconSlot[] = [];
     /** GameManager 所在节点（EventHandler 的 target） */
     private gmNode: Node;
 
-    constructor(container: Node, spriteFactory: ColorSpriteFactory, gmNode: Node) {
+    constructor(container: Node, spriteFactory: ColorSpriteFactory, gmNode: Node, art?: ArtLibrary | null) {
         this.container = container;
         this.spriteFactory = spriteFactory;
         this.gmNode = gmNode;
+        this.art = art ?? null;
+    }
+
+    /**
+     * 在父节点下创建图标：美术贴图可用则用精灵（size×size），否则用 emoji 文字。
+     * 返回创建的子节点（已挂到 parent）。同时登记到 iconSlots，供预载完成后升级。
+     */
+    private makeIcon(parent: Node, artPath: string, emoji: string, x: number, y: number, size: number, emojiFontSize: number): Node {
+        const slot: IconSlot = { parent, artPath, emoji, x, y, size, emojiFontSize, node: null };
+        this.iconSlots.push(slot);
+        slot.node = this.buildIcon(slot);
+        return slot.node;
+    }
+
+    /** 按 slot 构建图标节点（贴图优先，emoji 兜底） */
+    private buildIcon(slot: IconSlot): Node {
+        if (this.art?.has(slot.artPath)) {
+            const sprite = this.art.createSpriteNode(slot.artPath, slot.size, slot.size);
+            if (sprite) {
+                sprite.parent = slot.parent;
+                sprite.setPosition(slot.x, slot.y, 0);
+                return sprite;
+            }
+        }
+        // emoji 兜底
+        const node = new Node('Icon_' + slot.emoji);
+        node.layer = this.gmNode.layer;
+        node.parent = slot.parent;
+        const ut = node.addComponent(UITransform);
+        ut.contentSize = new Size(slot.size, slot.size);
+        ut.anchorPoint = new Vec2(0.5, 0.5);
+        const label = node.addComponent(Label);
+        label.string = slot.emoji;
+        label.fontSize = slot.emojiFontSize;
+        label.lineHeight = slot.emojiFontSize;
+        node.setPosition(slot.x, slot.y, 0);
+        return node;
+    }
+
+    /** 美术资源预载完成后调用：把 emoji 兜底图标升级为贴图图标 */
+    refreshIcons() {
+        if (!this.art?.isLoaded()) return;
+        for (const slot of this.iconSlots) {
+            slot.node?.destroy();
+            slot.node = this.buildIcon(slot);
+        }
     }
 
     /** 创建顶部状态栏和底部建造栏（初始化时调用一次） */
@@ -337,11 +400,11 @@ export class HudView {
         });
 
         // 操作按钮：升级工厂 / 全军强化
-        const upgradeBtn = this.createActionButton('⬆️', '升级工厂', '150金', 'onUpgradeClick');
+        const upgradeBtn = this.createActionButton('ui/ico_up', '⬆️', '升级工厂', '150金', 'onUpgradeClick');
         upgradeBtn.parent = this.buildBar;
         upgradeBtn.setPosition(startX + BUILDING_IDS.length * gap, 38, 0);
 
-        const researchBtn = this.createActionButton('🔬', '全军强化', '400金', 'onResearchClick');
+        const researchBtn = this.createActionButton('ui/ico_research', '🔬', '全军强化', '400金', 'onResearchClick');
         researchBtn.parent = this.buildBar;
         researchBtn.setPosition(startX + (BUILDING_IDS.length + 1) * gap, 38, 0);
         // 记录科研价格标签
@@ -362,10 +425,8 @@ export class HudView {
         const bg = this.spriteFactory.createColorNode(new Color(46, 65, 82), 86, 64);
         bg.parent = btn;
 
-        // 图标
-        const iconLabel = this.createLabel(icon, 20, Color.WHITE, new Size(60, 24));
-        iconLabel.node.parent = btn;
-        iconLabel.node.setPosition(0, 10, 0);
+        // 图标（美术贴图优先，emoji 兜底）
+        this.makeIcon(btn, 'ui/ico_build_' + id, icon, 0, 12, 36, 20);
 
         // 名称
         const nameLabel = this.createLabel(name, 12, new Color(223, 233, 240), new Size(80, 16));
@@ -399,7 +460,7 @@ export class HudView {
     }
 
     /** 创建操作按钮（升级/科研等非建造命令） */
-    private createActionButton(icon: string, name: string, cost: string, handlerName: string): Node {
+    private createActionButton(artPath: string, icon: string, name: string, cost: string, handlerName: string): Node {
         const btn = new Node('ActionBtn_' + handlerName);
         btn.layer = this.gmNode.layer;
         const ut = btn.addComponent(UITransform);
@@ -409,9 +470,8 @@ export class HudView {
         const bg = this.spriteFactory.createColorNode(new Color(60, 82, 60), 86, 64);
         bg.parent = btn;
 
-        const iconLabel = this.createLabel(icon, 20, Color.WHITE, new Size(60, 24));
-        iconLabel.node.parent = btn;
-        iconLabel.node.setPosition(0, 10, 0);
+        // 图标（美术贴图优先，emoji 兜底）
+        this.makeIcon(btn, artPath, icon, 0, 12, 34, 20);
 
         const nameLabel = this.createLabel(name, 12, new Color(223, 233, 240), new Size(80, 16));
         nameLabel.node.parent = btn;

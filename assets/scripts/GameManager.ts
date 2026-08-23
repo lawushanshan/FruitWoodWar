@@ -18,6 +18,7 @@ import {
 } from 'cc';
 import { GameEngine } from './core/game-engine';
 import { ColorSpriteFactory } from './presentation/color-sprite-factory';
+import { ArtLibrary } from './presentation/art-library';
 import { GameView } from './presentation/game-view';
 import { HudView } from './presentation/hud-view';
 import { PanelController } from './presentation/panel-controller';
@@ -69,6 +70,8 @@ export class GameManager extends Component {
     private hudView!: HudView;
     private panels!: PanelController;
     private spriteFactory!: ColorSpriteFactory;
+    /** 美术资源库（M3：Q 版立绘/地图底图，预载完成后生效） */
+    private artLibrary: ArtLibrary = new ArtLibrary();
     private floatingText!: FloatingText;
     private deathEffect!: DeathEffect;
     private audio!: AudioManager;
@@ -202,8 +205,24 @@ export class GameManager extends Component {
         const sf = new ColorSpriteFactory();
         sf.setLayer(this.node.layer);
         this.spriteFactory = sf;
+        this.artLibrary.setLayer(this.node.layer);
         const bg = sf.createColorNode(new Color(13, 20, 24), 1280, 720);
         bg.parent = this.gameContainer;
+        // M3.2 地图底图：预载完成后用草地底图替换纯色背景（置于容器最底层，
+        // 河/道路/桥仍由程序绘制在上层——位置必须与逻辑常量精确对齐，AI 画不准）
+        this.artLibrary.preload().then(() => {
+            const mapNode = this.artLibrary.createSpriteNode('map/map_bg', 1280, 720);
+            if (mapNode) {
+                mapNode.name = 'MapBg';
+                mapNode.parent = this.gameContainer;
+                mapNode.setSiblingIndex(0); // 压到纯色背景之下
+                bg.destroy(); // 底图就位后纯色背景不再需要
+            }
+            // 预载完成后把 HUD 里已按 emoji 兜底创建的图标升级为贴图
+            this.hudView?.refreshIcons();
+            // 预载完成后把面板里已按纯色兜底创建的底板升级为九宫格贴图
+            this.panels?.refreshPanels();
+        });
 
         // 河（楚河汉界）：沿 y 轴贯穿全场，唯一通道是中央道路（桥）
         const river = sf.createColorNode(
@@ -244,15 +263,15 @@ export class GameManager extends Component {
         blueZone.parent = this.gameContainer;
         blueZone.setPosition(330, 175, 0);
 
-        // 初始化表现层模块
-        this.gameView = new GameView(this.gameContainer, sf);
-        this.hudView = new HudView(uiContainer, sf, this.node);
-        this.panels = new PanelController(uiContainer, sf, this.node);
+        // 初始化表现层模块（GameView 注入美术资源库：立绘可用时替换灰盒色块）
+        this.gameView = new GameView(this.gameContainer, sf, this.artLibrary);
+        this.hudView = new HudView(uiContainer, sf, this.node, this.artLibrary);
+        this.panels = new PanelController(uiContainer, sf, this.node, this.artLibrary);
         this.floatingText = new FloatingText(this.gameContainer, this.node.layer);
         this.deathEffect = new DeathEffect(this.gameContainer, sf);
         this.audio = new AudioManager();
         this.tutorial = new TutorialController(uiContainer, sf, this.node.layer);
-        this.battleEffects = new BattleEffects(this.gameContainer, sf);
+        this.battleEffects = new BattleEffects(this.gameContainer, sf, this.artLibrary);
         this.hudView.create();
         this.panels.create();
 
@@ -328,6 +347,8 @@ export class GameManager extends Component {
             // 帧率波动不再影响模拟结果（确定性前提），残余不足一步的量留到下一帧。
             // 单帧上限 0.25s：切后台回来不做长追帧，防止一次性结算大量逻辑。
             // 联机模式不走此路径：由服务器 frame 消息驱动（见 onNetMessage）。
+            // 单帧上限 0.25s：切后台回来不做长追帧，防止一次性结算大量逻辑。
+            this.logicAccumulator += Math.min(dt, 0.25);
             let steps = 0;
             while (this.logicAccumulator >= FIXED_LOGIC_DT && steps < 12) {
                 try {

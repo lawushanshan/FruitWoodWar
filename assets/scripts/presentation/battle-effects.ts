@@ -18,6 +18,10 @@ import { Node, Color, UIOpacity } from 'cc';
 import { ColorSpriteFactory } from './color-sprite-factory';
 import { NodePool } from './node-pool';
 import { setUniformScale } from './scale-helper';
+import { ArtLibrary } from './art-library';
+
+/** 特效贴图显示尺寸（07 方案 §4：接入 96~128，战场显示 24~40px） */
+const FX_SIZE = { projectile: 24, ring: 40 } as const;
 
 /** 活跃效果实例 */
 interface EffectInstance {
@@ -34,6 +38,8 @@ interface EffectInstance {
     /** 弹射方向偏移（碎片/粒子专用） */
     dx: number;
     dy: number;
+    /** 节点所属池 key（fx_* 为贴图节点，回收时销毁而非入池；缺省按 type 推导） */
+    poolKey?: string;
 }
 
 /** 活跃效果总数上限：超过则丢弃新效果（上限判定，保护低端设备帧率） */
@@ -47,10 +53,23 @@ export class BattleEffects {
     private pool: NodePool = new NodePool();
     private spriteFactory: ColorSpriteFactory;
     private container: Node;
+    /** 美术资源库（可选：fx 贴图可用时弹道/溅射环替换程序色块） */
+    private art: ArtLibrary | null = null;
 
-    constructor(container: Node, spriteFactory: ColorSpriteFactory) {
+    constructor(container: Node, spriteFactory: ColorSpriteFactory, art?: ArtLibrary | null) {
         this.container = container;
         this.spriteFactory = spriteFactory;
+        this.art = art ?? null;
+    }
+
+    /** 用特效贴图创建节点并按敌我染色；贴图缺失返回 null */
+    private makeFxNode(path: string, size: number, tint: Color): Node | null {
+        if (!this.art?.isLoaded() || !this.art.has(path)) return null;
+        const node = this.art.createSpriteNode(path, size, size);
+        if (!node) return null;
+        const sprite = node.getComponent('cc.Sprite') as import('cc').Sprite | null;
+        if (sprite) sprite.color = tint; // 阵营 tint 染色：一张贴图红蓝通用（07 方案 §6.1）
+        return node;
     }
 
     // ==================== 公开方法 ====================
@@ -99,16 +118,27 @@ export class BattleEffects {
         this.spawnParticles(x, y, color, 3);
     }
 
-    /** 塔弹道表现：从塔指向目标的快速飞弹（直线移动 + 淡出） */
+    /** 塔弹道表现：从塔指向目标的快速飞弹（直线移动 + 淡出）；优先 fx_arrow 贴图按敌我染色 */
     playProjectile(sx: number, sy: number, tx: number, ty: number, side: 'red' | 'blue') {
         const color = side === 'red' ? new Color(255, 210, 140, 230) : new Color(150, 200, 255, 230);
-        const node = this.pool.acquire('projectile', () =>
-            this.spriteFactory.createColorNode(color, 8, 8, 'circle'),
-        );
+        let node: Node;
+        let poolKey = 'projectile';
+        const fxNode = this.makeFxNode('fx/fx_arrow', FX_SIZE.projectile, color.clone());
+        if (fxNode) {
+            node = fxNode;
+            poolKey = 'fx_projectile';
+        } else {
+            node = this.pool.acquire('projectile', () =>
+                this.spriteFactory.createColorNode(color, 8, 8, 'circle'),
+            );
+        }
         node.parent = this.container;
         node.setPosition(sx, sy, 0);
         node.active = true;
         setUniformScale(node, 1);
+        // 箭矢朝向飞行方向（贴图默认尖头朝右）
+        const angle = Math.atan2(ty - sy, tx - sx) * 180 / Math.PI;
+        if (poolKey === 'fx_projectile') node.angle = angle;
         const opacity = node.getComponent(UIOpacity);
         if (opacity) opacity.opacity = 255;
 
@@ -116,15 +146,23 @@ export class BattleEffects {
             node, elapsed: 0, duration: 0.12,
             type: 'projectile', startX: sx, startY: sy, origScale: 1,
             dx: tx - sx, dy: ty - sy,
-        });
+        }, poolKey);
     }
 
-    /** 范围溅射表现：以目标为圆心的扩散环（AOE / 防御塔溅射） */
+    /** 范围溅射表现：以目标为圆心的扩散环（AOE / 防御塔溅射）；优先 fx_ring 贴图 */
     playRangeEffect(x: number, y: number, radius: number, side: 'red' | 'blue') {
         const color = side === 'red' ? new Color(255, 160, 90, 170) : new Color(90, 180, 255, 170);
-        const node = this.pool.acquire('range', () =>
-            this.spriteFactory.createColorNode(color, 40, 40, 'circle'),
-        );
+        let node: Node;
+        let poolKey = 'range';
+        const fxNode = this.makeFxNode('fx/fx_ring', FX_SIZE.ring, color.clone());
+        if (fxNode) {
+            node = fxNode;
+            poolKey = 'fx_range';
+        } else {
+            node = this.pool.acquire('range', () =>
+                this.spriteFactory.createColorNode(color, 40, 40, 'circle'),
+            );
+        }
         node.parent = this.container;
         node.setPosition(x, y, 0);
         node.active = true;
@@ -138,7 +176,7 @@ export class BattleEffects {
             type: 'range_ring', startX: x, startY: y,
             origScale: radius / 40,
             dx: 0, dy: 0,
-        });
+        }, poolKey);
     }
 
     /** 水晶受击：震动 + 闪烁 */
@@ -213,7 +251,7 @@ export class BattleEffects {
             const progress = Math.min(1, fx.elapsed / fx.duration);
 
             if (progress >= 1) {
-                this.pool.release(fx.node, this.getPoolKey(fx.type));
+                this.retire(fx.node, fx.poolKey, fx.type);
                 this.active.splice(i, 1);
                 continue;
             }
@@ -225,7 +263,7 @@ export class BattleEffects {
     /** 清理所有效果 */
     clear() {
         for (const fx of this.active) {
-            this.pool.release(fx.node, this.getPoolKey(fx.type));
+            this.retire(fx.node, fx.poolKey, fx.type);
         }
         this.active.length = 0;
         this.pool.clearAll();
@@ -233,10 +271,20 @@ export class BattleEffects {
 
     // ==================== 内部 ====================
 
+    /** 效果结束回收：贴图节点（fx_* 池）直接销毁，程序色块节点回对象池 */
+    private retire(node: Node, poolKey: string | undefined, type: EffectInstance['type']) {
+        if (poolKey && poolKey.startsWith('fx_')) {
+            node.destroy();
+        } else {
+            this.pool.release(node, poolKey || this.getPoolKey(type));
+        }
+    }
+
     /** 推入活跃效果（带全局上限判定：超限直接丢弃，不创建新节点） */
-    private push(fx: EffectInstance) {
+    private push(fx: EffectInstance, poolKey?: string) {
+        if (poolKey) fx.poolKey = poolKey;
         if (this.active.length >= MAX_ACTIVE_EFFECTS) {
-            this.pool.release(fx.node, this.getPoolKey(fx.type));
+            this.retire(fx.node, fx.poolKey, fx.type);
             return;
         }
         this.active.push(fx);

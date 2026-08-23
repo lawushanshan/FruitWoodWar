@@ -13,11 +13,23 @@ import {
     Node, Label, Color, UITransform, Size, Vec2, Button, EventHandler, Sprite,
 } from 'cc';
 import { ColorSpriteFactory } from './color-sprite-factory';
+import { ArtLibrary } from './art-library';
 import { FACTION_CONFIG, FACTION_IDS } from '../config/faction-config';
 import { BUILDING_CONFIG } from '../config/building-config';
 import { CARD_CONFIG } from '../config/card-config';
 import { getCardPanelSubtitle } from '../core/systems/card-system';
 import type { CardConfig, Difficulty, FactionId, GameState } from '../core/types';
+
+/** 面板底板槽：登记一个可升级的面板背景位置（纯色 → 九宫格贴图） */
+interface PanelBgSlot {
+    parent: Node;
+    artPath: string;
+    w: number;
+    h: number;
+    fallbackColor: Color;
+    inset: number;
+    node: Node | null;
+}
 
 /** 卡牌稀有度配色（表现层专属，不进入配置） */
 const RARITY_COLORS: Record<string, Color> = {
@@ -67,12 +79,54 @@ export class PanelController {
 
     private container: Node;
     private spriteFactory: ColorSpriteFactory;
+    /** 美术资源库（可选：面板底板贴图可用时替换纯色） */
+    private art: ArtLibrary | null = null;
+    /** 面板底板槽（预载完成后可升级纯色 → 九宫格贴图） */
+    private panelBgSlots: PanelBgSlot[] = [];
     private gmNode: Node;
 
-    constructor(container: Node, spriteFactory: ColorSpriteFactory, gmNode: Node) {
+    constructor(container: Node, spriteFactory: ColorSpriteFactory, gmNode: Node, art?: ArtLibrary | null) {
         this.container = container;
         this.spriteFactory = spriteFactory;
         this.gmNode = gmNode;
+        this.art = art ?? null;
+    }
+
+    /**
+     * 面板底板：美术贴图（ui_panel_*）可用则九宫格拉伸，否则纯色兜底。
+     * 已挂到 parent 并居中（z=0），返回该节点；同时登记到槽位供预载后刷新。
+     */
+    private makePanelBg(parent: Node, artPath: string, w: number, h: number, fallbackColor: Color, inset = 40): Node {
+        const slot: PanelBgSlot = { parent, artPath, w, h, fallbackColor, inset, node: null };
+        this.panelBgSlots.push(slot);
+        slot.node = this.buildPanelBg(slot);
+        slot.node.parent = parent;
+        slot.node.setPosition(0, 0, 0);
+        return slot.node;
+    }
+
+    /** 按槽位构建面板底板节点（九宫格贴图优先，纯色兜底） */
+    private buildPanelBg(slot: PanelBgSlot): Node {
+        if (this.art?.has(slot.artPath)) {
+            const panel = this.art.createPanelNode(slot.artPath, slot.w, slot.h, slot.inset);
+            if (panel) return panel;
+        }
+        return this.spriteFactory.createColorNode(slot.fallbackColor, slot.w, slot.h);
+    }
+
+    /** 美术资源预载完成后调用：把纯色兜底底板升级为九宫格贴图（保持原层级顺序） */
+    refreshPanels() {
+        if (!this.art?.isLoaded()) return;
+        for (const slot of this.panelBgSlots) {
+            // 已是九宫格贴图（名字以 _panel 结尾）则跳过，避免重复重建
+            if (slot.node?.name.endsWith('_panel')) continue;
+            const idx = slot.node ? slot.node.getSiblingIndex() : 0;
+            slot.node?.destroy();
+            slot.node = this.buildPanelBg(slot);
+            slot.node.parent = slot.parent;
+            slot.node.setSiblingIndex(idx);
+            slot.node.setPosition(0, 0, 0);
+        }
     }
 
     /** 创建所有面板（初始化时调用一次） */
@@ -251,8 +305,7 @@ export class PanelController {
         card.setPosition(0, 140, 0); // 开始面板中上部，覆盖副标题位置（建房等待时这是最优先信息）
 
         // 深色底 + 亮边框
-        const bg = this.spriteFactory.createColorNode(new Color(10, 24, 16, 245), 520, 150);
-        bg.parent = card;
+        const bg = this.makePanelBg(card, 'ui/ui_panel_dark', 520, 150, new Color(10, 24, 16, 245));
         const border = this.spriteFactory.createColorNode(new Color(80, 220, 120), 528, 158);
         border.parent = card;
         border.setPosition(0, 0, -1); // 边框垫底
@@ -401,8 +454,7 @@ export class PanelController {
         ut.contentSize = new Size(560, 580);
         ut.anchorPoint = new Vec2(0.5, 0.5);
 
-        const bg = this.spriteFactory.createColorNode(new Color(5, 10, 14, 230), 560, 580);
-        bg.parent = panel;
+        const bg = this.makePanelBg(panel, 'ui/ui_panel_dark', 560, 580, new Color(5, 10, 14, 230));
 
         this.makeLabel('🃏 本局卡牌', 0, 250, new Color(255, 215, 94), panel, 24);
 
@@ -447,8 +499,7 @@ export class PanelController {
         ut.anchorPoint = new Vec2(0.5, 0.5);
         panel.setPosition(0, -40, 0);
 
-        const bg = this.spriteFactory.createColorNode(new Color(5, 10, 14, 220), 320, 200);
-        bg.parent = panel;
+        const bg = this.makePanelBg(panel, 'ui/ui_panel_dark', 320, 200, new Color(5, 10, 14, 220));
 
         this.upgradeInfoLabel = this.makeLabel('兵工厂 Lv1', 0, 70, Color.WHITE, panel, 20);
         this.upgradeCostLabel = this.makeLabel('升级费用：150 金', 0, 20, new Color(255, 215, 94), panel, 16);
@@ -637,8 +688,7 @@ export class PanelController {
         ut.contentSize = new Size(200, 120);
         ut.anchorPoint = new Vec2(0.5, 0.5);
 
-        const bg = this.spriteFactory.createColorNode(new Color(46, 65, 82), 200, 120);
-        bg.parent = btn;
+        const bg = this.makePanelBg(btn, 'ui/ui_panel_dark', 200, 120, new Color(46, 65, 82), 26);
 
         this.makeLabel(name, 0, 25, color, btn, 22);
         this.makeLabel(passive, 0, -15, new Color(159, 180, 196), btn, 13);
@@ -778,9 +828,8 @@ export class PanelController {
         ut.contentSize = new Size(200, 260);
         ut.anchorPoint = new Vec2(0.5, 0.5);
 
-        // 背景
-        const bg = this.spriteFactory.createColorNode(new Color(30, 42, 54), 200, 260);
-        bg.parent = node;
+        // 背景（卡牌底板九宫格）
+        const bg = this.makePanelBg(node, 'ui/ui_panel_card', 200, 260, new Color(30, 42, 54));
 
         // 稀有度边框
         const rarityColor = RARITY_COLORS[card.rarity] || new Color(100, 100, 100);

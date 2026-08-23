@@ -1,24 +1,15 @@
 /**
- * GameView —— 战场实体视觉同步（M5 增强版）
+ * GameView —— 战场实体视觉同步（M3 美术版）
  *
  * 职责：
  *  - 维护 id → Node 映射，按实体 ID 精确创建/销毁节点
- *  - 每帧从 GameState 读取数据，同步位置与颜色
- *  - 不同兵种/建筑使用不同形状区分（灰盒阶段）
+ *  - 每帧从 GameState 读取数据，同步位置与视觉
+ *  - M3 美术接入：优先使用 ArtLibrary 的 Q 版立绘（units/buildings/hq），
+ *    资源缺失时回退到灰盒色块 + emoji 表现（07 方案 §7.2 的兜底约定）
+ *  - 蓝方单位水平翻转（scaleX=-1），敌我用脚底红/蓝小色环区分（§7.2）
+ *  - 程序动画（07 方案 §6）：待机浮动 / 行走弹跳微倾，纯数学计算无 Tween 对象
  *  - 集成对象池，避免频繁创建/销毁节点
  *  - 只负责视觉表现，不修改游戏数据
- *
- * 形状映射：
- *  - 水晶：六角形 60×60
- *  - 兵工厂：方形 40×40
- *  - 学院：六角形 44×44
- *  - 光环塔：圆形 36×36
- *  - 基地塔：三角形 30×30
- *  - 坦克：圆形 20×20
- *  - 远程：菱形 14×14
- *  - AOE：星形 18×18
- *  - 冲锋：三角形 18×18
- *  - 攻城：矩形 22×14
  */
 
 import { Node, Color, Sprite, UIOpacity, Label, UITransform, Size, Vec2 } from 'cc';
@@ -26,9 +17,10 @@ import { ColorSpriteFactory, Shape } from './color-sprite-factory';
 import { NodePool } from './node-pool';
 import { setUniformScale } from './scale-helper';
 import { BUILDING_CONFIG } from '../config/building-config';
-import type { GameState, Side, UnitType, UnitState } from '../core/types';
+import { ArtLibrary } from './art-library';
+import type { GameState, Side, UnitType, UnitState, FactionId } from '../core/types';
 
-/** 实体颜色表（按阵营边） */
+/** 实体颜色表（按阵营边；灰盒兜底与敌我色环共用） */
 const ENTITY_COLORS: Record<string, { red: Color; blue: Color }> = {
     crystal: { red: new Color(255, 100, 100), blue: new Color(100, 150, 255) },
     building: { red: new Color(200, 100, 100), blue: new Color(100, 150, 200) },
@@ -38,13 +30,22 @@ const ENTITY_COLORS: Record<string, { red: Color; blue: Color }> = {
     unit: { red: new Color(255, 150, 150), blue: new Color(150, 200, 255) },
 };
 
-/** 兵种形状映射 */
+/** 兵种形状映射（灰盒兜底） */
 const UNIT_SHAPES: Record<UnitType, { shape: Shape; w: number; h: number }> = {
     tank: { shape: 'circle', w: 20, h: 20 },
     ranged: { shape: 'diamond', w: 14, h: 14 },
     aoe: { shape: 'star', w: 18, h: 18 },
     rush: { shape: 'triangle', w: 18, h: 18 },
     siege: { shape: 'rect', w: 22, h: 14 },
+};
+
+/** 兵种立绘显示尺寸（07 方案 §8：接入 128，战场显示最大 ~36px） */
+const UNIT_ART_SIZES: Record<UnitType, { w: number; h: number }> = {
+    tank: { w: 36, h: 36 },
+    ranged: { w: 30, h: 30 },
+    aoe: { w: 32, h: 32 },
+    rush: { w: 30, h: 30 },
+    siege: { w: 38, h: 38 },
 };
 
 /**
@@ -60,7 +61,7 @@ const OVERLAP_SPREAD: ReadonlyArray<[number, number]> = [
 /** 重叠量化粒度（px）：在此范围内视为同格 */
 const OVERLAP_GRID = 12;
 
-/** 单位兵种图标（叠加在形状上，帮助区分 15 个兵种） */
+/** 单位兵种图标（灰盒兜底：叠加在形状上帮助区分兵种） */
 const UNIT_ICONS: Record<UnitType, string> = {
     tank: '🛡️',
     ranged: '🏹',
@@ -74,6 +75,12 @@ const HP_GREEN = new Color(90, 220, 90);
 const HP_YELLOW = new Color(235, 190, 70);
 const HP_RED = new Color(235, 80, 70);
 
+/** 敌我脚底色环颜色 */
+const SIDE_RING: Record<Side, Color> = {
+    red: new Color(255, 70, 70, 150),
+    blue: new Color(70, 130, 255, 150),
+};
+
 export class GameView {
 
     /** id → Node 映射 */
@@ -86,27 +93,35 @@ export class GameView {
     private unitOffsets: Map<string, { x: number; y: number }> = new Map();
     /** id → 插值后的渲染位置（联机锁步 10Hz 帧间平滑，消除阶梯卡顿） */
     private unitRenderPos: Map<string, { x: number; y: number }> = new Map();
+    /** id → 程序动画状态（随机相位 + 上帧位置，用于移动检测） */
+    private unitAnim: Map<string, { phase: number; lastX: number; lastY: number; moving: boolean }> = new Map();
+    /** 程序动画累计时间 */
+    private animTime = 0;
 
     /** 对象池 */
     private pool: NodePool = new NodePool();
 
     private container: Node;
     private spriteFactory: ColorSpriteFactory;
+    /** 美术资源库（可选：未注入或资源缺失时全部走灰盒兜底） */
+    private art: ArtLibrary | null = null;
 
-    constructor(container: Node, spriteFactory: ColorSpriteFactory) {
+    constructor(container: Node, spriteFactory: ColorSpriteFactory, art?: ArtLibrary | null) {
         this.container = container;
         this.spriteFactory = spriteFactory;
+        this.art = art ?? null;
     }
 
-    /** 每帧调用：从 GameState 同步所有实体的视觉（dt 用于单位偏移平滑） */
+    /** 每帧调用：从 GameState 同步所有实体的视觉（dt 用于单位偏移平滑与程序动画） */
     sync(state: GameState, dt: number = 1 / 60, interpolate: boolean = false) {
+        this.animTime += dt;
         // 水晶
         this.syncCrystals(state);
         // 建筑（含学院/光环塔）
         this.syncBuildings(state);
         // 塔（基地塔）
         this.syncTowers(state);
-        // 单位（按兵种形状）
+        // 单位（立绘 + 程序动画）
         this.syncUnits(state, dt, interpolate);
     }
 
@@ -118,10 +133,11 @@ export class GameView {
         this.clearMap(this.unitNodes, 'unit');
         this.unitOffsets.clear();
         this.unitRenderPos.clear();
+        this.unitAnim.clear();
         this.pool.clearAll();
     }
 
-    /** 在节点中心叠加 emoji 图标（建筑/塔用） */
+    /** 在节点中心叠加 emoji 图标（灰盒兜底：建筑/塔用） */
     private addCenterIcon(parent: Node, icon: string, fontSize: number) {
         const node = new Node('Icon');
         node.layer = parent.layer;
@@ -136,6 +152,31 @@ export class GameView {
         node.setPosition(0, 0, 0);
     }
 
+    /** 单位立绘路径：u_{阵营}_{定位} */
+    private unitArtPath(faction: FactionId, type: UnitType): string {
+        return `units/u_${faction}_${type}`;
+    }
+
+    /** 大本营立绘路径：hq_{阵营} */
+    private hqArtPath(faction: FactionId): string {
+        return `units/hq_${faction}`;
+    }
+
+    /** 尝试创建美术精灵节点；资源缺失返回 null（调用方走灰盒兜底） */
+    private makeArtNode(path: string, w: number, h: number): Node | null {
+        if (!this.art || !this.art.isLoaded()) return null;
+        return this.art.createSpriteNode(path, w, h);
+    }
+
+    /** 敌我识别：脚底红/蓝小色环（07 方案 §3.2，程序绘制） */
+    private addSideRing(parent: Node, side: Side, footY: number) {
+        const ring = this.spriteFactory.createColorNode(SIDE_RING[side].clone(), 30, 30, 'circle');
+        ring.name = 'SideRing';
+        ring.parent = parent;
+        ring.setScale(1, 0.32, 1); // 圆压扁成椭圆环垫在脚下
+        ring.setPosition(0, footY, 0);
+    }
+
     // ==================== 各实体同步 ====================
 
     private syncCrystals(state: GameState) {
@@ -144,10 +185,16 @@ export class GameView {
             aliveIds.add(c.id);
             let node = this.crystalNodes.get(c.id);
             if (!node) {
-                const color = ENTITY_COLORS.crystal[c.side];
-                node = this.pool.acquire('crystal_' + c.side, () =>
-                    this.spriteFactory.createColorNode(color, 60, 60, 'hexagon'),
-                );
+                const faction = state.factions[c.side];
+                // 优先 Q 版大本营立绘（80px），缺失回退六角色块
+                node = this.makeArtNode(this.hqArtPath(faction), 80, 80)
+                    ?? this.pool.acquire('crystal_' + c.side, () =>
+                        this.spriteFactory.createColorNode(ENTITY_COLORS.crystal[c.side], 60, 60, 'hexagon'),
+                    );
+                if (node.name !== 'crystal_' + c.side) {
+                    // 美术节点不入池（池按 key 复用灰盒节点，混用会破坏类型）
+                    node.name = 'ArtCrystal_' + c.side;
+                }
                 node.parent = this.container;
                 this.crystalNodes.set(c.id, node);
             }
@@ -162,26 +209,37 @@ export class GameView {
             aliveIds.add(b.id);
             let node = this.buildingNodes.get(b.id);
             if (!node) {
-                // 根据建筑类型选形状：工厂方形 40×40；学院六角 46×46
-                let shape: Shape = 'rect';
-                let w = 40, h = 40;
-                let colorKey = 'building';
-                if (b.kind === 'academy') {
-                    shape = 'hexagon';
-                    w = 46; h = 46;
-                    colorKey = 'academy';
+                // 优先建筑立绘：工厂按兵种、学院用专属图；缺失回退灰盒形状
+                const artPath = b.unitType !== null
+                    ? `buildings/b_factory_${b.unitType}`
+                    : (b.kind === 'academy' ? 'buildings/b_academy' : null);
+                const artSize = b.kind === 'academy' ? 54 : 50;
+                let created: Node | null = artPath ? this.makeArtNode(artPath, artSize, artSize) : null;
+                if (created) {
+                    node = created;
+                    node.name = 'ArtBuilding_' + (b.kind ?? 'factory') + '_' + b.side;
+                } else {
+                    // 灰盒兜底：工厂方形 40×40；学院六角 46×46
+                    let shape: Shape = 'rect';
+                    let w = 40, h = 40;
+                    let colorKey = 'building';
+                    if (b.kind === 'academy') {
+                        shape = 'hexagon';
+                        w = 46; h = 46;
+                        colorKey = 'academy';
+                    }
+                    const colors = ENTITY_COLORS[colorKey];
+                    node = this.pool.acquire(`building_${b.kind ?? 'factory'}_${b.side}`, () =>
+                        this.spriteFactory.createColorNode(colors[b.side], w, h, shape),
+                    );
+                    // 中心叠加建筑图标（灰盒表现）
+                    if (b.unitType !== null) {
+                        this.addCenterIcon(node, BUILDING_CONFIG[b.unitType].icon, 16);
+                    } else if (b.kind === 'academy') {
+                        this.addCenterIcon(node, '🎓', 16);
+                    }
                 }
-                const colors = ENTITY_COLORS[colorKey];
-                node = this.pool.acquire(`building_${b.kind ?? 'factory'}_${b.side}`, () =>
-                    this.spriteFactory.createColorNode(colors[b.side], w, h, shape),
-                );
                 node.parent = this.container;
-                // 中心叠加建筑图标（🛡️🏹✨⚡🪨🎓，来自 building-config.icon）
-                if (b.unitType !== null) {
-                    this.addCenterIcon(node, BUILDING_CONFIG[b.unitType].icon, 16);
-                } else if (b.kind === 'academy') {
-                    this.addCenterIcon(node, '🎓', 16);
-                }
                 // 工厂挂星标子节点（Lv2 ★ / Lv3 ★★）
                 if (b.kind !== 'academy') {
                     const badge = new Node('StarBadge');
@@ -194,7 +252,7 @@ export class GameView {
                     label.fontSize = 12;
                     label.color = new Color(255, 215, 94);
                     label.lineHeight = 12;
-                    badge.setPosition(0, 26, 0);
+                    badge.setPosition(0, 28, 0);
                 }
                 this.buildingNodes.set(b.id, node);
             }
@@ -215,22 +273,31 @@ export class GameView {
             aliveIds.add(t.id);
             let node = this.towerNodes.get(t.id);
             if (!node) {
-                let shape: Shape = 'triangle';
-                let w = 30, h = 30;
-                let colorKey = 'tower';
-                if (t.kind === 'aura') {
-                    shape = 'circle';
-                    w = 36; h = 36;
-                    colorKey = 'aura';
+                // 优先立绘：光环塔 b_aura / 基地塔 b_tower；缺失回退灰盒形状
+                const artPath = t.kind === 'aura' ? 'buildings/b_aura' : 'buildings/b_tower';
+                const artSize = t.kind === 'aura' ? 50 : 44;
+                let created: Node | null = this.makeArtNode(artPath, artSize, artSize);
+                if (created) {
+                    node = created;
+                    node.name = 'ArtTower_' + t.kind + '_' + t.side;
+                } else {
+                    let shape: Shape = 'triangle';
+                    let w = 30, h = 30;
+                    let colorKey = 'tower';
+                    if (t.kind === 'aura') {
+                        shape = 'circle';
+                        w = 36; h = 36;
+                        colorKey = 'aura';
+                    }
+                    const colors = ENTITY_COLORS[colorKey];
+                    node = this.pool.acquire(`tower_${t.kind}_${t.side}`, () =>
+                        this.spriteFactory.createColorNode(colors[t.side], w, h, shape),
+                    );
+                    if (t.kind === 'aura') {
+                        this.addCenterIcon(node, '💠', 14);
+                    }
                 }
-                const colors = ENTITY_COLORS[colorKey];
-                node = this.pool.acquire(`tower_${t.kind}_${t.side}`, () =>
-                    this.spriteFactory.createColorNode(colors[t.side], w, h, shape),
-                );
                 node.parent = this.container;
-                if (t.kind === 'aura') {
-                    this.addCenterIcon(node, '💠', 14);
-                }
                 this.towerNodes.set(t.id, node);
             }
             node.setPosition(t.x, t.y, 0);
@@ -240,6 +307,7 @@ export class GameView {
 
     private syncUnits(state: GameState, dt: number, interpolate: boolean) {
         const aliveIds = new Set<string>();
+        const hasArt = this.art?.isLoaded() === true;
 
         // 第一遍：统计同格单位数量（重叠判定）
         const gridCount = new Map<string, number>();
@@ -255,18 +323,22 @@ export class GameView {
         const gridIndex = new Map<string, number>();
         for (const u of state.units) {
             aliveIds.add(u.id);
+            const faction = state.factions[u.side];
             let node = this.unitNodes.get(u.id);
             if (!node) {
-                const spec = UNIT_SHAPES[u.type];
-                const colors = ENTITY_COLORS.unit;
-                node = this.pool.acquire(`unit_${u.type}_${u.side}`, () =>
-                    this.spriteFactory.createColorNode(colors[u.side], spec.w, spec.h, spec.shape),
-                );
+                if (hasArt) {
+                    node = this.createArtUnitNode(u, faction);
+                }
+                if (!node) {
+                    node = this.createFallbackUnitNode(u);
+                }
                 node.parent = this.container;
-                this.addUnitIcon(node, u.type);
-                this.addHpBar(node);
-                this.addStatusBadge(node);
                 this.unitNodes.set(u.id, node);
+                // 程序动画初始状态（随机相位：避免全场整齐划一地浮动）
+                this.unitAnim.set(u.id, {
+                    phase: Math.random() * Math.PI * 2,
+                    lastX: u.x, lastY: u.y, moving: false,
+                });
             }
 
             // 重叠散开：同格内多个单位按固定序列偏移视觉位置；偏移经指数平滑，
@@ -296,6 +368,27 @@ export class GameView {
             }
             node.setPosition(rx + so.x, ry + so.y, 0);
 
+            // 程序动画（07 方案 §6）：待机 sin 浮动 ±3px/2s；行走弹跳 ±2px@8Hz + 微倾 ±2°
+            // 纯数学计算在 Body 子节点上叠加，不创建 Tween 对象（120 单位性能守则）
+            const anim = this.unitAnim.get(u.id);
+            if (anim) {
+                // 本帧位移 > 0.1px 视为行走（速度 ~40px/s × 1/60s ≈ 0.67px，阈值足够区分）
+                anim.moving = (u.x - anim.lastX) ** 2 + (u.y - anim.lastY) ** 2 > 0.01;
+                anim.lastX = u.x; anim.lastY = u.y;
+                const body = node.getChildByName('Body');
+                if (body) {
+                    if (anim.moving) {
+                        const t = this.animTime * Math.PI * 2 * 8 + anim.phase; // 8Hz 行走弹跳
+                        body.setPosition(0, Math.abs(Math.sin(t)) * 2.4, 0);
+                        body.angle = Math.sin(t) * 2;
+                    } else {
+                        const t = this.animTime * Math.PI + anim.phase; // 2s 周期待机浮动
+                        body.setPosition(0, Math.sin(t) * 3, 0);
+                        body.angle = 0;
+                    }
+                }
+            }
+
             // 精英等级用缩放表示
             const levelScale = u.level === 1 ? 1 : u.level === 2 ? 1.2 : 1.4;
             setUniformScale(node, levelScale);
@@ -311,10 +404,50 @@ export class GameView {
         for (const id of this.unitRenderPos.keys()) {
             if (!aliveIds.has(id)) this.unitRenderPos.delete(id);
         }
+        for (const id of this.unitAnim.keys()) {
+            if (!aliveIds.has(id)) this.unitAnim.delete(id);
+        }
         this.cleanupDead(aliveIds, this.unitNodes, 'unit');
     }
 
-    /** 给单位节点中心叠加兵种 emoji 图标 */
+    /**
+     * 创建美术版单位节点（M3.1）：
+     * 根容器（定位/缩放）→ Body（立绘，蓝方水平翻转，程序动画作用点）
+     *                      → SideRing（敌我色环）/ HpBar / StatusBadge
+     */
+    private createArtUnitNode(u: UnitState, faction: FactionId): Node {
+        const size = UNIT_ART_SIZES[u.type];
+        const root = new Node('Unit_' + u.id);
+        root.layer = this.container.layer;
+        root.addComponent(UITransform).contentSize = new Size(size.w, size.h);
+
+        const sprite = this.art!.createSpriteNode(this.unitArtPath(faction, u.type), size.w, size.h);
+        if (!sprite) return this.createFallbackUnitNode(u);
+        sprite.name = 'Body';
+        sprite.parent = root;
+        // 蓝方向左进攻：水平翻转（08 指南 §2.2，不生成两套图）
+        if (u.side === 'blue') sprite.setScale(-1, 1, 1);
+        this.addSideRing(root, u.side, -size.h * 0.42);
+        this.addHpBar(root);
+        this.addStatusBadge(root);
+        return root;
+    }
+
+    /** 灰盒兜底单位节点（原 v1.3 表现，美术缺失时使用） */
+    private createFallbackUnitNode(u: UnitState): Node {
+        const spec = UNIT_SHAPES[u.type];
+        const colors = ENTITY_COLORS.unit;
+        const node = this.pool.acquire(`unit_${u.type}_${u.side}`, () =>
+            this.spriteFactory.createColorNode(colors[u.side], spec.w, spec.h, spec.shape),
+        );
+        node.name = 'Unit_' + u.id;
+        this.addUnitIcon(node, u.type);
+        this.addHpBar(node);
+        this.addStatusBadge(node);
+        return node;
+    }
+
+    /** 给单位节点中心叠加兵种 emoji 图标（灰盒兜底） */
     private addUnitIcon(unitNode: Node, type: UnitType) {
         const icon = new Node('TypeIcon');
         icon.layer = unitNode.layer;
@@ -339,7 +472,7 @@ export class GameView {
         const barUt = bar.addComponent(UITransform);
         barUt.contentSize = new Size(22, 3);
         barUt.anchorPoint = new Vec2(0.5, 0.5);
-        bar.setPosition(0, 15, 0);
+        bar.setPosition(0, 17, 0);
 
         const bg = this.spriteFactory.createColorNode(new Color(20, 20, 20, 200), 22, 3);
         bg.name = 'HpBg';
@@ -385,7 +518,7 @@ export class GameView {
         label.fontSize = 11;
         label.color = new Color(255, 235, 160);
         label.lineHeight = 12;
-        badge.setPosition(0, 25, 0);
+        badge.setPosition(0, 26, 0);
         badge.active = false;
     }
 
@@ -407,11 +540,15 @@ export class GameView {
 
     // ==================== 内部辅助 ====================
 
-    /** 清理已不存在的实体节点（回收到对象池） */
+    /** 清理已不存在的实体节点（回收到对象池；美术节点直接销毁） */
     private cleanupDead(aliveIds: Set<string>, nodeMap: Map<string, Node>, poolKey: string) {
         for (const [id, node] of nodeMap) {
             if (!aliveIds.has(id)) {
-                this.pool.release(node, poolKey);
+                if (node.name.startsWith('Art') || node.name.startsWith('Unit_')) {
+                    node.destroy();
+                } else {
+                    this.pool.release(node, poolKey);
+                }
                 nodeMap.delete(id);
             }
         }
@@ -419,7 +556,11 @@ export class GameView {
 
     private clearMap(map: Map<string, Node>, poolKey: string) {
         for (const [, node] of map) {
-            this.pool.release(node, poolKey);
+            if (node.name.startsWith('Art') || node.name.startsWith('Unit_')) {
+                node.destroy();
+            } else {
+                this.pool.release(node, poolKey);
+            }
         }
         map.clear();
     }

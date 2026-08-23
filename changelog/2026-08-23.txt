@@ -52,3 +52,50 @@
 | 合计 | 93/120 | 已完成 77% |
 
 下一步：代码接入（GameManager.ts 改造，用精灵图替换 emoji 色块）
+
+M3 美术代码接入 + 关键回归修复 —— 2026-08-23（代码接入）
+========================================
+
+一、美术立绘代码接入（M3.1/M3.2/M3.4）
+----------------------------------------
+- 新增 presentation/art-library.ts：预载 assets/resources/art/ 全部 59+ 张图，转 SpriteFrame 缓存
+- GameView 单位/大本营/建筑/塔改用 Q 版立绘（灰盒色块+emoji 保留为缺图兜底）
+- 蓝方单位 scaleX=-1 水平翻转 + 脚底红/蓝敌我色环（不靠改贴图区分敌我）
+- 程序动画（07 方案 §6）：待机 sin 浮动 ±3px/2s、行走弹跳 ±2px@8Hz + 微倾 ±2°，纯数学无 Tween
+- 弹道/溅射环接 fx_arrow/fx_ring（按敌我 Sprite.color 染色）
+- 地图底图 map_bg.jpg 替换纯色背景（河/路/桥仍程序绘制，位置精确）
+- M3.3 HUD：建造栏 7 按钮 + 升级/科研按钮图标接 ico_build_*/ico_up/ico_research（emoji 兜底）
+
+二、关键技术坑（Cocos 3.8.8）
+----------------------------------------
+- resources 包只注册 ImageAsset + Texture2D，SpriteFrame 不是可加载路径：
+  loadDir(dir, SpriteFrame) 恒返回 0；load('.../spriteFrame') 报 bundle 不包含
+- 正确做法：resources.load(path, ImageAsset) → SpriteFrame.createWithImage(img)
+- loadDir 返回的 ImageAsset.name 为空串，无法按名映射 → 改用显式路径清单（由命名规范生成）
+
+三、关键回归修复（严重，影响全部玩法）
+----------------------------------------
+- GameManager.update() 的 logicAccumulator 只减不增，缺 logicAccumulator += Math.min(dt, 0.25)
+  → while(logicAccumulator >= 1/30) 永不成立，游戏逻辑一帧不推进（AI 不建厂、不出兵、兵不动）
+- 根因：架构回归合并（v1.1.0）时该行丢失（git 6775700 P0 确定性改造版本存在此行）
+- 已恢复；类型检查 + 115 条测试通过；无头浏览器实测：AI 建厂、出兵、单位/水晶/建筑/塔均渲染为立绘
+
+四、验收状态
+----------------------------------------
+- 无头浏览器（Edge CDP）端到端：59/59 资源预载、地图底图就位、2 水晶/1 建筑/4 塔/3 单位全部立绘、0 灰盒兜底
+- 待办：M3.3 面板底板（ui_panel_*）与卡牌框接入；27 卡牌插画后置
+
+M3.3 面板底板接入（九宫格）—— 2026-08-23
+========================================
+- ArtLibrary 新增 createPanelNode(path, w, h, inset=40)：SLICED 九宫格拉伸，边框 inset 固定不拉伸
+- PanelController 注入 ArtLibrary，新增 makePanelBg（贴图可用则九宫格，否则纯色兜底）
+- 替换底板：建筑升级面板(320×200)、卡牌历史面板(560×580)、房号卡片(520×150) 用 ui_panel_dark
+- 卡牌选择卡面(200×260) 用 ui_panel_card；稀有度彩色边框保留
+- 无头验证：createPanelNode 返回 SLICED(type=1)/CUSTOM(mode=0)/inset=40；房号卡与卡牌历史面板底板均为九宫格贴图
+
+M3.3 阵营按钮底板 + 面板刷新机制 —— 2026-08-23
+========================================
+- PanelController.makePanelBg 改为槽位机制（panelBgSlots），新增 refreshPanels()：预载完成后把纯色兜底底板原位升级为九宫格贴图（保持 siblingIndex 层级顺序）
+- 阵营选择按钮（FactionBtn_*，200×120）底板接 ui_panel_dark（inset=26，小面板用更小边框）
+- GameManager 预载完成回调追加 panels.refreshPanels()
+- 无头验证：3 个阵营按钮底板均升级为 ui_panel_dark_panel（SLICED type=1）
