@@ -11,10 +11,10 @@ import { makeEngine, makeUnit, runSeconds, writableState } from './helpers';
 const POS = { x: -350, y: -50 };
 
 describe('建筑：价格递增与升级', () => {
-    it('同类工厂价格递增 +25%（水果坦克厂 143 → 179 → 215）', () => {
-        expect(buildingCost('tank', 'fruit', 0)).toBe(143);
-        expect(buildingCost('tank', 'fruit', 1)).toBe(179);
-        expect(buildingCost('tank', 'fruit', 2)).toBe(215);
+    it('同类工厂价格递增 +25%（水果坦克厂 141 → 176 → 212）', () => {
+        expect(buildingCost('tank', 'fruit', 0)).toBe(141);
+        expect(buildingCost('tank', 'fruit', 1)).toBe(176);
+        expect(buildingCost('tank', 'fruit', 2)).toBe(212);
     });
 
     it('不同类工厂互不影响递增', () => {
@@ -22,12 +22,12 @@ describe('建筑：价格递增与升级', () => {
         const s = writableState(engine);
         s.gold.red = 1000;
         s.gold.blue = 0;
-        engine.execute({ type: 'build', itemId: 'tank', position: POS });   // 143
+        engine.execute({ type: 'build', itemId: 'tank', position: POS });   // 141
         engine.execute({ type: 'build', itemId: 'ranged', position: POS }); // 105×1.25? 不：不同类首座 105... fruit ranged = round(130×0.95)=124? 见断言
         const factories = s.buildings.filter(b => b.side === 'red');
         expect(factories.length).toBe(2);
-        // 第二座坦克厂价格应为 179
-        expect(buildingCost('tank', 'fruit', 1)).toBe(179);
+        // 第二座坦克厂价格应为 176
+        expect(buildingCost('tank', 'fruit', 1)).toBe(176);
     });
 
     it('工厂升级 Lv2：150 金，出兵属性 ×1.5，建筑血量 ×1.5', () => {
@@ -44,12 +44,12 @@ describe('建筑：价格递增与升级', () => {
         expect(factory.level).toBe(2);
         expect(factory.maxHp).toBe(1200); // 800 × 1.5
 
-        // Lv2 工厂出兵：坦 400×0.85×1.5 = 510 血
+        // Lv2 工厂出兵：坦 400×0.95×1.5 = 570 血
         factory.waveTimer = 0.001;
         engine.step(0.002);
         const tank = s.units.find(u => u.side === 'red')!;
         expect(tank.level).toBe(2);
-        expect(tank.maxHp).toBeCloseTo(510, 5);
+        expect(tank.maxHp).toBeCloseTo(570, 5);
         expect(tank.atk).toBeCloseTo(15 * 0.95 * 1.5, 5);
     });
 
@@ -75,10 +75,10 @@ describe('建筑：价格递增与升级', () => {
         expect(s.gold.red).toBe(goldBefore - 300);
         expect(factory.level).toBe(3);
 
-        // Lv3 出兵：坦 400×0.85×2.2 = 748 血
+        // Lv3 出兵：坦 400×0.95×2.2 = 836 血
         factory.waveTimer = 0.001;
         engine.step(0.002);
-        expect(s.units.find(u => u.side === 'red')!.maxHp).toBeCloseTo(748, 4);
+        expect(s.units.find(u => u.side === 'red')!.maxHp).toBeCloseTo(836, 4);
     });
 
     it('精英兵击杀赏金 ×1.5 / ×2（Lv2 坦克 15 金）', () => {

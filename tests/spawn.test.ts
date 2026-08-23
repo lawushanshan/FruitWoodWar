@@ -16,7 +16,7 @@ function addFactory(engine: ReturnType<typeof makeEngine>, unitType: 'tank' | 'r
 }
 
 describe('出兵系统', () => {
-    it('水果坦克厂 16 秒出一波，每波 3 个坦克兵', () => {
+    it('水果坦克厂 15 秒出一波，每波 3 个坦克兵', () => {
         const engine = makeEngine(); // 红方 fruit
         addFactory(engine, 'tank', 16);
         let steps = 0;
@@ -27,11 +27,11 @@ describe('出兵系统', () => {
         const redUnits = engine.state.units.filter(u => u.side === 'red');
         expect(redUnits.length).toBe(3);
         expect(redUnits.every(u => u.type === 'tank')).toBe(true);
-        // 出兵属性套阵营倍率：400 × 0.85 = 340
-        expect(redUnits[0].maxHp).toBeCloseTo(340, 5);
-        // 出兵后重置为水果间隔 16 秒
+        // 出兵属性套阵营倍率：400 × 0.95 = 380
+        expect(redUnits[0].maxHp).toBeCloseTo(380, 5);
+        // 出兵后重置为水果间隔 15 秒
         const factory = writableState(engine).buildings.find(b => b.side === 'red')!;
-        expect(factory.waveTimer).toBeCloseTo(16, 5);
+        expect(factory.waveTimer).toBeCloseTo(15, 5);
     });
 
     it('AOE 厂每波 2 个，攻城厂每波 1 个', () => {

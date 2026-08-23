@@ -283,11 +283,16 @@ export class GameManager extends Component {
         this.panels.showToast('检测到未完成的对局，正在恢复…', 8000);
         this.ensureNet();
         // onOpen 回调里会自动发 rejoin（见 ensureNet 的 rejoining 分支）
-        // 兜底：重连失败（对局已结束）则清凭证回开始面板
+        // 兜底：超时仍未恢复（对局已结束/服务器不可达）则清凭证、断开连接回开始面板。
+        // 必须真正 close：否则 NetworkClient 无限退避重连、消息队列持续堆积
+        //（实测缺陷：retries 可涨到 13+ 且 ws 永远 null，建房命令全部卡死）
         setTimeout(() => {
             if (this.rejoining) {
                 this.rejoining = false;
+                this.rejoinToken = null;
                 try { sessionStorage.removeItem('fww_rejoin'); } catch { /* */ }
+                this.net?.close();
+                this.net = null;
                 this.panels.showToast('对局已结束或无法恢复');
             }
         }, 12_000);
@@ -297,6 +302,11 @@ export class GameManager extends Component {
         input.off(Input.EventType.MOUSE_DOWN, this.onGlobalMouseDown, this);
         input.off(Input.EventType.KEY_DOWN, this.onKeyDown, this);
         this.stopPingLoop();
+    }
+
+    /** 命令入口统一守卫：模拟未开始/已结束，或联机对局已被服务器判定结束 */
+    private canAct(): boolean {
+        return this.engine.state.phase === 'playing' && !this.onlineEnded;
     }
 
     update(dt: number) {
@@ -496,7 +506,7 @@ export class GameManager extends Component {
     // ==================== 网格放置模式（v0.5.0） ====================
 
     onBuildClick(_event: Event, id: string) {
-        if (this.engine.state.phase !== 'playing') return;
+        if (!this.canAct()) return;
         const itemId = id as BuildingItemId;
 
         if (this.pendingBuild === itemId) {
@@ -534,7 +544,7 @@ export class GameManager extends Component {
         this.touchHeld = false;
         this.touchHoldTime = 0;
 
-        if (this.engine.state.phase !== 'playing') return;
+        if (!this.canAct()) return;
         // 必须用 getUILocation()：设计分辨率 UI 坐标（0~1280/0~720）。
         // getLocation() 返回设备像素坐标，高 DPI 屏上会整体偏移导致网格错位
         const loc = event.getUILocation();
@@ -739,7 +749,7 @@ export class GameManager extends Component {
 
     /** 升级面板按钮：升级当前指向的工厂 */
     onBuildingUpgradeClick(_event: Event) {
-        if (this.engine.state.phase !== 'playing') return;
+        if (!this.canAct()) return;
         const buildingId = this.panels.getUpgradeBuildingId();
         if (!buildingId) return;
         if (this.online) {
@@ -755,7 +765,7 @@ export class GameManager extends Component {
 
     /** HUD 快捷按钮：自动升级最低等级工厂 */
     onUpgradeClick(_event: Event) {
-        if (this.engine.state.phase !== 'playing') return;
+        if (!this.canAct()) return;
         const cmd = makeUpgradeCommand(this.engine.state);
         if (!cmd) { this.panels.showToast('没有可升级的兵工厂！'); return; }
         if (this.online) { this.submitOnline(cmd); return; }
@@ -765,7 +775,7 @@ export class GameManager extends Component {
     }
 
     onResearchClick(_event: Event) {
-        if (this.engine.state.phase !== 'playing') return;
+        if (!this.canAct()) return;
         if (this.online) { this.submitOnline(makeResearchCommand()); this.hudView.updatePrices(this.engine.state); return; }
         const result = this.engine.execute(makeResearchCommand());
         if (result.ok) this.audio.play('upgrade');
@@ -1109,6 +1119,12 @@ export class GameManager extends Component {
     }
 
     private ensureNet() {
+        // 复用前先检查可用性：ws 已断且重连放弃（超过上限）的"僵尸 net"必须废弃重建，
+        // 否则后续建房/加入命令全部堆进死队列（实测缺陷：retries 到上限后 ws 恒 null）
+        if (this.net && this.net.isDead()) {
+            this.net.close();
+            this.net = null;
+        }
         if (this.net) return;
         // onOpen 提示已连接；onClose 提示连接失败（连接建立前即关闭）
         let opened = false;

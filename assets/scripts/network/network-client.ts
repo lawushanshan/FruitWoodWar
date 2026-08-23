@@ -24,12 +24,20 @@ export class NetworkClient {
     private cbs: NetCallbacks;
     /** 重连退避 */
     private retries = 0;
+    /** 重连上限：超过后放弃并清空待发队列（对局中掉线由服务器 15s 判负兜底；
+     *  无上限会出现服务器不可达时永远退避空转、ws 恒 null、队列无限堆积的缺陷） */
+    private static readonly MAX_RETRIES = 10;
     private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     private closedByUser = false;
 
     constructor(url: string, cbs: NetCallbacks) {
         this.url = url;
         this.cbs = cbs;
+    }
+
+    /** 连接是否已死（无 ws 且重试耗尽）：调用方应废弃此实例重建 */
+    isDead(): boolean {
+        return this.ws === null && this.retries >= NetworkClient.MAX_RETRIES;
     }
 
     connect() {
@@ -68,6 +76,11 @@ export class NetworkClient {
 
     private scheduleReconnect() {
         if (this.closedByUser) return;
+        if (this.retries >= NetworkClient.MAX_RETRIES) {
+            console.warn(`[NetworkClient] 重连 ${this.retries} 次仍失败，放弃（服务器不可达）`);
+            this.flushQueue();
+            return;
+        }
         const delay = Math.min(1000 * Math.pow(2, this.retries++), 10_000);
         this.reconnectTimer = setTimeout(() => this.connect(), delay);
     }

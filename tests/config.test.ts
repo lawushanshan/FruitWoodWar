@@ -42,28 +42,28 @@ describe('全局参数（game-config）', () => {
 });
 
 describe('阵营参数（faction-config，v1.0.0 冻结值）', () => {
-    it('水果王国：16s 出兵 / 调参后 hp 0.85 atk 0.95', () => {
+    it('水果王国：15s 出兵 / v1.7 hp 0.95 atk 0.95 price 0.94', () => {
         const f = FACTION_CONFIG.fruit;
-        expect(f.waveInterval).toBe(16);
-        expect(f.hpMult).toBeCloseTo(0.85, 5);
+        expect(f.waveInterval).toBe(15);
+        expect(f.hpMult).toBeCloseTo(0.95, 5);
         expect(f.atkMult).toBeCloseTo(0.95, 5);
-        expect(f.priceMult).toBeCloseTo(0.95, 5);
+        expect(f.priceMult).toBeCloseTo(0.94, 5);
         expect(f.firstStrikeMult).toBe(2);
     });
 
-    it('绿木林：调参后 hp 1.25 / 加兵概率 0.40 ×2', () => {
+    it('绿木林：v1.7 hp 1.10 / 加兵概率 0.30 ×2', () => {
         const f = FACTION_CONFIG.wood;
         expect(f.waveInterval).toBe(20);
-        expect(f.hpMult).toBeCloseTo(1.25, 5);
-        expect(f.extraCountChance).toBeCloseTo(0.4, 5);
+        expect(f.hpMult).toBeCloseTo(1.10, 5);
+        expect(f.extraCountChance).toBeCloseTo(0.3, 5);
         expect(f.extraCount).toBe(2);
         expect(f.speedMult).toBeCloseTo(0.8, 5);
     });
 
-    it('动物庄园：攻击 1.55 / 速度 1.35 / 首击 2.5', () => {
+    it('动物庄园：攻击 1.55 / 速度 1.25 / 首击 2.5（v1.7 经济 0.92）', () => {
         const f = FACTION_CONFIG.animal;
         expect(f.atkMult).toBeCloseTo(1.55, 5);
-        expect(f.speedMult).toBeCloseTo(1.35, 5);
+        expect(f.speedMult).toBeCloseTo(1.25, 5);
         expect(f.firstStrikeMult).toBe(2.5);
     });
 

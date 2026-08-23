@@ -231,8 +231,8 @@ describe('卡牌系统', () => {
         forceChooseCard(engine, findCard('wood', 'growth'));
         s.buildings.forEach(b => { b.waveTimer = 0.001; });
         engine.step(0.002);
-        // 红方（fruit）工厂：16 × 0.7 = 11.2；蓝方（wood）工厂不受影响：20
-        expect(s.buildings.find(b => b.id === 'f-red')!.waveTimer).toBeCloseTo(11.2, 5);
+        // 红方（fruit）工厂：15 × 0.7 = 10.5；蓝方（wood）工厂不受影响：20
+        expect(s.buildings.find(b => b.id === 'f-red')!.waveTimer).toBeCloseTo(10.5, 5);
         expect(s.buildings.find(b => b.id === 'f-blue')!.waveTimer).toBeCloseTo(20, 5);
     });
 });
