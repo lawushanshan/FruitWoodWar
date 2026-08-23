@@ -120,9 +120,10 @@ def signed_post(action: str, ak: str, sk: str, payload: dict, timeout: int = 30)
 
 # ==================== 提示词库（与《08-美术操作指南》一一对应） ====================
 
-# 全局骨架
-HEAD = "Q版卡通游戏立绘，二头身Q版比例，粗黑描边，平涂上色带柔和阴影，明亮糖果色，可爱友好，手机休闲游戏画风，"
-TAIL_CHAR = "，单个角色完整全身，侧面视角面朝右，角色居中占画面八成，纯绿色背景，无文字，无水印，无地面阴影，无多余物体"
+# 全局骨架：单主体约束放在最开头，防止参考图（全家福多角色）污染并排构图
+# 攻城单位允许"载具+1个推车小人"的正常组合，其余兵种仅1个角色
+HEAD = "画面中只有一个游戏单位主体，禁止出现2个及以上相同的角色或重复的主体，禁止并排站着多个独立人物，禁止复制主角，Q版卡通游戏立绘，二头身Q版比例，粗黑描边，平涂上色带柔和阴影，明亮糖果色，可爱友好，手机休闲游戏画风，"
+TAIL_CHAR = "，单个角色完整全身，侧面视角面朝右，角色居中占画面八成，纯绿色背景，无文字，无水印，无地面阴影，无多余物体，整个画面就只有这1个角色"
 TAIL_BUILD = "，单栋建筑完整可见，正视图，居中，纯绿色背景，无文字，无水印，无阴影，无多余物体"
 FACTION = {
     "fruit": "多汁水果质感，橙红果绿柠檬黄配色，阳光明亮，",
@@ -137,21 +138,21 @@ S34 = (1104, 1472)  # 3:4 自定义（卡牌，宽高乘积在允许范围内）
 # 每条任务：文件名 -> (分类, 提示词, 宽高, 参考图阵营或 None)
 # 参考图：生成时自动读取 tools/anchor_{阵营}.png（全家福，由 M3.0 手动生成）
 UNITS = {
-    "u_fruit_tank": "一个圆滚滚的西瓜战士，戴着半片西瓜皮头盔，双手抱着一把大木锤，果肉红色脸颊，稳重又开心的表情，体型比其他兵种更宽更大只，",
-    "u_fruit_ranged": "一个灵活的香蕉弓箭手，弯弯的香蕉身体，背着小箭袋，正在拉弓瞄准，专注可爱的表情，体型比坦克瘦小，",
-    "u_fruit_aoe": "一个圆滚滚的榴莲小兵，身上有柔软的可爱尖刺，双手高举一颗点燃引线的圆形炸弹，憨厚狡黠的微笑，",
-    "u_fruit_rush": "一个小巧的草莓精灵，红色带小籽的身体，头戴绿叶小帽，身体前倾做冲刺跑步姿势，身后有淡淡的速度线，精力充沛的表情，",
-    "u_fruit_siege": "一台可爱的椰子主题投石车，木质小车身，车上装着发射架和大椰子，旁边跟着一颗有笑脸的椰子宝宝小兵在推动车子，",
-    "u_wood_tank": "一个慈祥的老橡树人守卫，粗壮的树干身体，头顶茂密绿叶树冠，下巴有苔藓胡须，一只手臂挂着藤条编织的圆盾牌，体型宽大稳重，",
-    "u_wood_ranged": "一个轻盈的蒲公英小射手，白色绒球脑袋，披着绿叶小披风，鼓起腮帮子吹出一支小飞镖，俏皮的表情，体型瘦小，",
-    "u_wood_aoe": "一个戴紫色斑点蘑菇小尖帽的术士，手持一根顶端有发光孢子球的木法杖，狡黠可爱的微笑，袍子上有点点孢子光斑，",
-    "u_wood_rush": "一个年轻的竹笋士兵，头戴锥形竹笋头盔，手握竹制短枪，身体前倾冲刺姿势，身后有淡淡速度线，元气满满，",
-    "u_wood_siege": "一台南瓜主题攻城车，木质车架上固定着一个系着藤蔓绳索的巨大南瓜锤，车上装饰着藤蔓缠绕花纹，旁边一个戴叶子帽的小树精在推车，",
-    "u_animal_tank": "一只壮实的Q版犀牛卫士，灰色厚实身体，身上挂着轻便装甲板，头顶标志性大角，一只手拿着小圆盾，憨厚勇敢的表情，体型宽大，",
-    "u_animal_ranged": "一只灵活的Q版松鼠射手，蓬松的大尾巴，双手举着Y形木质弹弓正在瞄准，腰间挂着小弹药袋，机灵的表情，体型瘦小，",
-    "u_animal_aoe": "一只智慧的Q版猫头鹰法师，头戴缀着星星月亮的小尖帽，鼻梁上架着小圆眼镜，翅膀举着一根顶端有发光星星的法杖，星星有蓝紫色微光，",
-    "u_animal_rush": "一只敏捷的Q版猎豹侦察兵，金色斑点皮毛，腰间系着轻便小包，低姿快速奔跑，身后有淡淡速度线，眼神锐利又可爱，",
-    "u_animal_siege": "一头强壮的Q版大象，用鼻子卷着绳索，推动一辆带有巨大青铜撞角的木质攻城槌车，稳步前进的踏实姿态，",
+    "u_fruit_tank": "一个圆滚滚的西瓜战士，整个身体是红色西瓜果肉带黑色西瓜籽，戴着半片绿色西瓜皮头盔，双手抱着一把大木锤，红色果肉脸颊，稳重又开心的表情，体型比其他兵种更宽更大只，有粗短的小手和脚，",
+    "u_fruit_ranged": "一个灵活的香蕉弓箭手，整个身体是弯弯的黄色香蕉形状，带着绿色香蕉蒂小尾巴，背着小箭袋，正在拉弓瞄准，专注可爱的表情，体型比坦克瘦小，有可爱的小手小脚，",
+    "u_fruit_aoe": "一个圆滚滚的榴莲小兵，整个身体是黄色榴莲带柔软的可爱尖刺，双手高举一颗点燃引线的圆形黑色炸弹，憨厚狡黠的微笑，粗短的小手小脚，",
+    "u_fruit_rush": "一个小巧的草莓精灵，整个身体是红色草莓带黑色小籽，头戴绿色草莓叶子小帽，身体前倾做冲刺跑步姿势，身后有淡淡的速度线，精力充沛的开心表情，",
+    "u_fruit_siege": "一个强壮的椰子投石机战士，整个身体是棕色硬壳大椰子，正面有圆圆的黑眼睛和憨厚笑脸，头顶绿色小叶子头发，两条粗壮椰子壳小腿稳稳站立，双手握着投石机发射杆，背后背着木质投石机机架和一颗黑色大椰子炮弹，造型是单只大椰子活体战士本身操作投石装备，",
+    "u_wood_tank": "一个慈祥的老橡树人守卫，粗壮的棕色树干身体带树皮纹理，头顶茂密绿色树叶树冠，下巴有绿色苔藓做的白胡须，一只手臂挂着藤条编织的圆盾牌，体型宽大稳重，",
+    "u_wood_ranged": "一个轻盈的蒲公英小射手，脑袋是圆滚滚的白色蒲公英绒球，披着绿色叶子小披风，鼓起腮帮子吹出一支小飞镖，俏皮的表情，体型瘦小，",
+    "u_wood_aoe": "一个戴紫色斑点蘑菇小尖帽的术士，小袍子也是紫色，手持一根顶端有发光孢子球的木法杖，狡黠可爱的微笑，袍子上有点点绿色孢子光斑，",
+    "u_wood_rush": "一个年轻的竹笋士兵，头戴锥形绿色竹笋尖头盔，手握竹制短枪，身体前倾冲刺姿势，身后有淡淡速度线，元气满满的表情，",
+    "u_wood_siege": "一个强壮的南瓜战士推攻城撞槌，主体是圆滚滚橙色大南瓜，有三角形南瓜灯黄眼睛和锯齿大嘴但表情可爱，头顶绿色南瓜蒂和一片大叶子，长着绿色粗壮藤蔓当手臂，藤蔓双手紧握着一根粗大的攻城撞木，南瓜下方有四个棕色小木轮子支撑自己前进，造型是南瓜活体本身当战士，没有任何其他推车小人，",
+    "u_animal_tank": "一只壮实的Q版犀牛卫士，灰色厚实带皮肤褶皱的身体，身上挂着轻便棕色装甲板，头顶标志性白色大角，一只手拿着小圆盾，憨厚勇敢的表情，体型宽大，",
+    "u_animal_ranged": "一只灵活的Q版松鼠射手，棕色蓬松的大尾巴，双手举着Y形木质弹弓正在瞄准，腰间挂着小弹药袋，机灵的表情，体型瘦小，",
+    "u_animal_aoe": "一只智慧的Q版猫头鹰法师，头戴缀着星星月亮的深蓝色小尖帽，鼻梁上架着小圆眼镜，翅膀举着一根顶端有发光金色星星的法杖，",
+    "u_animal_rush": "一只敏捷的Q版猎豹侦察兵，金色皮毛带黑色斑点，腰间系着轻便小包，低姿快速奔跑，身后有淡淡速度线，眼神锐利又可爱，",
+    "u_animal_siege": "一头强壮的Q版大象，灰色皮肤带大耳朵和白色象牙，用长鼻子卷着绳索，推动一辆带有巨大青铜撞角的木质攻城槌车，稳步前进，",
 }
 HQS = {
     "hq_fruit": "一座宏伟的黄金菠萝造型大本营建筑，金色菠萝外皮纹理，顶部是翠绿菠萝叶皇冠，底部有华丽基座，整体散发温暖的金色光芒，",
@@ -300,7 +301,14 @@ GROUPS = {
 }
 
 
-# ==================== 即梦 API 客户端 ====================
+# ==================== 即梦 API 客户端（Seedream 4.6） ====================
+# 官方文档：https://www.volcengine.com/docs/85621/2275082
+# req_key 统一：jimeng_seedream46_cvtob（文生图+图生图通用，传binary_data_base64自动切换图生图模式）
+# scale：整数 1~100，越大越听文本指令（默认50）
+# force_single=True：强制单图输出，避免并排多角色污染
+
+REQ_KEY_46 = "jimeng_seedream46_cvtob"
+
 
 class Jimeng:
     def __init__(self, ak: str, sk: str):
@@ -312,7 +320,7 @@ class Jimeng:
             raise RuntimeError("提交失败: %s (request_id=%s)" % (r.get("message"), r.get("request_id")))
         return r["data"]["task_id"]
 
-    def _poll(self, req_key: str, task_id: str, timeout_s: int = 180) -> list:
+    def _poll(self, req_key: str, task_id: str, timeout_s: int = 360) -> list:
         """轮询直到出图，返回图片 URL 列表"""
         deadline = time.time() + timeout_s
         query = {
@@ -329,39 +337,43 @@ class Jimeng:
             code = r.get("code")
             data = r.get("data") or {}
             status = data.get("status", "")
-            if code == 10000 and status == "generate_finish":
+            # 即梦 API 返回的完成状态有两种：generate_finish / done
+            if code == 10000 and status in ("generate_finish", "done"):
                 urls = data.get("image_urls") or []
                 if urls:
                     return urls
                 raise RuntimeError("任务完成但没有图片 URL：%s" % json.dumps(data, ensure_ascii=False)[:300])
+            if status in ("failed", "error", "generate_failed"):
+                raise RuntimeError("任务失败 status=%s: %s" % (status, json.dumps(data, ensure_ascii=False)[:300]))
             if code != 10000:
                 raise RuntimeError("查询失败: %s" % r.get("message"))
-            time.sleep(3)
+            time.sleep(4)
         raise RuntimeError("轮询超时（%ds）task_id=%s" % (timeout_s, task_id))
 
     def text2img(self, prompt: str, w: int, h: int) -> list:
+        """Seedream 4.6 文生图：统一 req_key，force_single强制单图"""
         body = {
-            "req_key": "jimeng_t2i_v30",
+            "req_key": REQ_KEY_46,
             "prompt": prompt,
-            "use_pre_llm": False,  # 提示词已经很完整，关闭扩写避免跑偏
-            "seed": -1,
+            "force_single": True,
             "width": w, "height": h,
         }
-        return self._poll("jimeng_t2i_v30", self._submit(body))
+        return self._poll(REQ_KEY_46, self._submit(body))
 
-    def img2img(self, prompt: str, image_path: str, w: int, h: int, scale: float = 0.4) -> list:
-        """图生图智能参考：输入全家福锁风格。scale 越小越贴文本指令、越保留参考画风"""
+    def img2img(self, prompt: str, image_path: str, w: int, h: int, scale: int = 75) -> list:
+        """Seedream 4.6 图生图（智能参考）：统一 req_key，scale整数1~100，force_single强制单图
+        scale=75：文本指令权重高（保证单角色），同时保留参考图画风"""
         with open(image_path, "rb") as f:
             b64 = base64.b64encode(f.read()).decode()
         body = {
-            "req_key": "jimeng_i2i_v30",
-            "binary_data_base64": [b64],
+            "req_key": REQ_KEY_46,
+            "binary_data_base64": [b64],  # 传图即自动切图生图模式
             "prompt": prompt,
-            "seed": -1,
-            "scale": scale,
+            "force_single": True,  # 关键：强制只出1张单图
+            "scale": scale,        # 文本影响程度：75%听文本，25%看参考图
             "width": w, "height": h,
         }
-        return self._poll("jimeng_i2i_v30", self._submit(body))
+        return self._poll(REQ_KEY_46, self._submit(body))
 
 
 def anchor_path(fac: str) -> str:

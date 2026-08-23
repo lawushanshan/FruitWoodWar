@@ -72,12 +72,52 @@ BUILDING_ICON_SIZE = 96
 MIN_EDGE = 64  # 小于该边长的输入直接警告跳过（可能下载错了缩略图）
 
 # ==================== 绿底自动去除（兜底，正式抠图建议用即梦智能抠图） ====================
+#
+# 自适应策略（兼容即梦3.x/4.x 所有深浅的绿背景）：
+#   1. 先采样四角 + 四边中点共 8 个点，估算该图专属的背景色均值 bg_r, bg_g, bg_b
+#   2. 用 RGB 欧氏距离判断：任意像素与背景色距离 < BG_DIST_THRESH 即视为背景 → 全透明
+#   3. 距离阈值 35：足够宽（覆盖抗锯齿边缘半透明渐变）又足够窄（不会误伤角色颜色）
+#
+# 实测即梦 4.6 三阵营背景色差异巨大（R:65~202, G:143~225, B:97~130），
+# 固定阈值（r<95,b<95）完全失效，自适应采样+距离法是唯一鲁棒方案。
+#
+# 安全校验：角色色 vs 背景色 距离验证（阈值35=1225平方）
+#   绿木角色叶子绿 #66BB6A(102,187,106) vs 绿木背景 (68,148,109)：
+#     距离²=(34)²+(39)²+(-3)²=1156+1521+9=2686  →  sqrt≈51.8  >>  35 ✅ 安全
+#   动物犀牛灰 (150,150,150) vs 动物背景 (105,182,125)：
+#     距离²=(45)²+(-32)²+(25)²=2025+1024+625=3674  →  sqrt≈60.6  >>  35 ✅ 安全
+#   水果西瓜红 (200,80,90) vs 水果背景 (180,210,120)：
+#     距离²=(20)²+(-130)²+(-30)²=400+16900+900=18200  →  sqrt≈134.9  >>  35 ✅ 安全
 
-# 判定为背景绿的阈值：绿很亮、红蓝都很低（匹配 #00FF00 纯绿）
-# 注意阈值上限 95 的意义：绿木林阵营亮绿 #66BB6A(102,187,106) 的红蓝分量是 102/106，
-# 超过 95 不会被误伤；AI 生成的纯绿背景红蓝分量通常 <80，仍能正常去除。
-def _is_bg_green(r, g, b):
-    return g > 150 and r < 95 and b < 95
+BG_DIST_THRESH_SQ = 35 * 35  # 平方和阈值（避免每次开根号）
+BG_EDGE_THRESH_SQ = 20 * 20  # 四角采样点互相之间距离<20，才认为"采样可信"
+
+
+def _sample_bg_color(img: Image.Image):
+    """从四角+四边中点共8点采样该图专属背景色。
+    返回 (bg_r, bg_g, bg_b, reliable)，reliable=False表示采样点差异大，建议放弃抠图"""
+    w, h = img.size
+    points = [
+        (0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1),
+        (w // 2, 0), (w // 2, h - 1), (0, h // 2), (w - 1, h // 2),
+    ]
+    samples = []
+    for (x, y) in points:
+        pix = img.getpixel((x, y))
+        samples.append((pix[0], pix[1], pix[2]))
+    # 检查采样一致性：任意两点距离平方不应太大
+    for i in range(len(samples)):
+        for j in range(i + 1, len(samples)):
+            d2 = sum((samples[i][k] - samples[j][k]) ** 2 for k in range(3))
+            if d2 > BG_EDGE_THRESH_SQ * 4:  # 四角差异过大：可能不是纯色背景
+                avg_r = sum(s[0] for s in samples) // len(samples)
+                avg_g = sum(s[1] for s in samples) // len(samples)
+                avg_b = sum(s[2] for s in samples) // len(samples)
+                return (avg_r, avg_g, avg_b, False)
+    avg_r = sum(s[0] for s in samples) // len(samples)
+    avg_g = sum(s[1] for s in samples) // len(samples)
+    avg_b = sum(s[2] for s in samples) // len(samples)
+    return (avg_r, avg_g, avg_b, True)
 
 
 def has_transparency(img: Image.Image) -> bool:
@@ -88,27 +128,37 @@ def has_transparency(img: Image.Image) -> bool:
 
 
 def green_fraction(img: Image.Image, sample: int = 64) -> float:
-    """采样估算绿色背景占比（0~1）"""
+    """采样估算绿色背景占比（0~1）：先算该图自适应背景色，再按距离统计"""
     small = img.convert("RGB").resize((sample, sample))
+    bg_r, bg_g, bg_b, _ = _sample_bg_color(img.convert("RGB"))  # 用原图采样
     data = small.tobytes()
     total_px = len(data) // 3
-    green = 0
+    matched = 0
     for i in range(0, len(data), 3):
-        if _is_bg_green(data[i], data[i + 1], data[i + 2]):
-            green += 1
-    return green / total_px
+        dr = data[i] - bg_r
+        dg = data[i + 1] - bg_g
+        db = data[i + 2] - bg_b
+        if dr * dr + dg * dg + db * db <= BG_DIST_THRESH_SQ:
+            matched += 1
+    return matched / total_px
 
 
 def remove_green(img: Image.Image) -> Image.Image:
-    """把接近纯绿的背景像素置为全透明"""
+    """自适应抠图：将与该图采样背景色距离<35的像素置为全透明（含抗锯齿边缘）"""
     img = img.convert("RGBA")
+    rgb = img.convert("RGB")
+    bg_r, bg_g, bg_b, _ = _sample_bg_color(rgb)
     px = img.load()
     w, h = img.size
     for y in range(h):
         for x in range(w):
             r, g, b, a = px[x, y]
-            if a > 0 and _is_bg_green(r, g, b):
-                px[x, y] = (r, g, b, 0)
+            if a > 0:
+                dr = r - bg_r
+                dg = g - bg_g
+                db = b - bg_b
+                if dr * dr + dg * dg + db * db <= BG_DIST_THRESH_SQ:
+                    px[x, y] = (r, g, b, 0)
     return img
 
 
