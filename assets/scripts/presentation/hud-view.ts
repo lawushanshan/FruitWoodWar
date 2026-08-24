@@ -9,7 +9,7 @@
  */
 
 import {
-    Node, Label, Color, UITransform, Size, Vec2, Button, EventHandler, view,
+    Node, Label, Color, UITransform, Size, Vec2, Button, EventHandler, view, HorizontalTextAlignment,
 } from 'cc';
 import { ColorSpriteFactory } from './color-sprite-factory';
 import { ArtLibrary } from './art-library';
@@ -242,18 +242,18 @@ export class HudView {
         }
 
         const ps = state.playerSide;
-        if (this.goldLabel) this.goldLabel.string = '💰 ' + state.gold[ps];
-        if (this.waveLabel) this.waveLabel.string = '🌊 第 ' + state.wave + ' 波';
+        if (this.goldLabel) this.goldLabel.string = String(state.gold[ps]);
+        if (this.waveLabel) this.waveLabel.string = '第 ' + state.wave + ' 波';
         if (this.popLabel) {
             const pop = state.units.filter(u => u.side === ps).length;
-            this.popLabel.string = '👥 ' + pop + '/' + GAME_CONFIG.unitCap;
+            this.popLabel.string = pop + '/' + GAME_CONFIG.unitCap;
         }
-        if (this.killsLabel) this.killsLabel.string = '⚔ ' + state.stats.kills[ps];
+        if (this.killsLabel) this.killsLabel.string = String(state.stats.kills[ps]);
 
         const rc = state.crystals.find(c => c.side === 'red');
         const bc = state.crystals.find(c => c.side === 'blue');
-        if (this.hpRedLabel && rc) this.hpRedLabel.string = '🔴 ' + Math.max(0, Math.floor(rc.hp));
-        if (this.hpBlueLabel && bc) this.hpBlueLabel.string = '🔵 ' + Math.max(0, Math.floor(bc.hp));
+        if (this.hpRedLabel && rc) this.hpRedLabel.string = String(Math.max(0, Math.floor(rc.hp)));
+        if (this.hpBlueLabel && bc) this.hpBlueLabel.string = String(Math.max(0, Math.floor(bc.hp)));
     }
 
     /** 按当前游戏状态刷新建造栏价格（建造/升级/科研后调用） */
@@ -312,15 +312,47 @@ export class HudView {
         this.topBar = bar;
 
         const bg = this.spriteFactory.createColorNode(new Color(34, 48, 58), 1280, 44);
+        bg.name = 'TopBarBg';
         bg.parent = bar;
         bg.setPosition(0, -22, 0);
 
-        this.goldLabel = this.makeLabel('💰 200', -550, -22, new Color(255, 215, 94), bar);
-        this.popLabel = this.makeLabel('👥 0/60', -380, -22, Color.WHITE, bar);
-        this.killsLabel = this.makeLabel('⚔ 0', -220, -22, Color.WHITE, bar);
-        this.waveLabel = this.makeLabel('🌊 第 0 波', 200, -22, Color.WHITE, bar);
-        this.hpRedLabel = this.makeLabel('🔴 ' + GAME_CONFIG.crystalHp, 400, -22, new Color(255, 138, 122), bar);
-        this.hpBlueLabel = this.makeLabel('🔵 ' + GAME_CONFIG.crystalHp, 560, -22, new Color(122, 184, 255), bar);
+        // 左起：金币 / 人口 / 击杀；右侧：波次 / 红水晶 / 蓝水晶
+        // 每项 = 图标贴图（22px）+ 左对齐文字（emoji 为缺图兜底）
+        this.goldLabel = this.makeTopLabel('GoldLabel', '200', -584, -22, new Color(255, 215, 94), bar);
+        this.makeIcon(bar, 'ui/ico_coin', '💰', -608, -22, 22, 15);
+
+        this.popLabel = this.makeTopLabel('PopLabel', '0/' + GAME_CONFIG.unitCap, -424, -22, Color.WHITE, bar);
+        this.makeIcon(bar, 'ui/ico_pop', '👥', -448, -22, 22, 15);
+
+        this.killsLabel = this.makeTopLabel('KillsLabel', '0', -264, -22, Color.WHITE, bar);
+        this.makeIcon(bar, 'ui/ico_kill', '⚔', -288, -22, 22, 15);
+
+        this.waveLabel = this.makeTopLabel('WaveLabel', '第 0 波', 168, -22, Color.WHITE, bar);
+        this.makeIcon(bar, 'ui/ico_wave', '🌊', 144, -22, 22, 15);
+
+        this.hpRedLabel = this.makeTopLabel('HpRedLabel', String(GAME_CONFIG.crystalHp), 366, -22, new Color(255, 138, 122), bar);
+        this.makeIcon(bar, 'ui/ico_hp_red', '🔴', 342, -22, 22, 15);
+
+        this.hpBlueLabel = this.makeTopLabel('HpBlueLabel', String(GAME_CONFIG.crystalHp), 534, -22, new Color(122, 184, 255), bar);
+        this.makeIcon(bar, 'ui/ico_hp_blue', '🔵', 510, -22, 22, 15);
+    }
+
+    /** 顶部栏专用标签：左锚点 + 左对齐（跟随在图标右侧），带节点名便于调试/重叠检测 */
+    private makeTopLabel(name: string, text: string, x: number, y: number, color: Color, parent: Node, size: number = 18): Label {
+        const node = new Node(name);
+        node.layer = this.gmNode.layer;
+        node.parent = parent;
+        const ut = node.addComponent(UITransform);
+        ut.contentSize = new Size(150, 30);
+        ut.anchorPoint = new Vec2(0, 0.5);
+        const label = node.addComponent(Label);
+        label.string = text;
+        label.fontSize = size;
+        label.color = color;
+        label.lineHeight = size;
+        label.horizontalAlign = HorizontalTextAlignment.LEFT;
+        node.setPosition(x, y, 0);
+        return label;
     }
 
     // ==================== 响应式布局 ====================
@@ -385,10 +417,13 @@ export class HudView {
         ut.anchorPoint = new Vec2(0.5, 0);
 
         const bg = this.spriteFactory.createColorNode(new Color(34, 48, 58), 1280, 76);
+        bg.name = 'BuildBarBg';
         bg.parent = this.buildBar;
         bg.setPosition(0, 38, 0);
 
-        const startX = -480;
+        // 9 个按钮（7 建筑 + 2 操作）等间距水平居中：
+        // 首个中心 = -(N-1)/2 × gap，按钮整体关于屏幕中轴对称（v1.4.2 布局修正）
+        const startX = -((BUILDING_IDS.length + 2 - 1) / 2) * 96;
         const gap = 96;
 
         // 7 种建筑按钮

@@ -99,3 +99,14 @@ M3.3 阵营按钮底板 + 面板刷新机制 —— 2026-08-23
 - 阵营选择按钮（FactionBtn_*，200×120）底板接 ui_panel_dark（inset=26，小面板用更小边框）
 - GameManager 预载完成回调追加 panels.refreshPanels()
 - 无头验证：3 个阵营按钮底板均升级为 ui_panel_dark_panel（SLICED type=1）
+
+M3.3 顶部栏图标 + 主界面布局精简 —— 2026-08-23
+========================================
+- 顶部栏 6 项状态（金币/人口/击杀/波次/红水晶/蓝水晶）emoji 全部替换为美术图标
+  ico_coin/ico_pop/ico_kill/ico_wave/ico_hp_red/ico_hp_blue（22px，emoji 兜底）
+- 顶部栏标签改为左锚点+左对齐（HorizontalTextAlignment.LEFT），紧跟图标右侧，带节点名便于调试
+- update() 移除 emoji 前缀，纯数字/文本展示
+- 布局修正：建造栏 9 按钮由左偏 96px 改为水平居中（startX=-384，整体关于屏幕中轴对称）
+- 顶部栏/建造栏背景节点命名（TopBarBg/BuildBarBg）
+- 无头验证：6 图标全部贴图化；顶部栏 12 个元素两两包围盒检测 0 重叠；
+  建造栏跨度 213~1067（世界坐标），中点 640 = 屏幕中心，精确居中；开局 25s 波次推进/工资结算/AI 建厂正常
