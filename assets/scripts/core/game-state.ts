@@ -41,11 +41,11 @@ function emptyComp(): Record<UnitType, number> {
     return { tank: 0, ranged: 0, aoe: 0, rush: 0, siege: 0 };
 }
 
-/** 基地塔位置：水晶前方 ±80px、兵线上下两侧（约 ±70px） */
+/** 基地塔位置：水晶前方 ±80px、道路走廊内上下两侧（±42px，不遮挡建造格） */
 function addBaseTowers(state: GameState, side: Side): void {
     const crystalX = side === 'red' ? -500 : 500;
     const forward = side === 'red' ? 80 : -80;
-    for (const offsetY of [70, -70]) {
+    for (const offsetY of [42, -42]) {
         state.towers.push({
             id: nextEntityId(state),
             side,

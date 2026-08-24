@@ -254,14 +254,17 @@ export class GameManager extends Component {
         lane.setPosition(0, MAP_LAYOUT.roadCenterY, 0);
 
         // 地图装饰：双方建造区域高亮（对齐网格：x ±90~570，行 y ±100~±250）
-        const redZone = sf.createColorNode(new Color(120, 40, 40, 45), 500, 180);
-        redZone.name = 'RedBuildZone';
-        redZone.parent = this.gameContainer;
-        redZone.setPosition(-330, 175, 0);
-        const blueZone = sf.createColorNode(new Color(40, 70, 140, 45), 500, 180);
-        blueZone.name = 'BlueBuildZone';
-        blueZone.parent = this.gameContainer;
-        blueZone.setPosition(330, 175, 0);
+        // 建造区高亮：上/下两区各一块（行 ±100~±250，与网格对称，v1.4.3 修复下半场缺高亮）
+        for (const zoneY of [175, -175]) {
+            const redZone = sf.createColorNode(new Color(120, 40, 40, 45), 500, 180);
+            redZone.name = 'RedBuildZone';
+            redZone.parent = this.gameContainer;
+            redZone.setPosition(-330, zoneY, 0);
+            const blueZone = sf.createColorNode(new Color(40, 70, 140, 45), 500, 180);
+            blueZone.name = 'BlueBuildZone';
+            blueZone.parent = this.gameContainer;
+            blueZone.setPosition(330, zoneY, 0);
+        }
 
         // 初始化表现层模块（GameView 注入美术资源库：立绘可用时替换灰盒色块）
         this.gameView = new GameView(this.gameContainer, sf, this.artLibrary);
@@ -398,15 +401,46 @@ export class GameManager extends Component {
         }
     }
 
-    /** 消费引擎结算出的战斗表现事件，路由到对应特效 */
+    /** 消费引擎结算出的战斗表现事件，路由到对应特效（07 方案 §6.1 五定位攻击签名） */
     private consumeFx() {
         const fx = this.engine.drainFx();
         if (fx.length === 0) return;
         for (const e of fx) {
             if (e.type === 'hit') {
-                this.battleEffects.playImpact(e.x, e.y, e.side);
+                // 按攻击者定位差异化（缺 sx 的旧事件回退通用命中表现）
+                const sx = e.sx ?? e.x, sy = e.sy ?? e.y;
+                switch (e.atkType) {
+                    case 'tank':
+                        // 重击感：命中爆闪 + 碎石迸溅
+                        this.battleEffects.playImpact(e.x, e.y, e.side);
+                        this.battleEffects.playDebrisBurst(e.x, e.y, 3);
+                        break;
+                    case 'rush':
+                        // 突进感：斩击弧光 + 轻命中
+                        this.battleEffects.playSlash(e.x, e.y, e.side);
+                        this.battleEffects.playImpact(e.x, e.y, e.side);
+                        break;
+                    case 'ranged':
+                        // 轻快感：快箭 + 小命中
+                        this.battleEffects.playProjectile(sx, sy, e.x, e.y, e.side, 'fx/fx_arrow', 0.1);
+                        this.battleEffects.playImpact(e.x, e.y, e.side);
+                        break;
+                    case 'aoe':
+                        // 前摇法球飞抵（落点爆光由 aoe 事件补）
+                        this.battleEffects.playProjectile(sx, sy, e.x, e.y, e.side, 'fx/fx_bolt', 0.18, 28);
+                        break;
+                    case 'siege':
+                        // 笨重感：慢速巨石 + 碎石
+                        this.battleEffects.playProjectile(sx, sy, e.x, e.y, e.side, 'fx/fx_boulder', 0.3, 34);
+                        this.battleEffects.playDebrisBurst(e.x, e.y, 5);
+                        break;
+                    default:
+                        this.battleEffects.playImpact(e.x, e.y, e.side);
+                }
             } else if (e.type === 'aoe') {
+                // AOE 落点：扩散环 + 爆闪火光
                 this.battleEffects.playRangeEffect(e.x, e.y, e.radius, e.side);
+                this.battleEffects.playBoom(e.x, e.y);
             } else if (e.type === 'tower') {
                 // 塔攻击：弹道 + 目标处溅射环
                 this.battleEffects.playProjectile(e.sx, e.sy, e.x, e.y, e.side);

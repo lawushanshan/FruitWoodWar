@@ -327,7 +327,7 @@ function attack(state: GameState, attacker: UnitState, target: AttackTarget, ran
 
     // 命中表现事件（仅单位目标产生"hit"，建筑/塔/水晶另有专属表现）
     if (unitTarget && dmg > 0) {
-        fx.push({ type: 'hit', x: target.x, y: target.y, side: target.side });
+        fx.push({ type: 'hit', x: target.x, y: target.y, side: target.side, sx: attacker.x, sy: attacker.y, atkType: attacker.type });
     }
 
     // 反伤（荆棘之甲）：防御方单位把受到伤害的一部分反弹给攻击者

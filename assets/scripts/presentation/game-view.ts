@@ -94,7 +94,7 @@ export class GameView {
     /** id → 插值后的渲染位置（联机锁步 10Hz 帧间平滑，消除阶梯卡顿） */
     private unitRenderPos: Map<string, { x: number; y: number }> = new Map();
     /** id → 程序动画状态（随机相位 + 上帧位置，用于移动检测） */
-    private unitAnim: Map<string, { phase: number; lastX: number; lastY: number; moving: boolean }> = new Map();
+    private unitAnim: Map<string, { phase: number; lastX: number; lastY: number; movingHold: number }> = new Map();
     /** 程序动画累计时间 */
     private animTime = 0;
 
@@ -337,7 +337,7 @@ export class GameView {
                 // 程序动画初始状态（随机相位：避免全场整齐划一地浮动）
                 this.unitAnim.set(u.id, {
                     phase: Math.random() * Math.PI * 2,
-                    lastX: u.x, lastY: u.y, moving: false,
+                    lastX: u.x, lastY: u.y, movingHold: 0,
                 });
             }
 
@@ -357,9 +357,9 @@ export class GameView {
                 so.y += (target[1] - so.y) * smooth;
             }
 
-            // 渲染位置 = 逻辑位置（联机时插值平滑）+ 平滑后的散开偏移
+            // 渲染位置 = 逻辑位置（始终插值：逻辑 30Hz→渲染 60Hz 平滑，消除跳步）+ 散开偏移
             let rx = u.x, ry = u.y;
-            if (interpolate) {
+            {
                 let rp = this.unitRenderPos.get(u.id);
                 if (!rp) { rp = { x: u.x, y: u.y }; this.unitRenderPos.set(u.id, rp); }
                 rp.x += (u.x - rp.x) * smooth;
@@ -372,12 +372,17 @@ export class GameView {
             // 纯数学计算在 Body 子节点上叠加，不创建 Tween 对象（120 单位性能守则）
             const anim = this.unitAnim.get(u.id);
             if (anim) {
-                // 本帧位移 > 0.1px 视为行走（速度 ~40px/s × 1/60s ≈ 0.67px，阈值足够区分）
-                anim.moving = (u.x - anim.lastX) ** 2 + (u.y - anim.lastY) ** 2 > 0.01;
+                // 行走保持计时（v1.4.3）：逻辑 30Hz / 渲染 60Hz 下隔帧 dx=0，
+                // 直接按"本帧是否位移"判定会让行走/待机动画逐帧翻转（视觉闪烁）。
+                // 改为检测到位移后保持 0.2s 行走态，逻辑帧间隙不再回退到待机。
+                const moved = (u.x - anim.lastX) ** 2 + (u.y - anim.lastY) ** 2 > 0.01;
+                if (moved) anim.movingHold = 0.2;
+                else anim.movingHold = Math.max(0, anim.movingHold - dt);
                 anim.lastX = u.x; anim.lastY = u.y;
+                const moving = anim.movingHold > 0;
                 const body = node.getChildByName('Body');
                 if (body) {
-                    if (anim.moving) {
+                    if (moving) {
                         const t = this.animTime * Math.PI * 2 * 8 + anim.phase; // 8Hz 行走弹跳
                         body.setPosition(0, Math.abs(Math.sin(t)) * 2.4, 0);
                         body.angle = Math.sin(t) * 2;

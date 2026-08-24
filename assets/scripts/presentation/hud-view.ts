@@ -413,13 +413,13 @@ export class HudView {
         this.buildBar.layer = this.gmNode.layer;
         this.buildBar.parent = this.container;
         const ut = this.buildBar.addComponent(UITransform);
-        ut.contentSize = new Size(1280, 76);
+        ut.contentSize = new Size(1280, 96);
         ut.anchorPoint = new Vec2(0.5, 0);
 
-        const bg = this.spriteFactory.createColorNode(new Color(34, 48, 58), 1280, 76);
+        const bg = this.spriteFactory.createColorNode(new Color(34, 48, 58), 1280, 96);
         bg.name = 'BuildBarBg';
         bg.parent = this.buildBar;
-        bg.setPosition(0, 38, 0);
+        bg.setPosition(0, 48, 0);
 
         // 9 个按钮（7 建筑 + 2 操作）等间距水平居中：
         // 首个中心 = -(N-1)/2 × gap，按钮整体关于屏幕中轴对称（v1.4.2 布局修正）
@@ -431,17 +431,17 @@ export class HudView {
             const conf = BUILDING_CONFIG[id];
             const btn = this.createBuildButton(conf.icon, conf.name, conf.cost, id);
             btn.parent = this.buildBar;
-            btn.setPosition(startX + i * gap, 38, 0);
+            btn.setPosition(startX + i * gap, 48, 0);
         });
 
         // 操作按钮：升级工厂 / 全军强化
         const upgradeBtn = this.createActionButton('ui/ico_up', '⬆️', '升级工厂', '150金', 'onUpgradeClick');
         upgradeBtn.parent = this.buildBar;
-        upgradeBtn.setPosition(startX + BUILDING_IDS.length * gap, 38, 0);
+        upgradeBtn.setPosition(startX + BUILDING_IDS.length * gap, 48, 0);
 
         const researchBtn = this.createActionButton('ui/ico_research', '🔬', '全军强化', '400金', 'onResearchClick');
         researchBtn.parent = this.buildBar;
-        researchBtn.setPosition(startX + (BUILDING_IDS.length + 1) * gap, 38, 0);
+        researchBtn.setPosition(startX + (BUILDING_IDS.length + 1) * gap, 48, 0);
         // 记录科研价格标签
         const costNode = researchBtn.children[researchBtn.children.length - 1];
         this.researchCostLabel = costNode.getComponent(Label);
@@ -454,30 +454,30 @@ export class HudView {
         const btn = new Node('BuildBtn_' + id);
         btn.layer = this.gmNode.layer;
         const ut = btn.addComponent(UITransform);
-        ut.contentSize = new Size(86, 64);
+        ut.contentSize = new Size(90, 84);
         ut.anchorPoint = new Vec2(0.5, 0.5);
 
-        const bg = this.spriteFactory.createColorNode(new Color(46, 65, 82), 86, 64);
+        const bg = this.spriteFactory.createColorNode(new Color(46, 65, 82), 90, 84);
         bg.parent = btn;
 
         // 图标（美术贴图优先，emoji 兜底）
-        this.makeIcon(btn, 'ui/ico_build_' + id, icon, 0, 12, 36, 20);
+        this.makeIcon(btn, 'ui/ico_build_' + id, icon, 0, 26, 38, 20);
 
         // 名称
         const nameLabel = this.createLabel(name, 12, new Color(223, 233, 240), new Size(80, 16));
         nameLabel.node.parent = btn;
-        nameLabel.node.setPosition(0, -8, 0);
+        nameLabel.node.setPosition(0, -10, 0);
 
         // 价格
         const costLabel = this.createLabel(cost + '金', 11, new Color(255, 215, 94), new Size(82, 14));
         costLabel.node.parent = btn;
-        costLabel.node.setPosition(0, -22, 0);
+        costLabel.node.setPosition(0, -24, 0);
         this.buildCostLabels.set(id, costLabel);
 
         // 同类已建数量（价格递增可视化：已建 N 座 → 下一座更贵）
         const countLabel = this.createLabel('', 9, new Color(160, 180, 200), new Size(82, 12));
         countLabel.node.parent = btn;
-        countLabel.node.setPosition(0, -32, 0);
+        countLabel.node.setPosition(0, -35, 0);
         this.buildCountLabels.set(id, countLabel);
 
         // 点击事件 → GameManager.onBuildClick
@@ -499,22 +499,22 @@ export class HudView {
         const btn = new Node('ActionBtn_' + handlerName);
         btn.layer = this.gmNode.layer;
         const ut = btn.addComponent(UITransform);
-        ut.contentSize = new Size(86, 64);
+        ut.contentSize = new Size(90, 84);
         ut.anchorPoint = new Vec2(0.5, 0.5);
 
-        const bg = this.spriteFactory.createColorNode(new Color(60, 82, 60), 86, 64);
+        const bg = this.spriteFactory.createColorNode(new Color(60, 82, 60), 90, 84);
         bg.parent = btn;
 
         // 图标（美术贴图优先，emoji 兜底）
-        this.makeIcon(btn, artPath, icon, 0, 12, 34, 20);
+        this.makeIcon(btn, artPath, icon, 0, 26, 36, 20);
 
         const nameLabel = this.createLabel(name, 12, new Color(223, 233, 240), new Size(80, 16));
         nameLabel.node.parent = btn;
-        nameLabel.node.setPosition(0, -8, 0);
+        nameLabel.node.setPosition(0, -10, 0);
 
         const costLabel = this.createLabel(cost, 11, new Color(255, 215, 94), new Size(60, 14));
         costLabel.node.parent = btn;
-        costLabel.node.setPosition(0, -22, 0);
+        costLabel.node.setPosition(0, -24, 0);
 
         const button = btn.addComponent(Button);
         button.transition = Button.Transition.SCALE;

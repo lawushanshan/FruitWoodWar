@@ -76,6 +76,8 @@ export class PanelController {
     private difficulty: Difficulty = 'normal';
     /** 当前选中阵营 */
     private faction: FactionId = 'fruit';
+    /** 阵营牌节点（选中标记刷新用） */
+    private factionCards: Map<FactionId, { border: Node; check: Node }> = new Map();
 
     private container: Node;
     private spriteFactory: ColorSpriteFactory;
@@ -127,6 +129,43 @@ export class PanelController {
             slot.node.setSiblingIndex(idx);
             slot.node.setPosition(0, 0, 0);
         }
+    }
+
+    /**
+     * 统一按钮组件（企业级体验）：
+     *  - 底板 = ui_btn_green / ui_btn_blue 九宫格贴图（纯色兜底，预载后自动升级）
+     *  - 点击反馈 = SCALE 缩放（按压缩到 0.93，松手回弹）
+     *  - 返回未挂父的按钮节点；label 子节点名为 BtnLabel（便于外部刷新文案）
+     */
+    private makeButton(
+        name: string, text: string, w: number, h: number,
+        handler: string, artPath: string, fallbackColor: Color,
+        fontSize: number, customData?: string,
+    ): Node {
+        const btn = new Node(name);
+        btn.layer = this.gmNode.layer;
+        const ut = btn.addComponent(UITransform);
+        ut.contentSize = new Size(w, h);
+        ut.anchorPoint = new Vec2(0.5, 0.5);
+
+        // 按钮底板用九宫格胶囊贴图（ui_btn_*）：inset 8 裁剪后的胶囊源图仅 ~42/48px 高，
+        // 过大的 inset 会侵吞中部导致按钮被压成细线（M3 美术回归）。
+        this.makePanelBg(btn, artPath, w, h, fallbackColor, 8);
+
+        const label = this.makeLabel(text, 0, 0, Color.WHITE, btn, fontSize);
+        label.node.name = 'BtnLabel';
+
+        const button = btn.addComponent(Button);
+        button.transition = Button.Transition.SCALE;
+        button.zoomScale = 0.93; // 按压缩放反馈
+        button.duration = 0.08;
+        const eh = new EventHandler();
+        eh.target = this.gmNode;
+        eh.component = 'GameManager';
+        eh.handler = handler;
+        if (customData !== undefined) eh.customEventData = customData;
+        button.clickEvents = [eh];
+        return btn;
     }
 
     /** 创建所有面板（初始化时调用一次） */
@@ -350,8 +389,9 @@ export class PanelController {
     showUpgrade(state: GameState, buildingId: string) {
         this.createUpgradePanelOnce();
         this.upgradeBuildingId = buildingId;
-        this.refreshUpgrade(state);
+        // 先激活再刷新：refreshUpgrade 有 active 守卫，先 refresh 会被跳过（首开显示旧文案的根因）
         if (this.upgradePanel) this.upgradePanel.active = true;
+        this.refreshUpgrade(state);
     }
 
     /** 按最新状态刷新升级面板（升级/建学院后调用；面板显示中才刷新） */
@@ -368,16 +408,24 @@ export class PanelController {
         if (this.upgradeInfoLabel) {
             this.upgradeInfoLabel.string =
                 `${bName} Lv${b.level}${stars}` +
-                (b.level === 3 ? '（已满级）' : b.level === 2 && state.academyLevel[state.playerSide] < 1 ? '（需战争学院 Lv1）' : '');
+                (b.level === 3 ? '（已满级）' : '');
         }
         if (this.upgradeCostLabel) {
             this.upgradeCostLabel.string =
                 b.level === 1 ? '升级费用：150 金（→Lv2★）'
                 : b.level === 2
                     ? (state.academyLevel[state.playerSide] < 1
-                        ? '⚠ 需先建造「战争学院」才能升到 Lv3'
+                        ? '需先建造「战争学院」\n才能升到 Lv3'
                         : '升级费用：300 金（→Lv3★★）')
                     : '已升至最高级，不再升级';
+        }
+        // 学院缺失提示独立小字行（原来拼在大标题后把文字顶出面板）
+        const academyHint = this.upgradePanel!.getChildByName('AcademyHint');
+        if (academyHint) {
+            const hintL = academyHint.getComponent(Label);
+            if (hintL) {
+                hintL.string = b.level === 2 && state.academyLevel[state.playerSide] < 1 ? '（需战争学院 Lv1）' : '';
+            }
         }
         if (this.upgradeBtnNode) {
             // 满级隐藏；无学院置灰
@@ -495,27 +543,32 @@ export class PanelController {
         panel.parent = this.container;
         panel.active = false;
         const ut = panel.addComponent(UITransform);
-        ut.contentSize = new Size(320, 200);
+        ut.contentSize = new Size(380, 230);
         ut.anchorPoint = new Vec2(0.5, 0.5);
         panel.setPosition(0, -40, 0);
 
-        const bg = this.makePanelBg(panel, 'ui/ui_panel_dark', 320, 200, new Color(5, 10, 14, 220));
+        const bg = this.makePanelBg(panel, 'ui/ui_panel_dark', 380, 230, new Color(5, 10, 14, 220));
 
-        this.upgradeInfoLabel = this.makeLabel('兵工厂 Lv1', 0, 70, Color.WHITE, panel, 20);
-        this.upgradeCostLabel = this.makeLabel('升级费用：150 金', 0, 20, new Color(255, 215, 94), panel, 16);
+        this.upgradeInfoLabel = this.makeLabel('兵工厂 Lv1', 0, 80, Color.WHITE, panel, 18);
+        this.upgradeCostLabel = this.makeLabel('升级费用：150 金', 0, 25, new Color(255, 215, 94), panel, 15);
+        this.upgradeCostLabel.lineHeight = 20;
+        this.upgradeCostLabel.overflow = Label.Overflow.SHRINK;
+        // 学院缺失提示行（独立小字，避免长后缀把标题顶出面板）
+        const hint = this.makeLabel('', 0, 55, new Color(255, 170, 120), panel, 13);
+        hint.node.name = 'AcademyHint';
 
         // 升级按钮（含背景节点名 BtnBg，供置灰刷新）
         const btn = new Node('UpgradeBtn');
         btn.layer = this.gmNode.layer;
         btn.parent = panel;
         const bUt = btn.addComponent(UITransform);
-        bUt.contentSize = new Size(160, 44);
-        const btnBg = this.spriteFactory.createColorNode(new Color(63, 109, 51), 160, 44);
+        bUt.contentSize = new Size(180, 52);
+        const btnBg = this.spriteFactory.createColorNode(new Color(63, 109, 51), 180, 52);
         btnBg.name = 'BtnBg';
         btnBg.parent = btn;
         // 文字必须是 bg 之后的子节点：Label 加在按钮节点自身会被子节点背景盖住
         this.makeLabel('⬆ 升级', 0, 0, Color.WHITE, btn, 18);
-        btn.setPosition(0, -60, 0);
+        btn.setPosition(0, -72, 0);
 
         const button = btn.addComponent(Button);
         button.transition = Button.Transition.SCALE;
@@ -534,6 +587,7 @@ export class PanelController {
     /** 阵营选择按钮点击 */
     onFactionClick(_event: Event, faction: string) {
         this.faction = faction as FactionId;
+        this.updateFactionSelection();
         this.showToast('选择了：' + FACTION_CONFIG[this.faction].name);
     }
 
@@ -562,140 +616,110 @@ export class PanelController {
         const bg = this.spriteFactory.createColorNode(new Color(5, 10, 14, 210), 1280, 720);
         bg.parent = this.startPanel;
 
-        // 标题
-        this.makeLabel('果林大战', 0, 200, Color.WHITE, this.startPanel, 42);
+        // ---- 标题区 ----
+        this.makeLabel('果林大战', 0, 252, Color.WHITE, this.startPanel, 44);
+        this.makeLabel('选择你的阵营', 0, 204, new Color(159, 208, 255), this.startPanel, 20);
 
-        // 副标题
-        this.makeLabel('选择你的阵营', 0, 150, new Color(159, 208, 255), this.startPanel, 20);
-
-        // 阵营按钮
+        // ---- 阵营牌（280×180，选中带 ✓ 与阵营色描边）----
         const colors = [new Color(255, 112, 67), new Color(102, 187, 106), new Color(255, 202, 40)];
         FACTION_IDS.forEach((id, i) => {
             const f = FACTION_CONFIG[id];
             const btn = this.createFactionButton(f.name, f.passive, colors[i], id);
             btn.parent = this.startPanel;
-            btn.setPosition(-240 + i * 240, 20, 0);
+            btn.setPosition(-300 + i * 300, 80, 0);
         });
+        this.updateFactionSelection();
 
-        // 难度标签
-        this.diffLabel = this.makeLabel('难度：普通', 0, -80, Color.WHITE, this.startPanel, 18);
-
-        // 难度切换按钮
-        const diffBtn = new Node();
-        diffBtn.layer = this.gmNode.layer;
+        // ---- 难度（按钮文案即当前难度，点击循环）----
+        const diffBtn = this.makeButton('DiffBtn', '难度：普通 ▸', 220, 56, 'onDiffClick',
+            'ui/ui_btn_blue', new Color(46, 65, 82), 16);
         diffBtn.parent = this.startPanel;
-        const dbUt = diffBtn.addComponent(UITransform);
-        dbUt.contentSize = new Size(160, 40);
-        const dbBg = this.spriteFactory.createColorNode(new Color(46, 65, 82), 160, 40);
-        dbBg.parent = diffBtn;
-        // 文字必须是 bg 之后的子节点（Label 在按钮节点自身会被 bg 子节点盖住）
-        this.makeLabel('切换难度', 0, 0, Color.WHITE, diffBtn, 16);
-        diffBtn.setPosition(0, -120, 0);
+        diffBtn.setPosition(0, -86, 0);        this.diffLabel = diffBtn.getChildByName('BtnLabel')?.getComponent(Label) ?? null;
 
-        const dbButton = diffBtn.addComponent(Button);
-        dbButton.transition = Button.Transition.SCALE;
-        const dbHandler = new EventHandler();
-        dbHandler.target = this.gmNode;
-        dbHandler.component = 'GameManager';
-        dbHandler.handler = 'onDiffClick';
-        dbButton.clickEvents = [dbHandler];
-
-        // 双倍工资按钮（观看广告后本局工资翻倍）
-        const doubleBtn = new Node('DoubleSalaryBtn');
-        doubleBtn.layer = this.gmNode.layer;
+        // ---- 双倍工资（次要）----
+        const doubleBtn = this.makeButton('DoubleSalaryBtn', '📺 双倍工资', 200, 56, 'onDoubleSalaryClick',
+            'ui/ui_btn_blue', new Color(46, 65, 82), 16);
         doubleBtn.parent = this.startPanel;
-        const dsUt = doubleBtn.addComponent(UITransform);
-        dsUt.contentSize = new Size(200, 40);
-        const dsBg = this.spriteFactory.createColorNode(new Color(212, 116, 26), 200, 40);
-        dsBg.parent = doubleBtn;
-        this.makeLabel('📺 双倍工资', 0, 0, Color.WHITE, doubleBtn, 16);
-        doubleBtn.setPosition(0, -155, 0);
+        doubleBtn.setPosition(0, -146, 0);
 
-        const dsButton = doubleBtn.addComponent(Button);
-        dsButton.transition = Button.Transition.SCALE;
-        const dsHandler = new EventHandler();
-        dsHandler.target = this.gmNode;
-        dsHandler.component = 'GameManager';
-        dsHandler.handler = 'onDoubleSalaryClick';
-        dsButton.clickEvents = [dsHandler];
-
-        // 创建房间 / 加入房间（联机入口只保留这两个：快速匹配容易"自己匹配到自己"
-        // 造成一人成局，且对玩家来说"创建/加入"语义更清楚）
-        const createBtn = new Node('CreateRoomBtn');
-        createBtn.layer = this.gmNode.layer;
+        // ---- 联机入口（创建/加入，只保留这两个：快速匹配容易"自己匹配到自己"）----
+        const createBtn = this.makeButton('CreateRoomBtn', '🔑 创建房间', 215, 60, 'onCreateRoomClick',
+            'ui/ui_btn_blue', new Color(46, 90, 60), 17);
         createBtn.parent = this.startPanel;
-        const crUt = createBtn.addComponent(UITransform);
-        crUt.contentSize = new Size(190, 52);
-        const crBg = this.spriteFactory.createColorNode(new Color(46, 90, 60), 190, 52);
-        crBg.parent = createBtn;
-        this.makeLabel('🔑 创建房间', 0, 0, Color.WHITE, createBtn, 20);
-        createBtn.setPosition(-115, -210, 0);
-        const crButton = createBtn.addComponent(Button);
-        crButton.transition = Button.Transition.SCALE;
-        const crHandler = new EventHandler();
-        crHandler.target = this.gmNode;
-        crHandler.component = 'GameManager';
-        crHandler.handler = 'onCreateRoomClick';
-        crButton.clickEvents = [crHandler];
+        createBtn.setPosition(-118, -208, 0);
 
-        // 加入房间按钮
-        const joinBtn = new Node('JoinRoomBtn');
-        joinBtn.layer = this.gmNode.layer;
+        const joinBtn = this.makeButton('JoinRoomBtn', '🔢 加入房间', 215, 60, 'onJoinRoomClick',
+            'ui/ui_btn_blue', new Color(50, 90, 140), 17);
         joinBtn.parent = this.startPanel;
-        const jnUt = joinBtn.addComponent(UITransform);
-        jnUt.contentSize = new Size(190, 52);
-        const jnBg = this.spriteFactory.createColorNode(new Color(50, 90, 140), 190, 52);
-        jnBg.parent = joinBtn;
-        this.makeLabel('🔢 加入房间', 0, 0, Color.WHITE, joinBtn, 20);
-        joinBtn.setPosition(115, -210, 0);
-        const jnButton = joinBtn.addComponent(Button);
-        jnButton.transition = Button.Transition.SCALE;
-        const jnHandler = new EventHandler();
-        jnHandler.target = this.gmNode;
-        jnHandler.component = 'GameManager';
-        jnHandler.handler = 'onJoinRoomClick';
-        jnButton.clickEvents = [jnHandler];
+        joinBtn.setPosition(118, -208, 0);
 
         // 联机状态标签（等待提示等；房号用大卡片展示，见 showRoomCode）
         this.onlineStatusLabel = this.makeLabel('', 0, -252, new Color(120, 255, 159), this.startPanel, 16);
         this.onlineStatusLabel.node.active = false;
 
-
-        // 开始按钮
-        const startBtn = new Node();
-        startBtn.layer = this.gmNode.layer;
+        // ---- 开始游戏（主 CTA，最大最醒目）----
+        const startBtn = this.makeButton('StartBtn', '开 始 游 戏', 280, 72, 'onStartClick',
+            'ui/ui_btn_green', new Color(63, 109, 51), 26);
         startBtn.parent = this.startPanel;
-        const sbUt = startBtn.addComponent(UITransform);
-        sbUt.contentSize = new Size(200, 50);
-        const sbBg = this.spriteFactory.createColorNode(new Color(63, 109, 51), 200, 50);
-        sbBg.parent = startBtn;
-        this.makeLabel('开始游戏', 0, 0, Color.WHITE, startBtn, 24);
-        startBtn.setPosition(0, -300, 0);
+        startBtn.setPosition(0, -306, 0);
+    }
 
-        const sButton = startBtn.addComponent(Button);
-        sButton.transition = Button.Transition.SCALE;
-        const sHandler = new EventHandler();
-        sHandler.target = this.gmNode;
-        sHandler.component = 'GameManager';
-        sHandler.handler = 'onStartClick';
-        sButton.clickEvents = [sHandler];
+    /** 刷新阵营牌选中状态：选中的牌显示 ✓ 与阵营色描边，并放大 5% */
+    private updateFactionSelection() {
+        for (const [id, parts] of this.factionCards) {
+            const selected = id === this.faction;
+            parts.border.active = selected;
+            parts.check.active = selected;
+        }
     }
 
     private createFactionButton(name: string, passive: string, color: Color, id: FactionId): Node {
         const btn = new Node('FactionBtn_' + id);
         btn.layer = this.gmNode.layer;
         const ut = btn.addComponent(UITransform);
-        ut.contentSize = new Size(200, 120);
+        ut.contentSize = new Size(280, 180);
         ut.anchorPoint = new Vec2(0.5, 0.5);
 
-        const bg = this.makePanelBg(btn, 'ui/ui_panel_dark', 200, 120, new Color(46, 65, 82), 26);
+        // 选中描边（阵营色 2px 细边，紧贴牌面 z=-1；默认隐藏）
+        const border = this.spriteFactory.createColorNode(color.clone(), 284, 184);
+        border.name = 'SelBorder';
+        border.parent = btn;
+        border.setPosition(0, 0, -1);
+        border.active = false;
 
-        this.makeLabel(name, 0, 25, color, btn, 22);
-        this.makeLabel(passive, 0, -15, new Color(159, 180, 196), btn, 13);
+        // 底板
+        this.makePanelBg(btn, 'ui/ui_panel_dark', 280, 180, new Color(46, 65, 82), 28);
+
+        // 阵营名（阵营主题色）+ 被动描述
+        const nameL = this.makeLabel(name, 0, 52, color, btn, 28);
+        nameL.node.getComponent(UITransform)!.contentSize = new Size(260, 36);
+        const passL = this.makeLabel(passive, 0, 2, new Color(199, 214, 228), btn, 14);
+        passL.node.getComponent(UITransform)!.contentSize = new Size(256, 20);
+
+        // 底部提示（未选中时引导）
+        const hint = this.makeLabel('点击选择', 0, -62, new Color(130, 150, 168), btn, 13);
+        hint.node.name = 'HintLabel';
+
+        // 选中标记（✓，右上角；默认隐藏）
+        const check = new Node('SelCheck');
+        check.layer = this.gmNode.layer;
+        check.parent = btn;
+        const ckUt = check.addComponent(UITransform);
+        ckUt.contentSize = new Size(48, 48);
+        const ckLabel = check.addComponent(Label);
+        ckLabel.string = '✓';
+        ckLabel.fontSize = 32;
+        ckLabel.color = new Color(255, 230, 120);
+        ckLabel.lineHeight = 34;
+        check.setPosition(112, 68, 0);
+        check.active = false;
+
+        this.factionCards.set(id, { border, check });
 
         const button = btn.addComponent(Button);
         button.transition = Button.Transition.SCALE;
-        button.zoomScale = 1.05;
+        button.zoomScale = 1.04;
+        button.duration = 0.08;
         const handler = new EventHandler();
         handler.target = this.gmNode;
         handler.component = 'GameManager';
@@ -764,44 +788,18 @@ export class PanelController {
         this.endStatsLabel.lineHeight = 32;
         stats.setPosition(0, 30, 0);
 
-        // 再来一局按钮
-        const againBtn = new Node();
-        againBtn.layer = this.gmNode.layer;
+        // 再来一局按钮（主 CTA 统一样式）
+        const againBtn = this.makeButton('AgainBtn', '再来一局', 210, 62, 'onAgainClick',
+            'ui/ui_btn_green', new Color(63, 109, 51), 22);
         againBtn.parent = this.endPanel;
-        const abUt = againBtn.addComponent(UITransform);
-        abUt.contentSize = new Size(180, 50);
-        const abBg = this.spriteFactory.createColorNode(new Color(63, 109, 51), 180, 50);
-        abBg.parent = againBtn;
-        this.makeLabel('再来一局', 0, 0, Color.WHITE, againBtn, 22);
         againBtn.setPosition(0, -100, 0);
 
-        const abButton = againBtn.addComponent(Button);
-        abButton.transition = Button.Transition.SCALE;
-        const abHandler = new EventHandler();
-        abHandler.target = this.gmNode;
-        abHandler.component = 'GameManager';
-        abHandler.handler = 'onAgainClick';
-        abButton.clickEvents = [abHandler];
-
-        // 复活按钮（失败时显示，观看广告后复活）
-        this.reviveBtn = new Node('ReviveBtn');
-        this.reviveBtn.layer = this.gmNode.layer;
+        // 复活按钮（失败时显示，观看广告后复活；次级样式）
+        this.reviveBtn = this.makeButton('ReviveBtn', '📺 看广告复活', 220, 58, 'onReviveClick',
+            'ui/ui_btn_blue', new Color(212, 116, 26), 17);
         this.reviveBtn.parent = this.endPanel;
         this.reviveBtn.active = false; // 默认隐藏
-        const rvUt = this.reviveBtn.addComponent(UITransform);
-        rvUt.contentSize = new Size(200, 50);
-        const rvBg = this.spriteFactory.createColorNode(new Color(212, 116, 26), 200, 50);
-        rvBg.parent = this.reviveBtn;
-        this.makeLabel('📺 看广告复活', 0, 0, Color.WHITE, this.reviveBtn, 20);
         this.reviveBtn.setPosition(0, -160, 0);
-
-        const rvButton = this.reviveBtn.addComponent(Button);
-        rvButton.transition = Button.Transition.SCALE;
-        const rvHandler = new EventHandler();
-        rvHandler.target = this.gmNode;
-        rvHandler.component = 'GameManager';
-        rvHandler.handler = 'onReviveClick';
-        rvButton.clickEvents = [rvHandler];
     }
 
     private createToast() {

@@ -29,7 +29,7 @@ interface EffectInstance {
     elapsed: number;
     duration: number;
     /** 效果类型 */
-    type: 'attack_flash' | 'crystal_shake' | 'building_explode' | 'impact_ring' | 'range_ring' | 'particle' | 'projectile';
+    type: 'attack_flash' | 'crystal_shake' | 'building_explode' | 'impact_ring' | 'range_ring' | 'particle' | 'projectile' | 'slash_fx';
     /** 起始位置 */
     startX: number;
     startY: number;
@@ -118,12 +118,18 @@ export class BattleEffects {
         this.spawnParticles(x, y, color, 3);
     }
 
-    /** 塔弹道表现：从塔指向目标的快速飞弹（直线移动 + 淡出）；优先 fx_arrow 贴图按敌我染色 */
-    playProjectile(sx: number, sy: number, tx: number, ty: number, side: 'red' | 'blue') {
+    /**
+     * 弹道表现：起点 → 目标的飞行投射物（直线 + 淡出）。
+     * @param tex  贴图路径（fx/fx_arrow 快箭 / fx/fx_bolt 法球 / fx/fx_boulder 巨石）
+     * @param duration 飞行时长（秒）：远程 0.12 / AOE 0.2 / 攻城 0.32
+     * @param size 显示尺寸
+     */
+    playProjectile(sx: number, sy: number, tx: number, ty: number, side: 'red' | 'blue',
+        tex: string = 'fx/fx_arrow', duration = 0.12, size: number = FX_SIZE.projectile) {
         const color = side === 'red' ? new Color(255, 210, 140, 230) : new Color(150, 200, 255, 230);
         let node: Node;
         let poolKey = 'projectile';
-        const fxNode = this.makeFxNode('fx/fx_arrow', FX_SIZE.projectile, color.clone());
+        const fxNode = this.makeFxNode(tex, size, color.clone());
         if (fxNode) {
             node = fxNode;
             poolKey = 'fx_projectile';
@@ -136,16 +142,95 @@ export class BattleEffects {
         node.setPosition(sx, sy, 0);
         node.active = true;
         setUniformScale(node, 1);
-        // 箭矢朝向飞行方向（贴图默认尖头朝右）
+        // 投射物朝向飞行方向（贴图默认朝右）
         const angle = Math.atan2(ty - sy, tx - sx) * 180 / Math.PI;
         if (poolKey === 'fx_projectile') node.angle = angle;
         const opacity = node.getComponent(UIOpacity);
         if (opacity) opacity.opacity = 255;
 
         this.push({
-            node, elapsed: 0, duration: 0.12,
+            node, elapsed: 0, duration,
             type: 'projectile', startX: sx, startY: sy, origScale: 1,
             dx: tx - sx, dy: ty - sy,
+        }, poolKey);
+    }
+
+    /** 冲锋斩击：目标处月牙弧光快速掠过（fx_slash；程序白弧兜底） */
+    playSlash(x: number, y: number, side: 'red' | 'blue') {
+        const color = side === 'red' ? new Color(255, 240, 200, 230) : new Color(200, 230, 255, 230);
+        let node: Node;
+        let poolKey = 'slash';
+        const fxNode = this.makeFxNode('fx/fx_slash', 48, color.clone());
+        if (fxNode) {
+            node = fxNode;
+            poolKey = 'fx_slash';
+        } else {
+            node = this.pool.acquire('slash', () =>
+                this.spriteFactory.createColorNode(color, 36, 10, 'rect'),
+            );
+        }
+        node.parent = this.container;
+        node.setPosition(x, y, 0);
+        node.active = true;
+        node.angle = -30 + Math.random() * 60; // 随机倾角，避免整齐划一
+        setUniformScale(node, 0.6);
+        const opacity = node.getComponent(UIOpacity);
+        if (opacity) opacity.opacity = 235;
+
+        this.push({
+            node, elapsed: 0, duration: 0.18,
+            type: 'slash_fx', startX: x, startY: y, origScale: 1.1,
+            dx: 0, dy: 0,
+        }, poolKey);
+    }
+
+    /** 碎石迸溅：命中点小碎石飞散（fx_debris 程序碎片兜底，tank/siege 命中用） */
+    playDebrisBurst(x: number, y: number, count = 4) {
+        for (let i = 0; i < count; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const node = this.makeFxNode('fx/fx_debris', 18, new Color(255, 255, 255))
+                ?? this.pool.acquire('debris_fx', () =>
+                    this.spriteFactory.createColorNode(new Color(190, 150, 95), 7, 7, 'rect'));
+            node.parent = this.container;
+            node.setPosition(x, y, 0);
+            node.active = true;
+            node.angle = Math.random() * 360;
+            setUniformScale(node, 1);
+            const opacity = node.getComponent(UIOpacity);
+            if (opacity) opacity.opacity = 255;
+            this.push({
+                node, elapsed: 0, duration: 0.3,
+                type: 'particle', startX: x, startY: y, origScale: 1,
+                dx: Math.cos(angle) * (40 + Math.random() * 40),
+                dy: Math.sin(angle) * (40 + Math.random() * 40),
+            }, node.name.startsWith('fx_') ? 'fx_particle' : 'particle');
+        }
+    }
+
+    /** 爆闪火光：AOE 落点橙黄爆光（fx_boom 程序圆兜底） */
+    playBoom(x: number, y: number) {
+        let node: Node;
+        let poolKey = 'boom';
+        const fxNode = this.makeFxNode('fx/fx_boom', 72, new Color(255, 255, 255));
+        if (fxNode) {
+            node = fxNode;
+            poolKey = 'fx_boom';
+        } else {
+            node = this.pool.acquire('boom', () =>
+                this.spriteFactory.createColorNode(new Color(255, 180, 70, 220), 50, 50, 'circle'),
+            );
+        }
+        node.parent = this.container;
+        node.setPosition(x, y, 0);
+        node.active = true;
+        setUniformScale(node, 0.4);
+        const opacity = node.getComponent(UIOpacity);
+        if (opacity) opacity.opacity = 230;
+
+        this.push({
+            node, elapsed: 0, duration: 0.28,
+            type: 'impact_ring', startX: x, startY: y, origScale: 1.2,
+            dx: 0, dy: 0,
         }, poolKey);
     }
 
@@ -327,6 +412,13 @@ export class BattleEffects {
                 if (opacity) opacity.opacity = Math.floor(255 * (1 - progress));
                 break;
 
+            case 'slash_fx':
+                // 斩击：快速放大 + 轻微上移 + 淡出
+                setUniformScale(node, 0.6 + progress * 0.7);
+                node.setPosition(fx.startX, fx.startY + progress * 6, 0);
+                if (opacity) opacity.opacity = Math.floor(235 * (1 - progress));
+                break;
+
             case 'impact_ring':
                 // 命中：快速放大 + 淡出
                 setUniformScale(node, fx.origScale + progress * 1.4);
@@ -396,6 +488,7 @@ export class BattleEffects {
             case 'crystal_shake': return 'crystal_hit';
             case 'building_explode': return 'explode';
             case 'impact_ring': return 'impact';
+            case 'slash_fx': return 'slash';
             case 'range_ring': return 'range';
             case 'particle': return 'particle';
             case 'projectile': return 'projectile';
