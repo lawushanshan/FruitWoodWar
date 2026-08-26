@@ -221,35 +221,39 @@ MAP_PROMPT = ("俯视角卡通战场草地地图，明亮欢快的手机休闲�
               "无道路，无河流，无桥梁，无角色，无建筑，无文字，无水印，色彩柔和统一的Q版卡通风格，横向构图")
 
 # 卡牌插画（后置，M3.5 之后跑）：文件名 -> (阵营, 主体描述)
-CARD_TAIL = "，竖版构图，主体居中占画面三分之二，四周留出装饰空间，纯绿色背景，无文字，无水印，无阴影"
+# ⚠️ 关键约束：卡牌是"物品/效果/场景特写"，严禁出现角色/人物/动物/生物！
+CARD_TAIL = "，竖版构图，主体居中占画面三分之二，四周留出装饰空间，纯绿色背景，无文字，无水印，无阴影，纯物品或效果特写，严禁出现任何角色、人物、动物、生物、拟人形象"
 CARDS = {
-    "card_fruit_heal": ("fruit", "一杯冒热气的发光鲜榨果汁，杯边飘着小爱心气泡"),
-    "card_fruit_atkUp": ("fruit", "一朵盛开的红色大花，花瓣间散发金色香气光环"),
-    "card_fruit_splash": ("fruit", "一颗果汁炸弹在空中爆裂，果粒四溅"),
-    "card_fruit_sunburst": ("fruit", "一轮微笑的太阳爆发出金色光芒万丈"),
-    "card_fruit_tropical": ("fruit", "菠萝与香蕉卷成的热带风暴漩涡"),
-    "card_fruit_fruitRage": ("fruit", "一面燃烧着橙色火焰的菠萝战旗"),
-    "card_fruit_shield": ("fruit", "一面半透明的橙色果皮能量盾牌"),
-    "card_fruit_regen": ("fruit", "阳光下闪闪发光的一株嫩芽"),
-    "card_fruit_rain": ("fruit", "天空中落下各种小水果的可爱果雨"),
-    "card_wood_rootNet": ("wood", "地面下交织发光的金色树根网络"),
-    "card_wood_hpUp": ("wood", "一棵发光的大树，树心嵌着翠绿宝石"),
-    "card_wood_spore": ("wood", "蘑菇喷出紫色发光孢子云团"),
-    "card_wood_vine": ("wood", "粗壮藤蔓缠绕捆住一块大石头"),
-    "card_wood_bark": ("wood", "一套厚重的树皮铠甲，泛着绿光"),
-    "card_wood_bloom": ("wood", "百花齐放的花园，花瓣与小光点飞舞"),
-    "card_wood_thorn": ("wood", "荆棘环绕生长的尖刺护罩"),
-    "card_wood_growth": ("wood", "藤蔓快速缠绕生长的沙漏"),
-    "card_wood_forest": ("wood", "发光的小树苗守护着一颗水晶"),
-    "card_animal_crit": ("animal", "一支箭正中靶心，靶心迸发金光"),
-    "card_animal_bloodlust": ("animal", "红色能量气流形成的狂热漩涡，只用发光能量表现，不要血液"),
-    "card_animal_frenzy": ("animal", "爆发状的红橙色怒气符文能量"),
-    "card_animal_howl": ("animal", "呐喊产生的白色声波冲击环"),
-    "card_animal_pack": ("animal", "一群狼的剪影从四面围拢"),
-    "card_animal_predator": ("animal", "一只发光的猎豹之眼，金色瞳孔"),
-    "card_animal_stampede": ("animal", "兽群奔跑扬起尘土的壮观场面"),
-    "card_animal_claw": ("animal", "三道闪光的爪痕划过"),
-    "card_animal_survival": ("animal", "发光的金色进化之光环绕"),
+    # === 水果王国 ===
+    "card_fruit_heal": ("fruit", "一杯冒热气的发光鲜榨果汁，杯边飘着小爱心气泡，纯物品特写"),
+    "card_fruit_atkUp": ("fruit", "一朵盛开的红色大花，花瓣间散发金色香气光环，纯物品特写"),
+    "card_fruit_splash": ("fruit", "一颗果汁炸弹在空中爆裂的瞬间，橙色果汁和果粒向四周飞溅，爆炸冲击波扩散，纯效果特写，不要角色"),
+    "card_fruit_sunburst": ("fruit", "一轮微笑的卡通太阳在画面中央爆发出万丈金色光芒，光芒呈放射状向四周扩散，纯效果特写，不要角色"),
+    "card_fruit_tropical": ("fruit", "菠萝与香蕉卷成的热带风暴漩涡，水果碎片在漩涡中旋转，纯效果特写"),
+    "card_fruit_fruitRage": ("fruit", "一面燃烧着橙色火焰的菠萝造型战旗，旗帜在风中飘扬，纯物品特写，不要角色"),
+    "card_fruit_shield": ("fruit", "一面半透明的橙色果皮能量盾牌，盾牌表面有流动的能量纹路，悬浮在空中，纯物品特写，不要角色"),
+    "card_fruit_regen": ("fruit", "阳光下闪闪发光的一株嫩芽，嫩芽周围有金色光点环绕，纯物品特写"),
+    "card_fruit_rain": ("fruit", "天空中落下各种小水果的可爱果雨，西瓜片、橙子、草莓、柠檬从空中飘落，纯场景特写，不要角色"),
+    # === 绿木林 ===
+    "card_wood_rootNet": ("wood", "地面下交织发光的金色树根网络特写，树根如血管般蔓延，发出温暖的金色光芒，纯场景特写，不要角色、不要树人"),
+    "card_wood_hpUp": ("wood", "一棵发光的大树树干特写，树心嵌着一颗璀璨的翠绿宝石，宝石向外散发绿色光晕，纯物品特写，不要角色、不要树人"),
+    "card_wood_spore": ("wood", "Q版卡通游戏卡牌插画，画面正中央是一朵红色蘑菇，蘑菇顶部喷发出巨大的紫色发光孢子云团，紫色孢子如烟雾般向上扩散，周围飘散着小孢子颗粒，粗黑描边，平涂上色，明亮糖果色，竖版构图，纯绿色背景，无文字无水印"),
+    "card_wood_vine": ("wood", "粗壮绿色藤蔓紧紧缠绕捆住一块大石头的特写，藤蔓上有小叶片，纯物品特写，不要角色、不要树人"),
+    "card_wood_bark": ("wood", "Q版卡通游戏卡牌插画，画面正中央是一套悬浮的树皮铠甲，铠甲由层层叠叠的棕色树皮板块组成，板块之间泛着绿色荧光纹路，铠甲无人穿着，独立悬浮在空中，粗黑描边，平涂上色，竖版构图，纯绿色背景，无文字无水印"),
+    "card_wood_bloom": ("wood", "Q版卡通游戏卡牌插画，画面正中央是一簇盛开的鲜花，粉色白色黄色紫色蓝色各种花朵争奇斗艳，花瓣和发光小光点在花丛上方飞舞，粗黑描边，平涂上色，竖版构图，纯绿色背景，无文字无水印"),
+    "card_wood_thorn": ("wood", "荆棘环绕生长形成的尖刺护罩特写，带刺藤蔓交织成球形防护罩，泛着绿色光芒，纯物品特写，不要角色、不要树人"),
+    "card_wood_growth": ("wood", "藤蔓快速缠绕生长的沙漏，木质沙漏被绿色藤蔓缠绕，沙子正在流动，纯物品特写"),
+    "card_wood_forest": ("wood", "游戏卡牌插画，纯物品效果特写，画面中没有任何生物角色人物动物，只有：一棵发光的小树苗和一颗悬浮的水晶，树苗和水晶都散发着翠绿色光芒"),
+    # === 动物庄园 ===
+    "card_animal_crit": ("animal", "一支箭矢正中靶心的特写，靶心处迸发出耀眼的金色光芒和冲击波，纯效果特写，不要角色、不要动物"),
+    "card_animal_bloodlust": ("animal", "Q版卡通游戏卡牌插画，画面正中央是一个巨大的红色能量漩涡，红色和橙色能量气流如龙卷风般旋转，漩涡中心是纯能量没有任何生物，只用发光能量表现，不要血液，粗黑描边，平涂上色，竖版构图，纯绿色背景，无文字无水印"),
+    "card_animal_frenzy": ("animal", "Q版卡通游戏卡牌插画，画面正中央是爆发状的红橙色怒气能量，能量中漂浮着发光的古代符文，符文在火焰能量中闪烁，粗黑描边，平涂上色，竖版构图，纯绿色背景，无文字无水印"),
+    "card_animal_howl": ("animal", "Q版卡通游戏卡牌插画，画面中只有同心圆白色声波冲击环，声波环从画面正中央向四周扩散，环上有细小的能量裂纹，画面中没有任何角色人物动物生物，纯效果，粗黑描边，平涂上色，竖版构图，纯绿色背景，无文字无水印"),
+    "card_animal_pack": ("animal", "Q版卡通游戏卡牌插画，深绿色背景上，画面四周边缘排列着多个狼形剪影，剪影是半透明的深绿色影子，画面正中央是空的只有背景色没有任何角色人物动物生物，粗黑描边，平涂上色，竖版构图，纯绿色背景，无文字无水印"),
+    "card_animal_predator": ("animal", "一只发光的猎豹之眼特写，金色瞳孔放大，眼睛周围有能量光晕，纯物品特写，只要眼睛不要全身"),
+    "card_animal_stampede": ("animal", "Q版卡通游戏卡牌插画，画面中只有漫天飞扬的黄褐色尘土云团和地面上的多个动物蹄印，尘土向四周扩散，画面中没有任何角色人物动物生物，纯场景，粗黑描边，平涂上色，竖版构图，纯绿色背景，无文字无水印"),
+    "card_animal_claw": ("animal", "三道闪光的利爪痕划过空气的特写，爪痕带白色光芒和能量残影，纯效果特写，不要角色、不要动物"),
+    "card_animal_survival": ("animal", "Q版卡通游戏卡牌插画，画面正中央是一个发光的金色魔法阵，魔法阵由多个同心圆环和古代符文组成，金色光芒从阵中心向外辐射，粗黑描边，平涂上色，竖版构图，纯绿色背景，无文字无水印"),
 }
 
 # 分组：group -> {文件名: (目标目录, 完整提示词, 宽高, 参考图阵营)}
@@ -280,10 +284,21 @@ def build_tasks():
     # 特效
     for name, p in FXS.items():
         tasks[name] = ("fx", FX_HEAD + "一个" + p + UI_TAIL, S1, None, None)
-    # 卡牌（后置）：挂阵营参考图，3:4 竖版
+    # 卡牌（后置）：3:4 竖版
+    # NO_ANCHOR_CARDS：这些卡牌不挂参考图（AI看到角色参考图会自动画角色，关闭参考图可避免）
+    NO_ANCHOR_CARDS = {
+        "card_wood_spore", "card_wood_bark", "card_wood_bloom", "card_wood_forest",
+        "card_animal_bloodlust", "card_animal_frenzy", "card_animal_howl",
+        "card_animal_pack", "card_animal_stampede", "card_animal_survival",
+    }
     for name, (fac, p) in CARDS.items():
-        full = HEAD + p + "，" + FACTION[fac].rstrip("，") + CARD_TAIL
-        tasks[name] = ("cards", full, S34, fac, None)
+        if name in NO_ANCHOR_CARDS:
+            # 不挂参考图，纯文生图
+            full = HEAD + p + CARD_TAIL
+            tasks[name] = ("cards", full, S34, None, None)
+        else:
+            full = HEAD + p + "，" + FACTION[fac].rstrip("，") + CARD_TAIL
+            tasks[name] = ("cards", full, S34, fac, None)
     # 地图
     tasks["map_bg"] = ("map", MAP_PROMPT, S169, None, None)
     return tasks
