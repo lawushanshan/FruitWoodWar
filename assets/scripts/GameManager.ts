@@ -27,6 +27,7 @@ import { DeathEffect } from './presentation/death-effect';
 import { AudioManager } from './presentation/audio-manager';
 import { TutorialController } from './presentation/tutorial-controller';
 import { BattleEffects } from './presentation/battle-effects';
+import { EntityInfoPanel } from './presentation/entity-info-panel';
 import { makeBuildCommand, makeUpgradeCommand, makeResearchCommand, makeCardCommand } from './input/game-commands';
 import { BUILDING_CONFIG } from './config/building-config';
 import { BUILD_GRID } from './config/build-grid';
@@ -77,6 +78,7 @@ export class GameManager extends Component {
     private audio!: AudioManager;
     private tutorial!: TutorialController;
     private battleEffects!: BattleEffects;
+    private entityInfo!: EntityInfoPanel;
 
     /** 游戏容器 */
     private gameContainer!: Node;
@@ -117,6 +119,9 @@ export class GameManager extends Component {
     private prevGold: Record<string, number> = { red: 0, blue: 0 };
     private prevCrystalHp: Record<string, number> = { red: 0, blue: 0 };
     private prevKills: Record<string, number> = { red: 0, blue: 0 };
+    /** 上一帧建筑/塔血量（id → hp），受击伤害跳字用（对齐水晶反馈） */
+    private prevBuildingHp: Map<string, number> = new Map();
+    private prevTowerHp: Map<string, number> = new Map();
     private prevBuildings: number = 0;
     private prevWave: number = 0;
 
@@ -275,6 +280,7 @@ export class GameManager extends Component {
         this.audio = new AudioManager();
         this.tutorial = new TutorialController(uiContainer, sf, this.node.layer);
         this.battleEffects = new BattleEffects(this.gameContainer, sf, this.artLibrary);
+        this.entityInfo = new EntityInfoPanel(uiContainer, this.gameContainer, sf, this.artLibrary, this.node);
         this.hudView.create();
         this.panels.create();
 
@@ -391,6 +397,7 @@ export class GameManager extends Component {
             this.detectEffects();
             this.consumeFx();
             this.detectTutorial();
+            this.entityInfo.update(this.engine.state, dt);
             this.gameView.sync(this.engine.state, dt, this.online);
             this.hudView.update(this.engine.state);
             this.floatingText.update(dt);
@@ -426,25 +433,29 @@ export class GameManager extends Component {
                         this.battleEffects.playImpact(e.x, e.y, e.side);
                         break;
                     case 'aoe':
-                        // 前摇法球飞抵（落点爆光由 aoe 事件补）
-                        this.battleEffects.playProjectile(sx, sy, e.x, e.y, e.side, 'fx/fx_bolt', 0.18, 28);
+                        // 法球（加大加亮便于辨识）飞抵，落点爆光由 aoe 事件在弹道落地后补
+                        this.battleEffects.playProjectile(sx, sy, e.x, e.y, e.side, 'fx/fx_bolt', 0.22, 40);
                         break;
                     case 'siege':
-                        // 笨重感：慢速巨石 + 碎石
-                        this.battleEffects.playProjectile(sx, sy, e.x, e.y, e.side, 'fx/fx_boulder', 0.3, 34);
+                        // 笨重感：大颗慢速巨石（加大便于辨识）+ 落地碎石
+                        this.battleEffects.playProjectile(sx, sy, e.x, e.y, e.side, 'fx/fx_boulder', 0.3, 48);
                         this.battleEffects.playDebrisBurst(e.x, e.y, 5);
                         break;
                     default:
                         this.battleEffects.playImpact(e.x, e.y, e.side);
                 }
             } else if (e.type === 'aoe') {
-                // AOE 落点：扩散环 + 爆闪火光
-                this.battleEffects.playRangeEffect(e.x, e.y, e.radius, e.side);
-                this.battleEffects.playBoom(e.x, e.y);
+                // AOE 落点：等法球(0.22s)飞抵后再扩散环+爆光，避免爆炸抢在弹道前出现
+                this.battleEffects.schedule(0.22, () => {
+                    this.battleEffects.playRangeEffect(e.x, e.y, e.radius, e.side);
+                    this.battleEffects.playBoom(e.x, e.y);
+                });
             } else if (e.type === 'tower') {
-                // 塔攻击：弹道 + 目标处溅射环
+                // 塔攻击：弹道飞抵(0.12s)后目标处溅射环，保持同步
                 this.battleEffects.playProjectile(e.sx, e.sy, e.x, e.y, e.side);
-                this.battleEffects.playRangeEffect(e.x, e.y, e.radius, e.side);
+                this.battleEffects.schedule(0.12, () => {
+                    this.battleEffects.playRangeEffect(e.x, e.y, e.radius, e.side);
+                });
             }
         }
     }
@@ -502,6 +513,27 @@ export class GameManager extends Component {
                 this.battleEffects.playBuildingDestroy(snap.x, snap.y);
             }
         }
+
+        // ---- 建筑/塔受击：伤害跳字（结构数量少，无性能顾虑；对齐水晶反馈）----
+        for (const b of s.buildings) {
+            const prevHp = this.prevBuildingHp.get(b.id) ?? b.hp;
+            if (b.hp < prevHp - 0.01) {
+                const dmg = prevHp - b.hp;
+                if (dmg > 3) this.floatingText.showDamage(dmg, b.x, b.y + 40);
+            }
+            this.prevBuildingHp.set(b.id, b.hp);
+        }
+        const towerIds = new Set(s.towers.map(t => t.id));
+        for (const t of s.towers) {
+            const prevHp = this.prevTowerHp.get(t.id) ?? t.hp;
+            if (t.hp < prevHp - 0.01) {
+                const dmg = prevHp - t.hp;
+                if (dmg > 3) this.floatingText.showDamage(dmg, t.x, t.y + 40);
+            }
+            this.prevTowerHp.set(t.id, t.hp);
+        }
+        for (const id of this.prevBuildingHp.keys()) if (!buildingIds.has(id)) this.prevBuildingHp.delete(id);
+        for (const id of this.prevTowerHp.keys()) if (!towerIds.has(id)) this.prevTowerHp.delete(id);
 
         // ---- 金币变化 → 金币跳字 + 音效 ----
         for (const side of ['red', 'blue'] as const) {
@@ -571,6 +603,7 @@ export class GameManager extends Component {
         }
 
         this.pendingBuild = itemId;
+        this.entityInfo.hide();
         this.showPreview();
         this.showGridOverlay();
         const conf = BUILDING_CONFIG[itemId];
@@ -645,17 +678,62 @@ export class GameManager extends Component {
             return;
         }
 
-        // 非建造模式：点击己方兵工厂打开升级面板
-        const hit = this.engine.state.buildings.find(b =>
-            b.side === this.engine.state.playerSide
+        // 非建造模式：实体信息查看（敌我均可）
+        // 判定优先级：单位（视觉最上层）→ 己方工厂（升级面板）→ 任意建筑/塔/水晶 → 空地
+        const st = this.engine.state;
+
+        // 1) 单位：28px 内最近者
+        let unitHit = null as typeof st.units[number] | null;
+        let bestD = 28 * 28;
+        for (const u of st.units) {
+            const d = (u.x - localPos.x) ** 2 + (u.y - localPos.y) ** 2;
+            if (d < bestD) { bestD = d; unitHit = u; }
+        }
+        if (unitHit) {
+            this.entityInfo.show(st, { kind: 'unit', id: unitHit.id });
+            this.panels.hideUpgrade();
+            return;
+        }
+
+        // 2) 己方工厂：升级面板（原有交互）
+        const ownFactory = st.buildings.find(b =>
+            b.side === st.playerSide
             && b.unitType !== null
             && Math.abs(b.x - localPos.x) < BUILD_GRID.cellSize / 2
             && Math.abs(b.y - localPos.y) < BUILD_GRID.cellSize / 2);
-        if (hit) {
-            this.panels.showUpgrade(this.engine.state, hit.id);
-        } else {
-            this.panels.hideUpgrade();
+        if (ownFactory) {
+            this.panels.showUpgrade(st, ownFactory.id);
+            this.entityInfo.hide();
+            return;
         }
+
+        // 3) 任意建筑 / 塔 / 水晶
+        const bHit = st.buildings.find(b =>
+            Math.abs(b.x - localPos.x) < BUILD_GRID.cellSize / 2
+            && Math.abs(b.y - localPos.y) < BUILD_GRID.cellSize / 2);
+        if (bHit) {
+            this.entityInfo.show(st, { kind: 'building', id: bHit.id });
+            this.panels.hideUpgrade();
+            return;
+        }
+        const tHit = st.towers.find(t =>
+            (t.x - localPos.x) ** 2 + (t.y - localPos.y) ** 2 < 26 * 26);
+        if (tHit) {
+            this.entityInfo.show(st, { kind: 'tower', id: tHit.id });
+            this.panels.hideUpgrade();
+            return;
+        }
+        const cHit = st.crystals.find(c =>
+            (c.x - localPos.x) ** 2 + (c.y - localPos.y) ** 2 < 48 * 48);
+        if (cHit) {
+            this.entityInfo.show(st, { kind: 'crystal', side: cHit.side });
+            this.panels.hideUpgrade();
+            return;
+        }
+
+        // 4) 空地：全部收起
+        this.panels.hideUpgrade();
+        this.entityInfo.hide();
     }
 
     private onGameTouchMove(event: EventTouch) {
@@ -894,6 +972,7 @@ export class GameManager extends Component {
         this.panels.hideUpgrade();
         this.cancelPlacement();
         this.gameView.clear();
+        this.entityInfo.hide();
         this.floatingText.clear();
         this.deathEffect.clear();
         this.battleEffects.clear();

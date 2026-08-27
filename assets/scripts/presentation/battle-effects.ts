@@ -50,6 +50,8 @@ const MAX_PARTICLES_PER_BURST = 6;
 export class BattleEffects {
 
     private active: EffectInstance[] = [];
+    /** 延时动作队列：用于“弹道飞行结束后再落点爆炸”，使 AOE 命中与弹道同步 */
+    private scheduled: Array<{ delay: number; fn: () => void }> = [];
     private pool: NodePool = new NodePool();
     private spriteFactory: ColorSpriteFactory;
     private container: Node;
@@ -126,7 +128,8 @@ export class BattleEffects {
      */
     playProjectile(sx: number, sy: number, tx: number, ty: number, side: 'red' | 'blue',
         tex: string = 'fx/fx_arrow', duration = 0.12, size: number = FX_SIZE.projectile) {
-        const color = side === 'red' ? new Color(255, 210, 140, 230) : new Color(150, 200, 255, 230);
+        // 弹道贴图多为有色素材（teal 法球/灰石），用近白 tint 保留原色不糊，仅留轻微敌我冷暖
+        const color = side === 'red' ? new Color(255, 232, 214, 235) : new Color(214, 232, 255, 235);
         let node: Node;
         let poolKey = 'projectile';
         const fxNode = this.makeFxNode(tex, size, color.clone());
@@ -236,7 +239,8 @@ export class BattleEffects {
 
     /** 范围溅射表现：以目标为圆心的扩散环（AOE / 防御塔溅射）；优先 fx_ring 贴图 */
     playRangeEffect(x: number, y: number, radius: number, side: 'red' | 'blue') {
-        const color = side === 'red' ? new Color(255, 160, 90, 170) : new Color(90, 180, 255, 170);
+        // 环只作为“落点冲击”提示，不等同完整伤害半径：缩至 0.6× 并降透明度，避免喧宾夺主
+        const color = side === 'red' ? new Color(255, 170, 100, 140) : new Color(100, 180, 255, 140);
         let node: Node;
         let poolKey = 'range';
         const fxNode = this.makeFxNode('fx/fx_ring', FX_SIZE.ring, color.clone());
@@ -253,13 +257,13 @@ export class BattleEffects {
         node.active = true;
         setUniformScale(node, 0.4);
         const opacity = node.getComponent(UIOpacity);
-        if (opacity) opacity.opacity = 180;
+        if (opacity) opacity.opacity = 120;
 
-        // 目标缩放 = radius / 基准 40px
+        // 目标缩放 = 基准 40px × (radius/40) × 0.6
         this.push({
             node, elapsed: 0, duration: 0.35,
             type: 'range_ring', startX: x, startY: y,
-            origScale: radius / 40,
+            origScale: (radius / 40) * 0.6,
             dx: 0, dy: 0,
         }, poolKey);
     }
@@ -330,6 +334,16 @@ export class BattleEffects {
 
     /** 每帧更新所有效果 */
     update(dt: number) {
+        // 延时动作：到点触发（如 AOE 弹道落地再爆炸）
+        for (let i = this.scheduled.length - 1; i >= 0; i--) {
+            this.scheduled[i].delay -= dt;
+            if (this.scheduled[i].delay <= 0) {
+                const fn = this.scheduled[i].fn;
+                this.scheduled.splice(i, 1);
+                fn();
+            }
+        }
+
         for (let i = this.active.length - 1; i >= 0; i--) {
             const fx = this.active[i];
             fx.elapsed += dt;
@@ -351,7 +365,14 @@ export class BattleEffects {
             this.retire(fx.node, fx.poolKey, fx.type);
         }
         this.active.length = 0;
+        this.scheduled.length = 0;
         this.pool.clearAll();
+    }
+
+    /** 延时执行一个表现动作（秒）；用于弹道飞行结束后再落点爆炸，保持“弹道落地才炸”的同步感 */
+    schedule(delay: number, fn: () => void) {
+        if (delay <= 0) { fn(); return; }
+        this.scheduled.push({ delay, fn });
     }
 
     // ==================== 内部 ====================
@@ -426,9 +447,9 @@ export class BattleEffects {
                 break;
 
             case 'range_ring':
-                // 范围溅射：从 0.4 放大到 radius/40，淡出
+                // 范围溅射：从 0.4 放大到半径×0.6，淡出
                 setUniformScale(node, 0.4 + (fx.origScale - 0.4) * progress);
-                if (opacity) opacity.opacity = Math.floor(180 * (1 - progress));
+                if (opacity) opacity.opacity = Math.floor(120 * (1 - progress));
                 break;
 
             case 'particle':

@@ -325,8 +325,9 @@ function attack(state: GameState, attacker: UnitState, target: AttackTarget, ran
     target.hp -= dmg;
     if (target.hp < 0) target.hp = 0;
 
-    // 命中表现事件（仅单位目标产生"hit"，建筑/塔/水晶另有专属表现）
-    if (unitTarget && dmg > 0) {
+    // 命中表现事件：单位 / 建筑 / 塔都产生"hit"（水晶走专属 crystalHit 表现，避免与冲击环叠加）。
+    // atkType = 攻击者兵种，供表现层按兵种播放不同弹道/斩击/冲击特效。
+    if (dmg > 0 && kind !== 'crystal') {
         fx.push({ type: 'hit', x: target.x, y: target.y, side: target.side, sx: attacker.x, sy: attacker.y, atkType: attacker.type });
     }
 
