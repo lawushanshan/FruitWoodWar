@@ -268,6 +268,7 @@ export class PanelController {
             this.endStatsLabel.string =
                 (won ? '🎉 胜利！' : '😢 失败\n') +
                 `（服务器判定：${onlineResult.reason}）`;
+            this.updateStarsRow(this.endPanel?.getChildByName('EndStars') ?? null, 0);
             if (this.reviveBtn) this.reviveBtn.active = false;
             return;
         }
@@ -277,11 +278,12 @@ export class PanelController {
         const seconds = Math.floor(result.duration % 60);
         this.endStatsLabel.string =
             (won ? '🎉 胜利！' : '😢 失败\n') +
-            '⭐'.repeat(result.stars) + '☆'.repeat(3 - result.stars) + '\n' +
             '击杀：' + state.stats.kills.red + '\n' +
             '剩余金币：' + result.playerGold + '\n' +
             '用时：' + minutes + ':' + (seconds < 10 ? '0' : '') + seconds + '\n' +
             '波次：第 ' + state.wave + ' 波';
+        // 星级独立图标行（ico_star 贴图）
+        this.updateStarsRow(this.endPanel?.getChildByName('EndStars') ?? null, result.stars);
 
         // 失败时显示复活按钮（如果还可以复活）
         if (this.reviveBtn) {
@@ -411,12 +413,13 @@ export class PanelController {
             this.hideUpgrade();
             return;
         }
-        const stars = b.level === 2 ? '★' : b.level === 3 ? '★★' : '';
+        // 等级星标：Lv2 亮一颗，Lv3 亮两颗（Lv1 无星）
+        this.updateStarsRow(this.upgradePanel!.getChildByName('UpgradeStars'), Math.max(0, b.level - 1));
         // 建筑显示自己的名字（坦克厂/远程厂/……），不再统一叫"兵工厂"
         const bName = (b.unitType !== null && BUILDING_CONFIG[b.unitType]) ? BUILDING_CONFIG[b.unitType].name : '兵工厂';
         if (this.upgradeInfoLabel) {
             this.upgradeInfoLabel.string =
-                `${bName} Lv${b.level}${stars}` +
+                `${bName} Lv${b.level}` +
                 (b.level === 3 ? '（已满级）' : '');
         }
         if (this.upgradeCostLabel) {
@@ -437,13 +440,16 @@ export class PanelController {
             }
         }
         if (this.upgradeBtnNode) {
-            // 满级隐藏；无学院置灰
+            // 满级隐藏；无学院置灰并显示锁定角标
             this.upgradeBtnNode.active = b.level < 3;
+            const locked = b.level === 2 && state.academyLevel[state.playerSide] < 1;
+            const lock = this.upgradeBtnNode.getChildByName('LockIcon');
+            if (lock) lock.active = locked;
             const bg = this.upgradeBtnNode.getChildByName('BtnBg');
             if (bg) {
                 const sp = bg.getComponent(Sprite);
                 if (sp) {
-                    sp.color = b.level === 2 && state.academyLevel[state.playerSide] < 1
+                    sp.color = locked
                         ? new Color(70, 80, 88)
                         : new Color(63, 109, 51);
                 }
@@ -558,15 +564,17 @@ export class PanelController {
 
         const bg = this.makePanelBg(panel, 'ui/ui_panel_dark', 380, 230, new Color(5, 10, 14, 220));
 
-        this.upgradeInfoLabel = this.makeLabel('兵工厂 Lv1', 0, 80, Color.WHITE, panel, 18);
-        this.upgradeCostLabel = this.makeLabel('升级费用：150 金', 0, 25, new Color(255, 215, 94), panel, 15);
+        this.upgradeInfoLabel = this.makeLabel('兵工厂 Lv1', 0, 78, Color.WHITE, panel, 18);
+        // 等级星标行（ico_star 贴图，Lv2 亮一颗 / Lv3 亮两颗）
+        this.buildStarsRow(panel, 'UpgradeStars', 0, 57, 18);
+        this.upgradeCostLabel = this.makeLabel('升级费用：150 金', 0, 16, new Color(255, 215, 94), panel, 15);
         this.upgradeCostLabel.lineHeight = 20;
         this.upgradeCostLabel.overflow = Label.Overflow.SHRINK;
         // 学院缺失提示行（独立小字，避免长后缀把标题顶出面板）
-        const hint = this.makeLabel('', 0, 55, new Color(255, 170, 120), panel, 13);
+        const hint = this.makeLabel('', 0, 42, new Color(255, 170, 120), panel, 13);
         hint.node.name = 'AcademyHint';
 
-        // 升级按钮（含背景节点名 BtnBg，供置灰刷新）
+        // 升级按钮（含背景节点名 BtnBg，供置灰刷新；锁定角标供 ico_lock 显示）
         const btn = new Node('UpgradeBtn');
         btn.layer = this.gmNode.layer;
         btn.parent = panel;
@@ -575,8 +583,12 @@ export class PanelController {
         const btnBg = this.spriteFactory.createColorNode(new Color(63, 109, 51), 180, 52);
         btnBg.name = 'BtnBg';
         btnBg.parent = btn;
-        // 文字必须是 bg 之后的子节点：Label 加在按钮节点自身会被子节点背景盖住
-        this.makeLabel('⬆ 升级', 0, 0, Color.WHITE, btn, 18);
+        // 图标与文字必须是 bg 之后的子节点：Label 加在按钮节点自身会被子节点背景盖住
+        this.makeArtIcon(btn, 'ui/ico_up', 26, -52, 0, '⬆');
+        this.makeLabel('升级', 10, 0, Color.WHITE, btn, 18);
+        const lockIcon = this.makeArtIcon(btn, 'ui/ico_lock', 28, 76, 22, '🔒');
+        lockIcon.name = 'LockIcon';
+        lockIcon.active = false;
         btn.setPosition(0, -72, 0);
 
         const button = btn.addComponent(Button);
@@ -795,7 +807,10 @@ export class PanelController {
         this.endStatsLabel.fontSize = 20;
         this.endStatsLabel.color = new Color(207, 227, 240);
         this.endStatsLabel.lineHeight = 32;
-        stats.setPosition(0, 30, 0);
+        stats.setPosition(0, 40, 0);
+
+        // 星级图标行（结算时按星级点亮，ico_star 贴图）
+        this.buildStarsRow(this.endPanel, 'EndStars', 0, -58, 30);
 
         // 再来一局按钮（主 CTA 统一样式）
         const againBtn = this.makeButton('AgainBtn', '再来一局', 210, 62, 'onAgainClick',
@@ -894,5 +909,57 @@ export class PanelController {
         label.lineHeight = size;
         node.setPosition(x, y, 0);
         return label;
+    }
+
+    /** 创建贴图图标（缺失时回退 emoji 文字；两者都无则返回空占位以保持布局）。返回节点（已挂到 parent） */
+    private makeArtIcon(parent: Node, artPath: string, size: number, x: number, y: number, fallbackEmoji?: string): Node {
+        const sprite = this.art?.createSpriteNode(artPath, size, size) ?? null;
+        if (sprite) {
+            sprite.parent = parent;
+            sprite.setPosition(x, y, 0);
+            return sprite;
+        }
+        if (fallbackEmoji) {
+            const label = this.makeLabel(fallbackEmoji, x, y, Color.WHITE, parent, Math.round(size * 0.8));
+            return label.node;
+        }
+        const empty = new Node('IconPlaceholder_' + artPath);
+        empty.layer = this.gmNode.layer;
+        empty.parent = parent;
+        empty.addComponent(UITransform).contentSize = new Size(size, size);
+        empty.setPosition(x, y, 0);
+        return empty;
+    }
+
+    /** 构建三颗星图标行（结算/升级面板用），子节点名 Star_0/1/2 */
+    private buildStarsRow(parent: Node, name: string, x: number, y: number, size: number): Node {
+        const row = new Node(name);
+        row.layer = this.gmNode.layer;
+        row.parent = parent;
+        row.addComponent(UITransform).contentSize = new Size(size * 3 + 16, size);
+        for (let i = 0; i < 3; i++) {
+            const star = this.makeArtIcon(row, 'ui/ico_star', size, (i - 1) * (size + 8), 0, '⭐');
+            star.name = 'Star_' + i;
+        }
+        row.setPosition(x, y, 0);
+        return row;
+    }
+
+    /** 更新星行点亮状态：前 litCount 颗原色点亮，其余灰暗半透明 */
+    private updateStarsRow(row: Node | null, litCount: number) {
+        if (!row) return;
+        for (let i = 0; i < 3; i++) {
+            const star = row.getChildByName('Star_' + i);
+            if (!star) continue;
+            const lit = i < litCount;
+            const tint = lit ? new Color(255, 255, 255, 255) : new Color(130, 130, 130, 100);
+            const sp = star.getComponent(Sprite);
+            if (sp) {
+                sp.color = tint;
+            } else {
+                const l = star.getComponent(Label);
+                if (l) l.color = tint;
+            }
+        }
     }
 }

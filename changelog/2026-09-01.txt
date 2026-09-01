@@ -11,3 +11,6 @@
 - 修复新手引导"出兵完成"判定：原逻辑依赖全局波次从 0→1，玩家建厂晚于第 1 波时引导卡在"等待出兵"直至超时；改为己方工厂已建且场上存在己方存活单位即完成引导；修改了 assets/scripts/GameManager.ts（删除废弃的 prevWave 追踪）
 - 浏览器实测验证：预载 93/93 张 SpriteFrame；卡牌立绘、紫底金边卡框、稀有度描边、倒计时全部正常；引导建厂后随出兵正常完成；FPS 50-60 稳定
 - 全量测试 117 条通过后提交
+- 接入 UI 图标素材（ico_star/ico_up/ico_lock）替换面板 emoji：新增 makeArtIcon（贴图优先/emoji 兜底）、buildStarsRow/updateStarsRow 通用星标行 helper；升级面板文字星号改为三颗星图标行（Lv2 亮一颗/Lv3 亮两颗），升级按钮"⬆ 升级"改为图标+文字组合，Lv2 无学院锁定时按钮显示 ico_lock 锁定角标；结算面板星级从文本行改为独立星标行（按星级点亮，服务器判定分支灰星）；修改了 assets/scripts/presentation/panel-controller.ts
+- 浏览器实测验证升级面板：木纹面板、灰暗星行、绿色升级按钮+箭头图标、标题完整显示，效果符合预期
+- 全量测试 117 条通过后提交
