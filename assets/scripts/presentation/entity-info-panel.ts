@@ -32,10 +32,12 @@ export type EntityTarget =
     | { kind: 'tower'; id: string }
     | { kind: 'crystal'; side: Side };
 
-/** 面板尺寸/位置（右下，建造栏上方） */
-const PANEL_W = 300;
-const PANEL_H = 204;
-const PANEL_POS: [number, number] = [462, -166];
+/** 面板尺寸/位置（右下，建造栏上方）。
+ *  九宫格 ui_panel_dark 切片边框 36px：内容必须落在中央安全区（约 ±124×±72）内，
+ *  否则会像 v1.8 之前那样把标题/头像压在粗木框上，视觉上像被裁切。 */
+const PANEL_W = 320;
+const PANEL_H = 216;
+const PANEL_POS: [number, number] = [458, -160];
 
 const HP_GREEN = new Color(96, 220, 96);
 const HP_YELLOW = new Color(235, 190, 70);
@@ -213,13 +215,21 @@ export class EntityInfoPanel {
         }
     }
 
+    /** 头像缓存键：避免 refresh 每帧销毁/重建头像节点（v1.8.1 性能修复） */
+    private portraitKey = '';
+
     private setPortrait(artPath: string, fallbackEmoji: string) {
+        // 内容未变化且节点仍有效时直接复用（refresh 每帧调用，不可反复重建）
+        const key = artPath ? `art:${artPath}` : `emoji:${fallbackEmoji}`;
+        if (this.portrait?.isValid && this.portraitKey === key) return;
+        this.portraitKey = key;
+
         if (this.portrait?.isValid) this.portrait.destroy();
         const node = this.art?.createSpriteNode(artPath, 44, 44) ?? null;
         if (node) {
             node.name = 'Portrait';
             node.parent = this.panel;
-            node.setPosition(-112, 70, 0);
+            node.setPosition(-92, 50, 0);
         } else {
             const n = new Node('Portrait');
             n.layer = this.gmNode.layer;
@@ -230,7 +240,7 @@ export class EntityInfoPanel {
             lb.string = fallbackEmoji;
             lb.fontSize = 26;
             lb.lineHeight = 30;
-            n.setPosition(-112, 70, 0);
+            n.setPosition(-92, 50, 0);
         }
         this.portrait = node ?? this.panel!.getChildByName('Portrait');
     }
@@ -263,7 +273,8 @@ export class EntityInfoPanel {
     private createOnce() {
         if (this.panel) return;
 
-        // ---- 信息卡（UI 层，右下） ----
+        // ---- 信息卡（UI 层，右下）。布局：内容全部落在九宫格 36px 边框内的安全区 ----
+        // 纵向节奏：头像/标题 50 → 阵营 28 → 血条 4 → 属性 -22/-46 → 特效 -70
         const panel = new Node('EntityInfoPanel');
         panel.layer = this.gmNode.layer;
         panel.parent = this.ui;
@@ -282,30 +293,30 @@ export class EntityInfoPanel {
             bg.parent = panel;
         }
 
-        // 名称（头像右侧）
-        this.nameLabel = this.mkLabel(panel, '', 16, 22, Color.WHITE, 26, 74);
-        // 敌我/阵营
-        this.sideLabel = this.mkLabel(panel, '', 12, 18, new Color(159, 180, 196), 40, 52);
+        // 名称（头像右侧，与头像同排）
+        this.nameLabel = this.mkLabel(panel, '', 16, 22, Color.WHITE, 14, 56);
+        // 敌我/阵营（名称下一行）
+        this.sideLabel = this.mkLabel(panel, '', 12, 18, new Color(159, 180, 196), 14, 34);
 
-        // 血条（bg + 左锚点填充）
-        const barBg = this.spriteFactory.createColorNode(new Color(20, 20, 20, 220), 170, 10);
+        // 血条（左锚点填充；整体左移留出边框内边距，右端给 HP 数字让位）
+        const barBg = this.spriteFactory.createColorNode(new Color(20, 20, 20, 220), 150, 10);
         barBg.parent = panel;
-        barBg.setPosition(-52, 30, 0);
-        const fill = this.spriteFactory.createColorNode(HP_GREEN.clone(), 170, 10);
+        barBg.setPosition(-30, 6, 0);
+        const fill = this.spriteFactory.createColorNode(HP_GREEN.clone(), 150, 10);
         fill.name = 'HpFill';
         fill.parent = panel;
         const fut = fill.getComponent(UITransform);
         fut.anchorPoint = new Vec2(0, 0.5);
-        fill.setPosition(-137, 30, 0);
+        fill.setPosition(-105, 6, 0);
         this.hpFill = fill;
-        this.hpText = this.mkLabel(panel, '', 12, 16, new Color(207, 227, 240), 92, 30);
+        this.hpText = this.mkLabel(panel, '', 12, 16, new Color(207, 227, 240), 78, 6);
 
-        // 属性行 ×2
-        this.statsL1 = this.mkLabel(panel, '', 13, 20, new Color(223, 233, 240), 30, 2);
-        this.statsL2 = this.mkLabel(panel, '', 13, 20, new Color(190, 205, 218), 30, -22);
+        // 属性行 ×2（水平居中）
+        this.statsL1 = this.mkLabel(panel, '', 13, 20, new Color(223, 233, 240), 0, -22);
+        this.statsL2 = this.mkLabel(panel, '', 13, 20, new Color(190, 205, 218), 0, -46);
 
         // 特效行
-        this.fxLabel = this.mkLabel(panel, '', 12, 16, new Color(130, 150, 168), 24, -54);
+        this.fxLabel = this.mkLabel(panel, '', 12, 16, new Color(130, 150, 168), 0, -70);
 
         this.panel = panel;
 
