@@ -102,7 +102,7 @@ export const GAME_CONFIG: GameConfig = {
     academyLv1Cost: 200,
     academyLv2Cost: 400,
     researchBaseCost: 400,
-    researchCostGrowth: 1.15,
+    researchCostGrowth: 1.25,
     researchAtkBonus: 0.08,
     comebackWaves: 3,
     comebackSalaryMult: 1.5,

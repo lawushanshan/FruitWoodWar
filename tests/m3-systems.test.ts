@@ -159,7 +159,7 @@ describe('建筑：学院 / 光环塔 / 全军强化', () => {
         expect(effectiveAttackSpeedMult(s, 'red', -420, 0)).toBe(1);
     });
 
-    it('全军强化：需学院 Lv2，400 金起 ×1.15 递增，每层 +8% 攻击', () => {
+    it('全军强化：需学院 Lv2，400 金起 ×1.25 递增，每层 +8% 攻击', () => {
         const engine = makeEngine();
         const s = writableState(engine);
         s.gold.blue = 0;
@@ -178,7 +178,7 @@ describe('建筑：学院 / 光环塔 / 全军强化', () => {
         expect(s.buffs.red.atk).toBeCloseTo(1.1 * 1.08, 5);
 
         expect(engine.execute({ type: 'research' }).ok).toBe(true);
-        expect(researchCost(1)).toBe(460); // 第二层 400×1.15
+        expect(researchCost(1)).toBe(500); // 第二层 400×1.25
         expect(s.buffs.red.atk).toBeCloseTo(1.1 * 1.08 * 1.08, 5);
     });
 });

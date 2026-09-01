@@ -34,7 +34,7 @@ describe('全局参数（game-config）', () => {
         expect(GAME_CONFIG.academyLv1Cost).toBe(200);
         expect(GAME_CONFIG.academyLv2Cost).toBe(400);
         expect(GAME_CONFIG.researchBaseCost).toBe(400);
-        expect(GAME_CONFIG.researchCostGrowth).toBeCloseTo(1.15, 5);
+        expect(GAME_CONFIG.researchCostGrowth).toBeCloseTo(1.25, 5);
         expect(GAME_CONFIG.researchAtkBonus).toBeCloseTo(0.08, 5);
         expect(GAME_CONFIG.eliteBountyMult['2']).toBe(1.5);
         expect(GAME_CONFIG.eliteBountyMult['3']).toBe(2);
