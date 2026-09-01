@@ -35,3 +35,5 @@
 - 信息面板字体布局二次重构（用户反馈：整体字体布局不协调）：根因是 mkLabel 固定 260 宽居中锚点但各标签 x 坐标散乱导致无对齐基准；改为对齐参数化（left/right/center 锚点+horizontalAlign），标题/阵营左对齐 x=-58、HP 数字右对齐、状态两行拆成左右两栏（左栏 x=-105 左对齐、右栏 x=105 右对齐），形成整齐信息层级；修改了 assets/scripts/presentation/entity-info-panel.ts
 - 选中圈重做（用户反馈：选中单位要有能包裹单位的红色圈圈）：旧版实心绿盘 62px 被压扁成椭圆且偏小；改为 Graphics 空心红环（3px 实线 255,80,80 + 9px 半透明外光环），正圆呼吸脉冲不压扁，尺寸按实体类型包裹（单位 r26/塔 r30/建筑 r38/水晶 r52），贴地偏移按体积调整；修改了 assets/scripts/presentation/entity-info-panel.ts
 - 浏览器实测：水晶/塔/单位三种实体的红色空心选中圈均包裹到位、面板两栏对齐，4 项全部 PASS；全量 124 用例通过后提交
+- 选中圈改贴地椭圆（用户反馈：椭圆形更好、贴中单位底部）：正圆改 Graphics.ellipse 空心椭圆环，尺寸按实体类型（单位 22×8 / 塔 26×10 / 建筑 34×12 / 水晶 46×16），贴地偏移与 game-view 的 SideRing 脚位（-0.42h）对齐；修改了 assets/scripts/presentation/entity-info-panel.ts
+- 浏览器实测：水晶/单位选中圈均为贴地红色空心椭圆环，不悬空不遮脸，3 项 PASS；全量 124 用例通过后提交

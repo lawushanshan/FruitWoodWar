@@ -114,23 +114,24 @@ export class EntityInfoPanel {
         }
     }
 
-    /** 选中圈贴地偏移：按实体类型让红环套在单位脚底 */
+    /** 选中圈贴地偏移：椭圆环套在实体脚底（与 game-view 的 SideRing 脚位 -0.42h 对齐） */
     private ringYOff(): number {
         const t = this.target;
-        if (!t) return 10;
-        if (t.kind === 'unit') return 10;      // 单位立绘约 40px 高，圈套脚底
-        if (t.kind === 'crystal') return 22;   // 水晶体积大
-        return 20;                             // 建筑/塔
+        if (!t) return 14;
+        if (t.kind === 'unit') return 14;      // 单位立绘 30~38px，脚底 ≈ -0.42h
+        if (t.kind === 'crystal') return 34;   // 水晶 80px 立绘
+        if (t.kind === 'tower') return 22;
+        return 26;                             // 建筑
     }
 
-    /** 选中圈半径：按实体类型包裹（单位 26 / 建筑 38 / 塔 30 / 水晶 52） */
-    private ringRadius(): number {
+    /** 选中圈椭圆尺寸（rx, ry）：按实体类型包裹脚底 */
+    private ringSize(): { rx: number; ry: number } {
         const t = this.target;
-        if (!t) return 26;
-        if (t.kind === 'unit') return 26;
-        if (t.kind === 'building') return 38;
-        if (t.kind === 'tower') return 30;
-        return 52;
+        if (!t) return { rx: 22, ry: 8 };
+        if (t.kind === 'unit') return { rx: 22, ry: 8 };
+        if (t.kind === 'building') return { rx: 34, ry: 12 };
+        if (t.kind === 'tower') return { rx: 26, ry: 10 };
+        return { rx: 46, ry: 16 };             // 水晶
     }
 
     // ==================== 内部 ====================
@@ -366,21 +367,21 @@ export class EntityInfoPanel {
         this.ring = ring;
     }
 
-    /** 绘制选中圈：醒目红色空心环（3px 实线）+ 外圈半透明光环，尺寸按实体类型包裹 */
+    /** 绘制选中圈：醒目红色空心椭圆环（贴地包裹，RTS 选中感）+ 外圈半透明光环 */
     private drawRing() {
         const g = this.ringG;
         if (!g) return;
-        const r = this.ringRadius();
+        const { rx, ry } = this.ringSize();
         g.clear();
         // 外圈半透明光环（更宽更淡，增强"选中"辨识度）
         g.strokeColor = new Color(255, 80, 80, 70);
         g.lineWidth = 9;
-        g.circle(0, 0, r + 4);
+        g.ellipse(0, 0, rx + 4, ry + 3);
         g.stroke();
         // 内圈实线红环
         g.strokeColor = new Color(255, 80, 80, 235);
         g.lineWidth = 3;
-        g.circle(0, 0, r);
+        g.ellipse(0, 0, rx, ry);
         g.stroke();
     }
 
