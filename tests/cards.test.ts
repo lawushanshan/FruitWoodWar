@@ -34,6 +34,21 @@ describe('卡牌系统', () => {
         expect(engine.state.gold.red).toBe(goldBefore);
     });
 
+    it('debugTriggerCardChoice：QA 调试入口走真实抽牌与暂停路径', () => {
+        const engine = makeEngine();
+        // 开局（第 1 波，非触发波次）直接调试触发
+        expect(engine.debugTriggerCardChoice()).toBe(true);
+        expect(engine.state.phase).toBe('card-pause');
+        expect(engine.state.cards.offers.length).toBe(3);
+        // 有待选卡牌时不可重复触发；选卡后恢复 playing 可再次触发
+        expect(engine.debugTriggerCardChoice()).toBe(false);
+        const pick = engine.state.cards.offers[0].id;
+        expect(engine.execute({ type: 'choose-card', cardId: pick }).ok).toBe(true);
+        expect(engine.state.phase).toBe('playing');
+        expect(engine.debugTriggerCardChoice()).toBe(true);
+        expect(engine.state.cards.offers.length).toBe(3);
+    });
+
     it('选卡后恢复对战且备选清空', () => {
         const engine = makeEngine();
         writableState(engine).crystals.forEach(c => { c.hp = 1e9; c.maxHp = 1e9; });

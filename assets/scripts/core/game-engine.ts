@@ -16,7 +16,7 @@ import { stepEconomy } from './systems/economy-system';
 import { stepWaveTimer } from './systems/wave-system';
 import { stepSpawners } from './systems/spawn-system';
 import { stepCombat, cleanupDead } from './systems/combat-system';
-import { triggerCardChoiceIfDue, chooseCard, stepTempBuffs } from './systems/card-system';
+import { triggerCardChoiceIfDue, chooseCard, stepTempBuffs, drawOffers } from './systems/card-system';
 import { aiDecide, evaluateComeback, snapshotPlayerComposition } from './systems/ai-system';
 import { tryBuild, tryResearch, tryUpgrade, tryShield } from './systems/building-system';
 import { stepVictory } from './systems/victory-system';
@@ -55,6 +55,19 @@ export class GameEngine {
         const out = this._fxQueue;
         this._fxQueue = [];
         return out;
+    }
+
+    /**
+     * QA 调试：无视波次立即触发一次选卡（?fww_card 调试参数用）。
+     * 走与正常触发完全相同的 drawOffers + card-pause 路径，表现层经 phase 看门自动弹出面板。
+     */
+    debugTriggerCardChoice(): boolean {
+        const s = this._state;
+        if (s.phase !== 'playing' || s.disableCards) return false;
+        if (s.cards.offers.length > 0) return false; // 已有待选卡牌，避免重复触发
+        drawOffers(s, this.random);
+        s.phase = 'card-pause';
+        return true;
     }
 
     /** 推进一帧（仅在 playing 阶段生效） */

@@ -39,8 +39,9 @@ export function triggerCardChoiceIfDue(state: GameState, random: RandomSource): 
  * 联机一致性（aiEnabled=false）：卡池 = 双方阵营卡池的并集（排序去重），
  * 保证双端 offers 完全相同——否则红蓝引擎各按自己阵营抽卡，
  * 选卡命令无法在对端 offers 中命中（chooseCard 查 offers 会失败）。
+ * 导出供引擎 debugTriggerCardChoice（QA 调试参数 ?fww_card）复用。
  */
-function drawOffers(state: GameState, random: RandomSource): void {
+export function drawOffers(state: GameState, random: RandomSource): void {
     const mine = CARD_CONFIG[state.factions[state.playerSide]] ?? [];
     let candidates = mine;
     if (!state.aiEnabled) {

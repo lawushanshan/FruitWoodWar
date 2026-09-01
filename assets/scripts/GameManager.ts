@@ -1041,6 +1041,14 @@ export class GameManager extends Component {
 
         // 启动新手引导（首局玩家）
         this.tutorial.checkAndStart();
+
+        // QA 调试参数：?fww_card 开局 1 秒后触发一次真实选卡流程（引擎 debug 方法 +
+        // phase 看门自动弹出面板），不影响正常对局的第 5/10/15 波触发
+        try {
+            if (typeof location !== 'undefined' && new URLSearchParams(location.search).has('fww_card')) {
+                this.scheduleOnce(() => this.engine.debugTriggerCardChoice(), 1.0);
+            }
+        } catch { /* 非 H5 环境静默跳过 */ }
     }
 
     // ==================== 联机对战（P1：好友房创建/加入） ====================

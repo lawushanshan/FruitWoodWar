@@ -10,7 +10,7 @@
  */
 
 import {
-    Node, Label, Color, UITransform, Size, Vec2, Button, EventHandler, Sprite, HorizontalTextAlignment, UIOpacity,
+    Node, Label, Color, UITransform, Size, Vec2, Vec3, Button, EventHandler, Sprite, HorizontalTextAlignment, UIOpacity, tween,
 } from 'cc';
 import { ColorSpriteFactory } from './color-sprite-factory';
 import { ArtLibrary } from './art-library';
@@ -212,11 +212,16 @@ export class PanelController {
             this.cardSubLabel.string = getCardPanelSubtitle(state);
         }
 
-        // 创建卡牌节点
+        // 创建卡牌节点（依次弹入：卡牌游戏标配的开箱感，每张延迟 0.07s）
         state.cards.offers.forEach((card, i) => {
             const cardNode = this.createCardNode(card, i);
             cardNode.parent = this.cardPanel;
             cardNode.setPosition(-220 + i * 220, 0, 0);
+            cardNode.setScale(0, 0, 0);
+            tween(cardNode)
+                .delay(i * 0.07)
+                .to(0.32, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' })
+                .start();
         });
     }
 
@@ -855,8 +860,8 @@ export class PanelController {
         // 背景（卡牌底板九宫格；v1.8 移除纯色稀有度外框，观感更干净）
         const bg = this.makePanelBg(node, 'ui/ui_panel_card', 200, 260, new Color(30, 42, 54));
 
-        // 稀有度底部分隔色条（120×4，代替整圈色框提示稀有度）
-        const accent = this.spriteFactory.createColorNode(rarityColor.clone(), 120, 4);
+        // 稀有度底部分隔色条（140×4，代替整圈色框提示稀有度）
+        const accent = this.spriteFactory.createColorNode(rarityColor.clone(), 140, 4);
         accent.parent = node;
         accent.setPosition(0, -110, 0);
         const accentOpacity = accent.getComponent(UIOpacity) ?? accent.addComponent(UIOpacity);
@@ -875,7 +880,7 @@ export class PanelController {
         // 名称
         this.makeLabel(card.name, 0, 4, Color.WHITE, node, 20);
 
-        // 描述：固定宽度自动换行 + 水平居中（v1.8：不再单行溢出卡面）
+        // 描述：固定宽度自动换行 + 水平居中（提亮一档，与深底对比更清晰）
         const descNode = new Node('CardDesc');
         descNode.layer = this.gmNode.layer;
         descNode.parent = node;
@@ -886,14 +891,14 @@ export class PanelController {
         desc.string = card.desc;
         desc.fontSize = 13;
         desc.lineHeight = 19;
-        desc.color = new Color(170, 190, 205);
+        desc.color = new Color(192, 210, 224);
         desc.overflow = Label.Overflow.RESIZE_HEIGHT;
         desc.horizontalAlign = HorizontalTextAlignment.CENTER;
         descNode.setPosition(0, -18, 0);
 
-        // 稀有度标签
+        // 稀有度标签：底部色条下方居中（原右上角易与立绘打架，底部与色条成组更规整）
         const rarNames: Record<string, string> = { rare: '稀有', epic: '史诗', legendary: '传说' };
-        this.makeLabel(rarNames[card.rarity] || '普通', 58, 108, rarityColor, node, 12);
+        this.makeLabel(rarNames[card.rarity] || '普通', 0, -124, rarityColor, node, 13);
 
         // 点击
         const button = node.addComponent(Button);

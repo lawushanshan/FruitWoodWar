@@ -17,6 +17,7 @@ import { ColorSpriteFactory, Shape } from './color-sprite-factory';
 import { NodePool } from './node-pool';
 import { setUniformScale } from './scale-helper';
 import { BUILDING_CONFIG } from '../config/building-config';
+import { UNIT_CONFIG } from '../config/unit-config';
 import { ArtLibrary } from './art-library';
 import type { GameState, Side, UnitType, UnitState, FactionId } from '../core/types';
 
@@ -93,9 +94,9 @@ export class GameView {
     private unitOffsets: Map<string, { x: number; y: number }> = new Map();
     /** id → 插值后的渲染位置（联机锁步 10Hz 帧间平滑，消除阶梯卡顿） */
     private unitRenderPos: Map<string, { x: number; y: number }> = new Map();
-    /** id → 程序动画状态（随机相位 + 上帧位置，用于移动检测；lunge 为近战冲锋动作） */
+    /** id → 程序动画状态（随机相位 + 上帧位置；movingHold 行走保持；walkBlend 行走/待机平滑过渡；lunge 近战冲锋动作） */
     private unitAnim: Map<string, {
-        phase: number; lastX: number; lastY: number; movingHold: number;
+        phase: number; lastX: number; lastY: number; movingHold: number; walkBlend: number;
         lunge: { t: number; dur: number; ox: number; oy: number } | null;
     }> = new Map();
     /** 程序动画累计时间 */
@@ -369,7 +370,7 @@ export class GameView {
                 // 程序动画初始状态（随机相位：避免全场整齐划一地浮动）
                 this.unitAnim.set(u.id, {
                     phase: Math.random() * Math.PI * 2,
-                    lastX: u.x, lastY: u.y, movingHold: 0,
+                    lastX: u.x, lastY: u.y, movingHold: 0, walkBlend: 0,
                     lunge: null,
                 });
             }
@@ -432,20 +433,41 @@ export class GameView {
                 if (body) {
                     // 蓝方立绘 scaleX=-1，挤压拉伸必须保留翻转方向
                     const dirX = u.side === 'blue' ? -1 : 1;
-                    if (moving) {
-                        const t = this.animTime * Math.PI * 2 * 8 + anim.phase; // 8Hz 行走弹跳
-                        body.setPosition(lungeX, Math.abs(Math.sin(t)) * 3 + lungeY, 0);
-                        // 前倾 4°（朝进攻方向）+ 步伐滚动 ±2.5°，走路更有动势
-                        body.angle = Math.sin(t) * 2.5 + dirX * 4;
-                        // 挤压拉伸（squash & stretch）：腾空拉长、落地压扁，Q 版弹性
-                        const k = Math.sin(t);
-                        body.setScale(dirX * (1 - k * 0.05), 1 + k * 0.05, 1);
-                    } else {
-                        const t = this.animTime * Math.PI + anim.phase; // 2s 周期待机浮动
-                        body.setPosition(lungeX, Math.sin(t) * 3 + lungeY, 0);
-                        body.angle = lungeX !== 0 || lungeY !== 0 ? dirX * 4 : 0; // 冲锋瞬间保留前倾
-                        body.setScale(dirX, 1, 1); // 恢复正常比例（仅蓝方保留翻转）
-                    }
+
+                    // 行走/待机平滑过渡：直接硬切换会跳相位（弹跳高度/角度突变），
+                    // 用 walkBlend 0..1 以约 0.12s 指数趋近，动画参数按混合系数插值
+                    const blend = anim.walkBlend;
+                    anim.walkBlend += ((moving ? 1 : 0) - blend) * Math.min(1, dt * 8);
+
+                    // 步频匹配移速（游戏动画最佳实践：脚步动画节奏应与位移速度成正比，
+                    // 否则慢单位"滑步"、快单位"慢动作滑冰"）：siege 25 → 3.5Hz，rush 100 → 9Hz
+                    const speed = UNIT_CONFIG[u.type].speed;
+                    const freq = Math.min(10, Math.max(3.5, speed * 0.09));
+                    const bounceH = Math.min(3.4, Math.max(2, speed / 30)); // 弹跳高度随移速微调
+
+                    // 行走分量：弹跳 + 前倾 4° + 步幅滚动 ±2.5° + 挤压拉伸
+                    const tw = this.animTime * Math.PI * 2 * freq + anim.phase;
+                    const wk = Math.sin(tw);
+                    const walkY = Math.abs(wk) * bounceH;
+                    const walkAngle = wk * 2.5 + dirX * 4;
+                    const walkSx = 1 - wk * 0.05;
+                    const walkSy = 1 + wk * 0.05;
+
+                    // 待机分量：2.4s 周期浮动 ±3px + 呼吸缩放 ±1.5%（生命感）
+                    const ti = this.animTime * Math.PI * 2 / 2.4 + anim.phase;
+                    const idleY = Math.sin(ti) * 3;
+                    const breathe = 1 + Math.sin(ti) * 0.015;
+                    const idleSx = 1 - (breathe - 1) * 0.6;
+
+                    // 混合输出（lunge 位移全额叠加，冲锋瞬间保留前倾）
+                    const lungeTilt = lungeX !== 0 || lungeY !== 0 ? dirX * 4 : 0;
+                    body.setPosition(lungeX, (idleY * (1 - blend) + walkY * blend) + lungeY, 0);
+                    body.angle = walkAngle * blend + lungeTilt * (1 - blend);
+                    body.setScale(
+                        dirX * (idleSx * (1 - blend) + walkSx * blend),
+                        breathe * (1 - blend) + walkSy * blend,
+                        1,
+                    );
                 }
             }
 
