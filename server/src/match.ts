@@ -100,6 +100,11 @@ export class MatchMaker {
         }
     }
 
+    /** 对局结束/连接销毁：从 inRoom 索引释放玩家，允许重新匹配（防泄漏与"已在对局中"误报） */
+    release(connId: string) {
+        this.inRoom.delete(connId);
+    }
+
     onRoomClosed(roomId: string) {
         // 房间结束：允许玩家重新排队（connId 由 gateway 关联，此处仅占位钩子）
         void roomId;

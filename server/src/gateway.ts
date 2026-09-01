@@ -31,7 +31,12 @@ export class Gateway {
         this.rooms = new RoomManager({
             send: (connId, msg) => this.send(connId, msg),
             getConn: (connId) => this.conns.get(connId) ?? null,
-            onRoomEmpty: (roomId) => this.matcher.onRoomClosed(roomId),
+            onRoomEmpty: (roomId, redConnId, blueConnId) => {
+                this.matcher.onRoomClosed(roomId);
+                // 释放双方匹配索引，允许重新排队（防 inRoom 泄漏）
+                if (redConnId) this.matcher.release(redConnId);
+                if (blueConnId) this.matcher.release(blueConnId);
+            },
         });
 
         wss.on('connection', (ws) => {
@@ -48,14 +53,34 @@ export class Gateway {
                     this.send(conn.id, { t: 'error', msg: 'bad json' });
                     return;
                 }
-                this.route(conn, msg);
+                try {
+                    this.route(conn, msg);
+                } catch (err) {
+                    // 单条消息处理异常不应拖垮整个服务进程
+                    console.error(`[gateway] route error (conn=${conn.id}):`, err);
+                }
             });
 
-            ws.on('close', () => {
-                this.conns.delete(conn.id);
-                this.matcher.leaveQueue(conn.id);
-                if (conn.roomId) this.rooms.onLeave(conn.roomId, conn.id);
+            // 客户端异常断开（TCP RST 等）会触发 error 事件；
+            // 无监听器会抛未捕获异常导致进程崩溃，必须就地消化并按掉线清理
+            ws.on('error', (err) => {
+                console.warn(`[gateway] conn ${conn.id} error: ${err.message}`);
             });
+
+            ws.on('close', () => this.dropConn(conn));
+        });
+
+        // ws 服务器级错误（端口占用等）：只记日志，避免崩溃
+        wss.on('error', (err) => {
+            console.error('[gateway] server error:', err);
+        });
+
+        // 进程级兜底：任何遗漏的异常/拒绝只记日志，服务保持存活（防长时间运行后僵死）
+        process.on('uncaughtException', (err) => {
+            console.error('[gateway] uncaughtException:', err);
+        });
+        process.on('unhandledRejection', (reason) => {
+            console.error('[gateway] unhandledRejection:', reason);
         });
 
         // 心跳：30s 探测，失联连接清理
@@ -63,9 +88,7 @@ export class Gateway {
             for (const conn of this.conns.values()) {
                 if (!conn.alive) {
                     conn.ws.terminate();
-                    this.conns.delete(conn.id);
-                    this.matcher.leaveQueue(conn.id);
-                    if (conn.roomId) this.rooms.onLeave(conn.roomId, conn.id);
+                    this.dropConn(conn);
                     continue;
                 }
                 conn.alive = false;
@@ -74,6 +97,14 @@ export class Gateway {
         }, 30_000);
 
         console.log(`[gateway] ws listening on :${port}`);
+    }
+
+    /** 统一掉线清理：移除连接、退出队列、离开房间 */
+    private dropConn(conn: ClientConn) {
+        this.conns.delete(conn.id);
+        this.matcher.leaveQueue(conn.id);
+        this.matcher.release(conn.id);
+        if (conn.roomId) this.rooms.onLeave(conn.roomId, conn.id);
     }
 
     private route(conn: ClientConn, msg: ClientMessage) {

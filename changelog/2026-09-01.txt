@@ -14,3 +14,12 @@
 - 接入 UI 图标素材（ico_star/ico_up/ico_lock）替换面板 emoji：新增 makeArtIcon（贴图优先/emoji 兜底）、buildStarsRow/updateStarsRow 通用星标行 helper；升级面板文字星号改为三颗星图标行（Lv2 亮一颗/Lv3 亮两颗），升级按钮"⬆ 升级"改为图标+文字组合，Lv2 无学院锁定时按钮显示 ico_lock 锁定角标；结算面板星级从文本行改为独立星标行（按星级点亮，服务器判定分支灰星）；修改了 assets/scripts/presentation/panel-controller.ts
 - 浏览器实测验证升级面板：木纹面板、灰暗星行、绿色升级按钮+箭头图标、标题完整显示，效果符合预期
 - 全量测试 117 条通过后提交
+- 新增 HUD 静音按钮（右上角 🔊/🔇 切换）：复用 AudioManager 既有 setMuted/isMuted，静音状态经 localStorage（fww_muted）持久化，取消静音时播放 coin 音效确认；修改了 assets/scripts/presentation/hud-view.ts、assets/scripts/GameManager.ts
+- 新手引导接入手势动画：showHand 使用 ico_hand 贴图（缺失回退 👇 emoji）做 0.45s 脉冲缩放，指向底部建造栏；引导各步骤显示/隐藏手势；修改了 assets/scripts/presentation/tutorial-controller.ts
+- 修复 ws 服务器长时间运行后僵死/崩溃问题（三处）：
+  1) gateway 连接无 'error' 监听器，客户端异常断网（TCP RST）抛未捕获异常导致进程崩溃；现补齐连接级 error 处理、服务器级 error 处理与进程级 uncaughtException/unhandledRejection 兜底，消息路由异常就地消化
+  2) MatchMaker.inRoom 永不清理，对局结束后玩家残留造成内存泄漏且"已在对局中"误报；新增 release() 方法，房间销毁（onRoomEmpty 回调携带双方 connId）与连接掉线时统一释放
+  3) RoomManager 双方都断线时第二个断线会重置 leftSince/leftConn，房间多挂 15 秒且胜负可能误判；改为对方已离场时立即按先走者判负结算
+- 统一掉线清理路径：gateway 心跳清理与 close 事件共用 dropConn（移除连接+退队列+release+离房）
+- 新增 tests/server-stability.test.ts（7 条用例）：覆盖匹配索引释放、双方断线立即结算、单方断线 15 秒宽限、rejoinToken 失效、roomId 清理、倒计时阶段断线结算
+- 全量测试 16 个文件、124 条用例通过；服务器冒烟启动正常；tsc --noEmit 无错误

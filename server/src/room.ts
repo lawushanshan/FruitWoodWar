@@ -19,7 +19,8 @@ type Phase = 'matching' | 'countdown' | 'playing' | 'ended';
 interface RoomOpts {
     send: (connId: string, msg: unknown) => void;
     getConn: (connId: string) => { roomId: string | null } | null;
-    onRoomEmpty: (roomId: string) => void;
+    /** 房间销毁：携带双方 connId 供上层释放匹配索引 */
+    onRoomEmpty: (roomId: string, redConnId: string | null, blueConnId: string | null) => void;
 }
 
 const FRAME_MS = 100;
@@ -226,6 +227,13 @@ export class RoomManager {
         if (conn) conn.roomId = null;
 
         if (room.phase === 'playing') {
+            // 对方已先离场（双方都断线）：无需再等宽限，直接按先走者判负结算，
+            // 避免 leftSince 被第二个断线重置导致房间多挂 15 秒
+            if (room.leftConn !== null) {
+                const winner: Side = room.conns.red === room.leftConn ? 'blue' : 'red';
+                this.finish(roomId, winner, 'surrender');
+                return;
+            }
             room.leftConn = connId;
             room.leftSince = Date.now();
             const opp = side === 'red' ? room.conns.blue : room.conns.red;
@@ -260,7 +268,7 @@ export class RoomManager {
             this.rejoinIndex.delete(room.rejoinTokens.red);
             this.rejoinIndex.delete(room.rejoinTokens.blue);
         }
-        this.opts.onRoomEmpty(roomId);
+        this.opts.onRoomEmpty(roomId, room.conns.red, room.conns.blue);
         console.log(`[room ${roomId}] finished: winner=${winner} reason=${reason}`);
     }
 }
