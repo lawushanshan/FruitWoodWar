@@ -210,36 +210,45 @@ export class BattleEffects {
         }
     }
 
-    /** 爆闪火光：AOE 落点橙黄爆光（fx_boom 程序圆兜底）；曲线封顶 1.4×，避免炸糊半屏 */
-    playBoom(x: number, y: number) {
+    /**
+     * 爆闪火光：AOE 落点爆光（fx_boom 程序圆兜底）。
+     * 最佳实践：爆闪直径应诚实反映伤害范围——封顶为伤害半径 ×0.7（约 52px @radius75），
+     * 且只作"亮核"，范围提示交给 playRangeEffect 的细环，两层不再各自放大糊屏。
+     * @param finalDiameter 爆闪最终显示直径（px）
+     */
+    playBoom(x: number, y: number, finalDiameter: number = 56) {
         let node: Node;
         let poolKey = 'boom';
         const fxNode = this.makeFxNode('fx/fx_boom', 72, new Color(255, 255, 255));
+        let baseSize: number;
         if (fxNode) {
             node = fxNode;
             poolKey = 'fx_boom';
+            baseSize = 72;
         } else {
             node = this.pool.acquire('boom', () =>
                 this.spriteFactory.createColorNode(new Color(255, 180, 70, 220), 50, 50, 'circle'),
             );
+            baseSize = 50;
         }
+        const endScale = Math.max(0.4, finalDiameter / baseSize);
         node.parent = this.container;
         node.setPosition(x, y, 0);
         node.active = true;
-        setUniformScale(node, 0.5);
+        setUniformScale(node, 0.45);
         const opacity = node.getComponent(UIOpacity);
-        if (opacity) opacity.opacity = 230;
+        if (opacity) opacity.opacity = 190;
 
         this.push({
-            node, elapsed: 0, duration: 0.26,
-            type: 'boom', startX: x, startY: y, origScale: 1.4,
+            node, elapsed: 0, duration: 0.24,
+            type: 'boom', startX: x, startY: y, origScale: endScale,
             dx: 0, dy: 0,
         }, poolKey);
     }
 
     /** 范围溅射表现：以目标为圆心的扩散环（AOE / 防御塔溅射）；优先 fx_ring 贴图 */
     playRangeEffect(x: number, y: number, radius: number, side: 'red' | 'blue') {
-        // 环只作为“落点冲击”提示，不等同完整伤害半径：缩至 0.6× 并降透明度，避免喧宾夺主
+        // 环是"伤害范围"的唯一提示层：缩至 0.6× 保持克制，低透明度避免与爆闪叠加糊屏
         const color = side === 'red' ? new Color(255, 170, 100, 140) : new Color(100, 180, 255, 140);
         let node: Node;
         let poolKey = 'range';
@@ -257,7 +266,7 @@ export class BattleEffects {
         node.active = true;
         setUniformScale(node, 0.4);
         const opacity = node.getComponent(UIOpacity);
-        if (opacity) opacity.opacity = 120;
+        if (opacity) opacity.opacity = 90;
 
         // 目标缩放 = 基准 40px × (radius/40) × 0.6
         this.push({

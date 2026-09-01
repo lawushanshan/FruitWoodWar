@@ -432,27 +432,28 @@ export class GameManager extends Component {
                         this.battleEffects.playImpact(e.x, e.y, e.side);
                         break;
                     case 'ranged':
-                        // 轻快感：快箭 + 小命中
-                        this.battleEffects.playProjectile(sx, sy, e.x, e.y, e.side, 'fx/fx_arrow', 0.1);
+                        // 轻快感：细箭（18px，贴合肥身比例）+ 小命中
+                        this.battleEffects.playProjectile(sx, sy, e.x, e.y, e.side, 'fx/fx_arrow', 0.09, 18);
                         this.battleEffects.playImpact(e.x, e.y, e.side);
                         break;
                     case 'aoe':
-                        // 法球（加大加亮便于辨识）飞抵，落点爆光由 aoe 事件在弹道落地后补
-                        this.battleEffects.playProjectile(sx, sy, e.x, e.y, e.side, 'fx/fx_bolt', 0.22, 40);
+                        // 法球（30px 辉光球）飞抵，落点爆光由 aoe 事件在弹道落地后补
+                        this.battleEffects.playProjectile(sx, sy, e.x, e.y, e.side, 'fx/fx_bolt', 0.22, 30);
                         break;
                     case 'siege':
-                        // 笨重感：大颗慢速巨石（加大便于辨识）+ 落地碎石
-                        this.battleEffects.playProjectile(sx, sy, e.x, e.y, e.side, 'fx/fx_boulder', 0.3, 48);
-                        this.battleEffects.playDebrisBurst(e.x, e.y, 5);
+                        // 笨重感：慢速巨石（40px，与 30px 单位成比例）+ 落地碎石
+                        this.battleEffects.playProjectile(sx, sy, e.x, e.y, e.side, 'fx/fx_boulder', 0.3, 40);
+                        this.battleEffects.playDebrisBurst(e.x, e.y, 4);
                         break;
                     default:
                         this.battleEffects.playImpact(e.x, e.y, e.side);
                 }
             } else if (e.type === 'aoe') {
-                // AOE 落点：等法球(0.22s)飞抵后再扩散环+爆光，避免爆炸抢在弹道前出现
+                // AOE 落点：等法球(0.22s)飞抵后再爆闪+范围环，保持"弹道落地才炸"的同步感。
+                // 最佳实践：亮核（爆闪 = 伤害半径×0.7）+ 细环（范围提示）两层分工，不再各自放大
                 this.battleEffects.schedule(0.22, () => {
                     this.battleEffects.playRangeEffect(e.x, e.y, e.radius, e.side);
-                    this.battleEffects.playBoom(e.x, e.y);
+                    this.battleEffects.playBoom(e.x, e.y, e.radius * 0.7);
                 });
             } else if (e.type === 'tower') {
                 // 塔攻击：弹道飞抵(0.12s)后目标处溅射环，保持同步
