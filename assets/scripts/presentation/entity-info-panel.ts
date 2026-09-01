@@ -10,7 +10,7 @@
  *  - 己方工厂点击仍走升级面板（原有交互），此处只补足其余实体的查看
  */
 
-import { Node, Label, Color, UITransform, Size, Vec2, Sprite } from 'cc';
+import { Node, Label, Color, UITransform, Size, Vec2, Sprite, Graphics, HorizontalTextAlignment } from 'cc';
 import { ColorSpriteFactory } from './color-sprite-factory';
 import { ArtLibrary } from './art-library';
 import { UNIT_CONFIG } from '../config/unit-config';
@@ -56,9 +56,14 @@ export class EntityInfoPanel {
     private sideLabel: Label | null = null;
     private hpFill: Node | null = null;
     private hpText: Label | null = null;
-    private statsL1: Label | null = null;
-    private statsL2: Label | null = null;
+    /** 状态两行 × 左右两栏（左：标签左对齐；右：数值右对齐，形成整齐信息层级） */
+    private statsL1a: Label | null = null;
+    private statsL1b: Label | null = null;
+    private statsL2a: Label | null = null;
+    private statsL2b: Label | null = null;
     private fxLabel: Label | null = null;
+    /** 选中圈 Graphics 绘制器（空心红环，替代旧版实心压扁圆） */
+    private ringG: Graphics | null = null;
 
     private ui: Node;
     private field: Node;
@@ -83,6 +88,7 @@ export class EntityInfoPanel {
         this.target = t;
         this.createOnce();
         if (this.panel) this.panel.active = true;
+        this.drawRing();
         this.refresh(state);
     }
 
@@ -99,14 +105,32 @@ export class EntityInfoPanel {
         const pos = this.resolve(state);
         if (!pos) { this.hide(); return; }   // 实体已消失
         this.refresh(state);
-        this.setRingColor(pos.side);
-        // 选中圈跟随 + 呼吸脉冲
+        // 选中圈跟随 + 呼吸脉冲（正圆，不压扁）
         if (this.ring) {
             this.ring.active = true;
-            this.ring.setPosition(pos.x, pos.y - 12, 0);
+            this.ring.setPosition(pos.x, pos.y - this.ringYOff(), 0);
             const pulse = 1 + Math.sin(this.time * 5) * 0.08;
-            this.ring.setScale(pulse, pulse * 0.38, 1);
+            this.ring.setScale(pulse, pulse, 1);
         }
+    }
+
+    /** 选中圈贴地偏移：按实体类型让红环套在单位脚底 */
+    private ringYOff(): number {
+        const t = this.target;
+        if (!t) return 10;
+        if (t.kind === 'unit') return 10;      // 单位立绘约 40px 高，圈套脚底
+        if (t.kind === 'crystal') return 22;   // 水晶体积大
+        return 20;                             // 建筑/塔
+    }
+
+    /** 选中圈半径：按实体类型包裹（单位 26 / 建筑 38 / 塔 30 / 水晶 52） */
+    private ringRadius(): number {
+        const t = this.target;
+        if (!t) return 26;
+        if (t.kind === 'unit') return 26;
+        if (t.kind === 'building') return 38;
+        if (t.kind === 'tower') return 30;
+        return 52;
     }
 
     // ==================== 内部 ====================
@@ -152,8 +176,8 @@ export class EntityInfoPanel {
                 this.sideLabel.color = sideColor(u.side);
             }
             this.setHp(u.hp, u.maxHp, u.shield);
-            if (this.statsL1) this.statsL1.string = `攻击 ${Math.round(u.atk)}    攻速 ${u.atkSpeed.toFixed(1)}/秒`;
-            if (this.statsL2) this.statsL2.string = `射程 ${Math.round(u.range)}    移速 ${Math.round(u.speed)}`;
+            this.setStats('攻击', `${Math.round(u.atk)}`, '攻速', `${u.atkSpeed.toFixed(1)}/秒`);
+            this.setStats2('射程', `${Math.round(u.range)}`, '移速', `${Math.round(u.speed)}`);
             this.setFx(u);
         } else if (t.kind === 'building') {
             const b = state.buildings.find(e => e.id === t.id);
@@ -172,15 +196,12 @@ export class EntityInfoPanel {
                 this.sideLabel.color = sideColor(b.side);
             }
             this.setHp(b.hp, b.maxHp, 0);
-            if (this.statsL1) {
-                this.statsL1.string = isFactory && b.unitType !== null
-                    ? `产出 ${BUILDING_CONFIG[b.unitType].icon}${BUILDING_CONFIG[b.unitType].name} ×${UNIT_CONFIG[b.unitType].unitsPerWave}/波`
-                    : '解锁 Lv3 工厂与全军强化';
+            if (isFactory && b.unitType !== null) {
+                this.setStats('产出', `${BUILDING_CONFIG[b.unitType].icon}${BUILDING_CONFIG[b.unitType].name}`, '每波', `×${UNIT_CONFIG[b.unitType].unitsPerWave}`);
+            } else {
+                this.setStats('效果', '解锁 Lv3 工厂', '', '');
             }
-            if (this.statsL2) {
-                this.statsL2.string = b.side === state.playerSide && isFactory
-                    ? '提示：点击己方工厂可升级' : '被拆后停止产出';
-            }
+            this.setStats2('提示', b.side === state.playerSide && isFactory ? '点击己方工厂可升级' : '被拆后停止产出', '', '');
             if (this.fxLabel) { this.fxLabel.string = ''; this.fxLabel.node.active = false; }
         } else if (t.kind === 'tower') {
             const w = state.towers.find(e => e.id === t.id);
@@ -195,8 +216,8 @@ export class EntityInfoPanel {
                 this.sideLabel.color = sideColor(w.side);
             }
             this.setHp(w.hp, w.maxHp, 0);
-            if (this.statsL1) this.statsL1.string = `攻击 ${w.atk}    射程 ${w.range}`;
-            if (this.statsL2) this.statsL2.string = w.kind === 'aura' ? '全体我方攻速 +15%' : '攻击附带范围溅射';
+            this.setStats('攻击', `${w.atk}`, '射程', `${w.range}`);
+            this.setStats2('特性', w.kind === 'aura' ? '全体我方攻速 +15%' : '攻击附带范围溅射', '', '');
             if (this.fxLabel) { this.fxLabel.string = ''; this.fxLabel.node.active = false; }
         } else {
             const c = state.crystals.find(e => e.side === t.side);
@@ -209,8 +230,8 @@ export class EntityInfoPanel {
                 this.sideLabel.color = sideColor(c.side);
             }
             this.setHp(c.hp, c.maxHp, 0);
-            if (this.statsL1) this.statsL1.string = '水晶被拆即失败';
-            if (this.statsL2) this.statsL2.string = c.side === state.playerSide ? '守住你的水晶！' : '推平它！';
+            this.setStats('目标', '水晶被拆即失败', '', '');
+            this.setStats2('口号', c.side === state.playerSide ? '守住你的水晶！' : '推平它！', '', '');
             if (this.fxLabel) { this.fxLabel.string = ''; this.fxLabel.node.active = false; }
         }
     }
@@ -257,6 +278,18 @@ export class EntityInfoPanel {
         }
     }
 
+    /** 状态第一行：左栏「标签+值」左对齐，右栏「标签+值」右对齐 */
+    private setStats(aLabel: string, aValue: string, bLabel: string, bValue: string) {
+        if (this.statsL1a) this.statsL1a.string = aValue ? `${aLabel} ${aValue}` : aLabel;
+        if (this.statsL1b) this.statsL1b.string = bLabel ? `${bLabel} ${bValue}` : '';
+    }
+
+    /** 状态第二行：同上 */
+    private setStats2(aLabel: string, aValue: string, bLabel: string, bValue: string) {
+        if (this.statsL2a) this.statsL2a.string = aValue ? `${aLabel} ${aValue}` : aLabel;
+        if (this.statsL2b) this.statsL2b.string = bLabel ? `${bLabel} ${bValue}` : '';
+    }
+
     private setFx(u: { stunDur: number; slowDur: number; slowMult: number; bleedDur: number; bleedDps: number; shield: number }) {
         if (!this.fxLabel) return;
         const parts: string[] = [];
@@ -293,10 +326,10 @@ export class EntityInfoPanel {
             bg.parent = panel;
         }
 
-        // 名称（头像右侧，与头像同排）
-        this.nameLabel = this.mkLabel(panel, '', 16, 22, Color.WHITE, 14, 56);
-        // 敌我/阵营（名称下一行）
-        this.sideLabel = this.mkLabel(panel, '', 12, 18, new Color(159, 180, 196), 14, 34);
+        // 名称（头像右侧，与头像同排，左对齐）
+        this.nameLabel = this.mkLabel(panel, '', 16, 22, Color.WHITE, -58, 56, 'left');
+        // 敌我/阵营（名称下一行，左对齐）
+        this.sideLabel = this.mkLabel(panel, '', 12, 18, new Color(159, 180, 196), -58, 34, 'left');
 
         // 血条（左锚点填充；整体左移留出边框内边距，右端给 HP 数字让位）
         const barBg = this.spriteFactory.createColorNode(new Color(20, 20, 20, 220), 150, 10);
@@ -309,53 +342,64 @@ export class EntityInfoPanel {
         fut.anchorPoint = new Vec2(0, 0.5);
         fill.setPosition(-105, 6, 0);
         this.hpFill = fill;
-        this.hpText = this.mkLabel(panel, '', 12, 16, new Color(207, 227, 240), 78, 6);
+        this.hpText = this.mkLabel(panel, '', 12, 16, new Color(207, 227, 240), 78, 6, 'right');
 
-        // 属性行 ×2（水平居中）
-        this.statsL1 = this.mkLabel(panel, '', 13, 20, new Color(223, 233, 240), 0, -22);
-        this.statsL2 = this.mkLabel(panel, '', 13, 20, new Color(190, 205, 218), 0, -46);
+        // 状态两行 × 左右两栏：左栏左对齐（x=-105）、右栏右对齐（x=105），形成整齐信息层级
+        this.statsL1a = this.mkLabel(panel, '', 13, 20, new Color(223, 233, 240), -105, -22, 'left');
+        this.statsL1b = this.mkLabel(panel, '', 13, 20, new Color(223, 233, 240), 105, -22, 'right');
+        this.statsL2a = this.mkLabel(panel, '', 13, 20, new Color(190, 205, 218), -105, -46, 'left');
+        this.statsL2b = this.mkLabel(panel, '', 13, 20, new Color(190, 205, 218), 105, -46, 'right');
 
-        // 特效行
-        this.fxLabel = this.mkLabel(panel, '', 12, 16, new Color(130, 150, 168), 0, -70);
+        // 特效行（居中）
+        this.fxLabel = this.mkLabel(panel, '', 12, 16, new Color(130, 150, 168), 0, -70, 'center');
 
         this.panel = panel;
 
-        // ---- 选中圈（战场层，跟随实体） ----
-        const ring = this.spriteFactory.createColorNode(new Color(120, 255, 150, 220), 62, 62, 'circle');
-        ring.name = 'SelectionRing';
+        // ---- 选中圈（战场层，跟随实体）：Graphics 空心红环 + 半透明外光环，
+        //      按实体类型动态定尺寸，正圆不压扁，能"包裹"住单位 ----
+        const ring = new Node('SelectionRing');
+        ring.layer = this.gmNode.layer;
         ring.parent = this.field;
+        ring.addComponent(UITransform);
         ring.active = false;
-        // 外圈光环（更大更淡）
-        const halo = this.spriteFactory.createColorNode(new Color(120, 255, 150, 80), 82, 82, 'circle');
-        halo.parent = ring;
+        this.ringG = ring.addComponent(Graphics);
         this.ring = ring;
     }
 
-    /** 选中圈按敌我换色（show 后由 refresh/update 间接调用；在 resolve 后设置） */
-    setRingColor(side: Side) {
-        if (!this.ring) return;
-        const c = side === 'red' ? new Color(255, 120, 110, 220) : new Color(110, 170, 255, 220);
-        const sp = this.ring.getComponent(Sprite);
-        if (sp) sp.color = c;
-        const halo = this.ring.children[0];
-        if (halo) {
-            const hsp = halo.getComponent(Sprite);
-            if (hsp) hsp.color = new Color(c.r, c.g, c.b, 80);
-        }
+    /** 绘制选中圈：醒目红色空心环（3px 实线）+ 外圈半透明光环，尺寸按实体类型包裹 */
+    private drawRing() {
+        const g = this.ringG;
+        if (!g) return;
+        const r = this.ringRadius();
+        g.clear();
+        // 外圈半透明光环（更宽更淡，增强"选中"辨识度）
+        g.strokeColor = new Color(255, 80, 80, 70);
+        g.lineWidth = 9;
+        g.circle(0, 0, r + 4);
+        g.stroke();
+        // 内圈实线红环
+        g.strokeColor = new Color(255, 80, 80, 235);
+        g.lineWidth = 3;
+        g.circle(0, 0, r);
+        g.stroke();
     }
 
-    private mkLabel(parent: Node, text: string, fontSize: number, lh: number, color: Color, x: number, y: number): Label {
+    /** 创建标签。align：left 左边缘在 x、right 右边缘在 x、center 居中（默认） */
+    private mkLabel(parent: Node, text: string, fontSize: number, lh: number, color: Color,
+        x: number, y: number, align: 'left' | 'right' | 'center' = 'center'): Label {
         const node = new Node();
         node.layer = this.gmNode.layer;
         node.parent = parent;
         const ut = node.addComponent(UITransform);
-        ut.contentSize = new Size(260, lh + 4);
-        ut.anchorPoint = new Vec2(0.5, 0.5);
+        ut.contentSize = new Size(210, lh + 4);
+        ut.anchorPoint = align === 'left' ? new Vec2(0, 0.5) : align === 'right' ? new Vec2(1, 0.5) : new Vec2(0.5, 0.5);
         const label = node.addComponent(Label);
         label.string = text;
         label.fontSize = fontSize;
         label.color = color;
         label.lineHeight = lh;
+        label.horizontalAlign = align === 'left' ? HorizontalTextAlignment.LEFT
+            : align === 'right' ? HorizontalTextAlignment.RIGHT : HorizontalTextAlignment.CENTER;
         node.setPosition(x, y, 0);
         return label;
     }
