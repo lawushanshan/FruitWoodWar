@@ -116,6 +116,11 @@ export function researchCost(layers: number): number {
     return Math.round(GAME_CONFIG.researchBaseCost * Math.pow(GAME_CONFIG.researchCostGrowth, layers));
 }
 
+/** 水晶护盾当前次的价格（300 × 1.25^次数，问题 #5 金币出口） */
+export function shieldCost(layers: number): number {
+    return Math.round(GAME_CONFIG.shieldBaseCost * Math.pow(GAME_CONFIG.shieldCostGrowth, layers));
+}
+
 /** 找某阵营当前最便宜的兵工厂（供 AI 决策与测试使用） */
 export function cheapestFactoryId(faction: FactionId): UnitType {
     let best: UnitType = 'tank';

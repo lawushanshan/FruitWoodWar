@@ -84,6 +84,7 @@ export function createInitialState(options: StartOptions): GameState {
         tempBuffs: [],
         academyLevel: { red: 0, blue: 0 },
         researchLayers: { red: 0, blue: 0 },
+        shieldLayers: { red: 0, blue: 0 },
         comeback: { red: { streak: 0, active: false }, blue: { streak: 0, active: false } },
         cards: { offers: [], triggeredWaves: { 5: false, 10: false, 15: false }, usedCardIds: [] },
         stats: { kills: { red: 0, blue: 0 }, result: null },
@@ -94,9 +95,9 @@ export function createInitialState(options: StartOptions): GameState {
         disableCards: options.disableCards ?? false,
     };
 
-    // 双方大本营水晶（4000 血）
-    state.crystals.push({ id: 'crystal-red', side: 'red', x: -500, y: 0, hp: GAME_CONFIG.crystalHp, maxHp: GAME_CONFIG.crystalHp });
-    state.crystals.push({ id: 'crystal-blue', side: 'blue', x: 500, y: 0, hp: GAME_CONFIG.crystalHp, maxHp: GAME_CONFIG.crystalHp });
+    // 双方大本营水晶（4000 血，护盾默认关闭）
+    state.crystals.push({ id: 'crystal-red', side: 'red', x: -500, y: 0, hp: GAME_CONFIG.crystalHp, maxHp: GAME_CONFIG.crystalHp, shield: 0, shieldDur: 0 });
+    state.crystals.push({ id: 'crystal-blue', side: 'blue', x: 500, y: 0, hp: GAME_CONFIG.crystalHp, maxHp: GAME_CONFIG.crystalHp, shield: 0, shieldDur: 0 });
 
     // 双方基地各 2 座固定防御塔（未拆完前水晶不可被攻击）
     addBaseTowers(state, 'red');

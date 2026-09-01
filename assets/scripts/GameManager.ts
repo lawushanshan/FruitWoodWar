@@ -28,7 +28,7 @@ import { AudioManager } from './presentation/audio-manager';
 import { TutorialController } from './presentation/tutorial-controller';
 import { BattleEffects } from './presentation/battle-effects';
 import { EntityInfoPanel } from './presentation/entity-info-panel';
-import { makeBuildCommand, makeUpgradeCommand, makeResearchCommand, makeCardCommand } from './input/game-commands';
+import { makeBuildCommand, makeUpgradeCommand, makeResearchCommand, makeShieldCommand, makeCardCommand } from './input/game-commands';
 import { BUILDING_CONFIG } from './config/building-config';
 import { BUILD_GRID } from './config/build-grid';
 import { MAP_LAYOUT } from './config/map-layout';
@@ -916,6 +916,16 @@ export class GameManager extends Component {
         if (this.online) { this.submitOnline(makeResearchCommand()); this.hudView.updatePrices(this.engine.state); return; }
         const result = this.engine.execute(makeResearchCommand());
         if (result.ok) this.audio.play('upgrade');
+        if (result.message) this.panels.showToast(result.message);
+        this.hudView.updatePrices(this.engine.state);
+    }
+
+    /** 水晶护盾按钮点击：花金币给己方水晶加临时护盾（联机走锁步命令） */
+    onShieldClick(_event: Event) {
+        if (!this.canAct()) return;
+        if (this.online) { this.submitOnline(makeShieldCommand()); this.hudView.updatePrices(this.engine.state); return; }
+        const result = this.engine.execute(makeShieldCommand());
+        if (result.ok) this.audio.play('build');
         if (result.message) this.panels.showToast(result.message);
         this.hudView.updatePrices(this.engine.state);
     }

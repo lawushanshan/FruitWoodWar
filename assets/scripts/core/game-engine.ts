@@ -18,7 +18,7 @@ import { stepSpawners } from './systems/spawn-system';
 import { stepCombat, cleanupDead } from './systems/combat-system';
 import { triggerCardChoiceIfDue, chooseCard, stepTempBuffs } from './systems/card-system';
 import { aiDecide, evaluateComeback, snapshotPlayerComposition } from './systems/ai-system';
-import { tryBuild, tryResearch, tryUpgrade } from './systems/building-system';
+import { tryBuild, tryResearch, tryUpgrade, tryShield } from './systems/building-system';
 import { stepVictory } from './systems/victory-system';
 import type { CommandResult, FxEvent, GameCommand, GameState, Side, StartOptions } from './types';
 
@@ -92,6 +92,17 @@ export class GameEngine {
         // 6. 临时 buff（回血/果雨生效 + 计时衰减）
         stepTempBuffs(s, dt, this.random);
 
+        // 6.5 水晶护盾到期步进（时长归零 → 护盾清零）
+        for (const c of s.crystals) {
+            if (c.shieldDur > 0) {
+                c.shieldDur -= dt;
+                if (c.shieldDur <= 0) {
+                    c.shieldDur = 0;
+                    c.shield = 0;
+                }
+            }
+        }
+
         // 7. AI 决策：命令统一走 execute 通道（以蓝方身份执行）；联机对战跳过（蓝方为远端玩家）
         if (s.aiEnabled) {
             const cmd = aiDecide(s, this.random);
@@ -111,6 +122,8 @@ export class GameEngine {
                 return tryUpgrade(this._state, cmd.buildingId, side);
             case 'research':
                 return tryResearch(this._state, side);
+            case 'shield':
+                return tryShield(this._state, side);
             case 'choose-card':
                 // side = 选卡方所在边（联机锁步：双方引擎以同一 side 执行同一条命令）
                 return chooseCard(this._state, cmd.cardId, this.random, side);

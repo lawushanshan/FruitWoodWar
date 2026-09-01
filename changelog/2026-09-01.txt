@@ -37,3 +37,11 @@
 - 浏览器实测：水晶/塔/单位三种实体的红色空心选中圈均包裹到位、面板两栏对齐，4 项全部 PASS；全量 124 用例通过后提交
 - 选中圈改贴地椭圆（用户反馈：椭圆形更好、贴中单位底部）：正圆改 Graphics.ellipse 空心椭圆环，尺寸按实体类型（单位 22×8 / 塔 26×10 / 建筑 34×12 / 水晶 46×16），贴地偏移与 game-view 的 SideRing 脚位（-0.42h）对齐；修改了 assets/scripts/presentation/entity-info-panel.ts
 - 浏览器实测：水晶/单位选中圈均为贴地红色空心椭圆环，不悬空不遮脸，3 项 PASS；全量 124 用例通过后提交
+- 新增"水晶护盾"机制（测试报告 #5 金币通胀出口）：CrystalState 增加 shield/shieldDur 字段，GameState 增加 shieldLayers 记录购买次数；新命令 type:'shield'（tryShield 在 core/systems/building-system.ts），定价 shieldCost 300 金起 ×1.25/次递增（config/building-config.ts）；护盾 +800 持续 15 秒，受伤先盾后血（combat-system 既有护盾吸收逻辑鸭子类型直接兼容水晶），到期由引擎步进清零（game-engine.ts 步骤 6.5）；联机走锁步命令透传，服务端零改动；修改了 assets/scripts/core/types.ts、game-state.ts、game-engine.ts、systems/building-system.ts、config/game-config.ts、building-config.ts
+- AI 水晶护盾行为：普通/困难难度在己方水晶血量 <70% 且护盾未激活时自动购买（防御性触发，最小化平衡扰动；简单 AI 不买保留三档差异）；修改了 assets/scripts/core/systems/ai-system.ts
+- 表现层护盾接入：HUD 底部建造栏新增第 10 个按钮"水晶护盾🛡️"（价格标签随购买次数递增、激活中显示"盾N秒"倒计时），GameManager 新增 onShieldClick（联机提交锁步命令），game-view 水晶节点挂半透明蓝色呼吸护盾罩，实体信息面板水晶行显示护盾值；修改了 assets/scripts/presentation/hud-view.ts、game-view.ts、entity-info-panel.ts、GameManager.ts、input/game-commands.ts
+- 新增 tests/crystal-shield.test.ts 10 条用例：定价递增、扣金激活、激活期禁重复购、金币不足拒绝、真实战斗路径护盾吸收（敌方攻城兵打护盾水晶先盾后血）、到期清零、到期再购第二价 375、AI 濒危购买/简单 AI 不买/健康不买
+- 排查预览不更新问题：Cocos 编辑器未感知脚本变更，通过 cocos MCP assetAdvanced_asset_system refresh 刷新 db://assets/scripts 后重编译生效（后续预览验证需带 ?scene=793b667f-4977-4850-ad37-22ca88ff8dd2 参数）
+- 浏览器实测护盾：购买扣金、水晶蓝色护盾罩出现、按钮"盾15秒"倒计时、信息面板护盾值全部 PASS；金币不足分支与到期清零+再购 375 金由单测覆盖
+- 更新问题/游戏测试报告.md：#5 经济通胀标记已落地（护盾新机制），#8 ws 僵死标记已修复（0664b7d）
+- 全量测试 17 文件 134 条用例通过后提交

@@ -211,10 +211,26 @@ export class GameView {
                     // 美术节点不入池（池按 key 复用灰盒节点，混用会破坏类型）
                     node.name = 'ArtCrystal_' + c.side;
                 }
+
+                // 护盾罩：半透明蓝圆环，激活时显示（水晶护盾命令）
+                const shieldFx = this.spriteFactory.createColorNode(new Color(110, 190, 255, 90), 96, 96, 'circle');
+                shieldFx.name = 'ShieldFx';
+                shieldFx.parent = node;
+                shieldFx.active = false;
+
                 node.parent = this.container;
                 this.crystalNodes.set(c.id, node);
             }
             node.setPosition(c.x, c.y, 0);
+            // 护盾罩跟随护盾状态（呼吸脉冲表现活力）
+            const shieldFx = node.getChildByName('ShieldFx');
+            if (shieldFx) {
+                shieldFx.active = c.shield > 0;
+                if (c.shield > 0) {
+                    const pulse = 1 + Math.sin(state.time * 6) * 0.06;
+                    shieldFx.setScale(pulse, pulse, 1);
+                }
+            }
         }
         this.cleanupDead(aliveIds, this.crystalNodes, 'crystal');
     }

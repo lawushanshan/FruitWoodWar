@@ -9,7 +9,7 @@
  * 收入倍率在 economy-system 按 state.difficulty 生效；本文件只管花钱。
  */
 
-import { BUILDING_CONFIG, buildingCostInState, cheapestFactoryId, researchCost, upgradeCost } from '../../config/building-config';
+import { BUILDING_CONFIG, buildingCostInState, cheapestFactoryId, researchCost, shieldCost, upgradeCost } from '../../config/building-config';
 import { BUILD_GRID } from '../../config/build-grid';
 import { GAME_CONFIG } from '../../config/game-config';
 import type { BuildingItemId, GameCommand, GameState, UnitType } from '../types';
@@ -114,6 +114,16 @@ export function aiDecide(state: GameState, random: RandomSource): GameCommand | 
                     return { type: 'upgrade', buildingId: upgradable.id };
                 }
             }
+        }
+    }
+
+    // ---- 水晶护盾（普通/困难）：水晶受创且护盾未激活时防御性购买（问题 #5 金币出口） ----
+    // 放在工厂建造之前：水晶濒危时保命优先；简单 AI 不买，保留三档强度差异
+    if (difficulty !== 'easy') {
+        const myCrystal = state.crystals.find(c => c.side === 'blue');
+        if (myCrystal && myCrystal.shieldDur <= 0 && myCrystal.hp < myCrystal.maxHp * 0.7) {
+            const sCost = shieldCost(state.shieldLayers.blue);
+            if (gold >= sCost) return { type: 'shield' };
         }
     }
 

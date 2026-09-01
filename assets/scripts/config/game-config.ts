@@ -62,6 +62,14 @@ export interface GameConfig {
     researchCostGrowth: number;
     /** 全军强化每层攻击加成 */
     researchAtkBonus: number;
+    /** 水晶护盾基准费用 */
+    shieldBaseCost: number;
+    /** 水晶护盾费用增长系数 */
+    shieldCostGrowth: number;
+    /** 水晶护盾护盾值 */
+    shieldAmount: number;
+    /** 水晶护盾持续秒数 */
+    shieldDuration: number;
     /** 绝地反击触发所需连续退守波数 */
     comebackWaves: number;
     /** 绝地反击工资倍率 */
@@ -104,6 +112,11 @@ export const GAME_CONFIG: GameConfig = {
     researchBaseCost: 400,
     researchCostGrowth: 1.25,
     researchAtkBonus: 0.08,
+    // 水晶护盾（问题 #5 金币出口）：300 起步 ×1.25 递增，+800 护盾持续 15 秒
+    shieldBaseCost: 300,
+    shieldCostGrowth: 1.25,
+    shieldAmount: 800,
+    shieldDuration: 15,
     comebackWaves: 3,
     comebackSalaryMult: 1.5,
     suddenDeathTime: 300,

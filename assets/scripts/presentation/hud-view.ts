@@ -15,7 +15,7 @@ import { ColorSpriteFactory } from './color-sprite-factory';
 import { ArtLibrary } from './art-library';
 import { setUniformScale } from './scale-helper';
 import { GAME_CONFIG } from '../config/game-config';
-import { BUILDING_CONFIG, BUILDING_IDS, buildingCostInState, researchCost } from '../config/building-config';
+import { BUILDING_CONFIG, BUILDING_IDS, buildingCostInState, researchCost, shieldCost } from '../config/building-config';
 import { CARD_CONFIG } from '../config/card-config';
 import type { BuildingItemId, GameState } from '../core/types';
 
@@ -50,6 +50,8 @@ export class HudView {
     private buildCountLabels: Map<BuildingItemId, Label> = new Map();
     /** 科研按钮价格标签 */
     private researchCostLabel: Label | null = null;
+    /** 护盾按钮价格标签 */
+    private shieldCostLabel: Label | null = null;
 
     /** 已抽卡牌历史行（顶部栏下方，展示玩家本局已选卡图标） */
     private cardHistoryLabel: Label | null = null;
@@ -298,6 +300,16 @@ export class HudView {
                 this.researchCostLabel.string = researchCost(state.researchLayers[side]) + '金';
             }
         }
+
+        // 护盾按钮价格（激活中显示剩余秒数）
+        if (this.shieldCostLabel) {
+            const myCrystal = state.crystals.find(c => c.side === side);
+            if (myCrystal && myCrystal.shieldDur > 0) {
+                this.shieldCostLabel.string = `盾${Math.ceil(myCrystal.shieldDur)}秒`;
+            } else {
+                this.shieldCostLabel.string = shieldCost(state.shieldLayers[side]) + '金';
+            }
+        }
     }
 
     // ==================== 创建顶部状态栏 ====================
@@ -467,9 +479,9 @@ export class HudView {
         bg.parent = this.buildBar;
         bg.setPosition(0, 48, 0);
 
-        // 9 个按钮（7 建筑 + 2 操作）等间距水平居中：
+        // 10 个按钮（7 建筑 + 3 操作）等间距水平居中：
         // 首个中心 = -(N-1)/2 × gap，按钮整体关于屏幕中轴对称（v1.4.2 布局修正）
-        const startX = -((BUILDING_IDS.length + 2 - 1) / 2) * 96;
+        const startX = -((BUILDING_IDS.length + 3 - 1) / 2) * 96;
         const gap = 96;
 
         // 7 种建筑按钮
@@ -480,7 +492,7 @@ export class HudView {
             btn.setPosition(startX + i * gap, 48, 0);
         });
 
-        // 操作按钮：升级工厂 / 全军强化
+        // 操作按钮：升级工厂 / 全军强化 / 水晶护盾
         const upgradeBtn = this.createActionButton('ui/ico_up', '⬆️', '升级工厂', '150金', 'onUpgradeClick');
         upgradeBtn.parent = this.buildBar;
         upgradeBtn.setPosition(startX + BUILDING_IDS.length * gap, 48, 0);
@@ -491,6 +503,13 @@ export class HudView {
         // 记录科研价格标签
         const costNode = researchBtn.children[researchBtn.children.length - 1];
         this.researchCostLabel = costNode.getComponent(Label);
+
+        const shieldBtn = this.createActionButton('ui/ico_shield', '🛡️', '水晶护盾', '300金', 'onShieldClick');
+        shieldBtn.parent = this.buildBar;
+        shieldBtn.setPosition(startX + (BUILDING_IDS.length + 2) * gap, 48, 0);
+        // 记录护盾价格标签
+        const sCostNode = shieldBtn.children[shieldBtn.children.length - 1];
+        this.shieldCostLabel = sCostNode.getComponent(Label);
     }
 
     // ==================== 按钮创建辅助 ====================

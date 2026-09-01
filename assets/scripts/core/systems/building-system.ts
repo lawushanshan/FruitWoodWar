@@ -14,6 +14,7 @@ import {
     applyBuildingLevelHp,
     buildingCostInState,
     researchCost,
+    shieldCost,
     upgradeCost,
 } from '../../config/building-config';
 import { GAME_CONFIG } from '../../config/game-config';
@@ -178,4 +179,33 @@ export function tryResearch(state: GameState, side: Side = state.playerSide): Co
     state.researchLayers[side] += 1;
     state.buffs[side].atk *= 1 + GAME_CONFIG.researchAtkBonus;
     return { ok: true, message: `全军强化 第${state.researchLayers[side]}层！全队攻击 +8%` };
+}
+
+/**
+ * 处理水晶护盾命令：花金币给己方水晶加临时护盾（问题 #5 后期金币出口）。
+ * 护盾值与持续时长来自 GAME_CONFIG；到期由引擎步进清零。
+ * 护盾激活期间不可重复购买（先花掉旧护盾是亏的，也避免无限叠层）。
+ * 定价函数 shieldCost 在 config/building-config（与 researchCost 同处）。
+ */
+export function tryShield(state: GameState, side: Side = state.playerSide): CommandResult {
+    if (state.phase !== 'playing') {
+        return { ok: false };
+    }
+    const crystal = state.crystals.find(c => c.side === side);
+    if (!crystal) {
+        return { ok: false };
+    }
+    if (crystal.shieldDur > 0) {
+        return { ok: false, message: '护盾已激活！' };
+    }
+    const cost = shieldCost(state.shieldLayers[side]);
+    if (state.gold[side] < cost) {
+        return { ok: false, message: `金币不足！需要 ${cost} 金` };
+    }
+
+    state.gold[side] -= cost;
+    state.shieldLayers[side] += 1;
+    crystal.shield = GAME_CONFIG.shieldAmount;
+    crystal.shieldDur = GAME_CONFIG.shieldDuration;
+    return { ok: true, message: `水晶护盾 +${GAME_CONFIG.shieldAmount}！持续 ${GAME_CONFIG.shieldDuration} 秒` };
 }

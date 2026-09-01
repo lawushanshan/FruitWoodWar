@@ -44,6 +44,11 @@ export function makeResearchCommand(): GameCommand {
     return { type: 'research' };
 }
 
+/** 将水晶护盾按钮点击转换为 shield 命令 */
+export function makeShieldCommand(): GameCommand {
+    return { type: 'shield' };
+}
+
 /** 将卡牌选择点击转换为 choose-card 命令 */
 export function makeCardCommand(cardId: string): GameCommand {
     return { type: 'choose-card', cardId };

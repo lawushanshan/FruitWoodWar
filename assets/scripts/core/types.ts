@@ -195,6 +195,10 @@ export interface CrystalState {
     y: number;
     hp: number;
     maxHp: number;
+    /** 护盾值（水晶护盾命令；受伤时先于 hp 扣减，到期清零） */
+    shield: number;
+    /** 护盾剩余时间（秒，<=0 表示未激活） */
+    shieldDur: number;
 }
 
 /** 可被攻击对象的公共字段 */
@@ -330,6 +334,8 @@ export interface GameState {
     academyLevel: Record<Side, number>;
     /** 全军强化层数（无限叠加的后期金币出口） */
     researchLayers: Record<Side, number>;
+    /** 水晶护盾购买次数（定价递增用） */
+    shieldLayers: Record<Side, number>;
     /** 绝地反击状态 */
     comeback: Record<Side, ComebackState>;
     cards: CardChoiceState;
@@ -353,6 +359,7 @@ export type GameCommand =
     | { type: 'build'; itemId: BuildingItemId; position: Position }
     | { type: 'upgrade'; buildingId: string }
     | { type: 'research' }
+    | { type: 'shield' }
     | { type: 'choose-card'; cardId: string };
 
 /** 命令执行结果 */

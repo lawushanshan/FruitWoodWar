@@ -230,7 +230,7 @@ export class EntityInfoPanel {
                 this.sideLabel.string = c.side === 'red' ? '红方大本营' : '蓝方大本营';
                 this.sideLabel.color = sideColor(c.side);
             }
-            this.setHp(c.hp, c.maxHp, 0);
+            this.setHp(c.hp, c.maxHp, c.shield);
             this.setStats('目标', '水晶被拆即失败', '', '');
             this.setStats2('口号', c.side === state.playerSide ? '守住你的水晶！' : '推平它！', '', '');
             if (this.fxLabel) { this.fxLabel.string = ''; this.fxLabel.node.active = false; }
