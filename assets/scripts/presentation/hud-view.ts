@@ -335,6 +335,52 @@ export class HudView {
 
         this.hpBlueLabel = this.makeTopLabel('HpBlueLabel', String(GAME_CONFIG.crystalHp), 534, -22, new Color(122, 184, 255), bar);
         this.makeIcon(bar, 'ui/ico_hp_blue', '🔵', 510, -22, 22, 15);
+
+        // 音效开关（顶部栏最右端；状态由 GameManager 初始化时同步）
+        this.muteBtn = this.makeMuteButton(bar, 612, -22);
+    }
+
+    /** 静音按钮节点引用（setMuteIcon 用） */
+    private muteBtn: Node | null = null;
+
+    /** 创建音效开关按钮（🔊/🔇 文字按钮，点击走 GameManager.onMuteClick 统一处理） */
+    private makeMuteButton(parent: Node, x: number, y: number): Node {
+        const btn = new Node('MuteBtn');
+        btn.layer = this.gmNode.layer;
+        btn.parent = parent;
+        const ut = btn.addComponent(UITransform);
+        ut.contentSize = new Size(40, 40);
+        ut.anchorPoint = new Vec2(0.5, 0.5);
+
+        const bg = this.spriteFactory.createColorNode(new Color(46, 65, 82), 40, 40);
+        bg.parent = btn;
+
+        const labelNode = new Node('MuteIcon');
+        labelNode.layer = this.gmNode.layer;
+        labelNode.parent = btn;
+        labelNode.addComponent(UITransform).contentSize = new Size(36, 36);
+        const label = labelNode.addComponent(Label);
+        label.string = '🔊';
+        label.fontSize = 20;
+        label.lineHeight = 20;
+
+        const button = btn.addComponent(Button);
+        button.transition = Button.Transition.SCALE;
+        button.zoomScale = 1.1;
+        const handler = new EventHandler();
+        handler.target = this.gmNode;
+        handler.component = 'GameManager';
+        handler.handler = 'onMuteClick';
+        button.clickEvents = [handler];
+
+        btn.setPosition(x, y, 0);
+        return btn;
+    }
+
+    /** 更新静音按钮显示（ GameManager 切换后回调） */
+    setMuteIcon(muted: boolean) {
+        const label = this.muteBtn?.getChildByName('MuteIcon')?.getComponent(Label);
+        if (label) label.string = muted ? '🔇' : '🔊';
     }
 
     /** 顶部栏专用标签：左锚点 + 左对齐（跟随在图标右侧），带节点名便于调试/重叠检测 */

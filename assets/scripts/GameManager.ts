@@ -46,6 +46,9 @@ const { ccclass } = _decorator;
 /** 固定逻辑步长（秒）：模拟帧率与渲染帧率解耦（联机确定性前提） */
 const FIXED_LOGIC_DT = 1 / 30;
 
+/** 静音偏好 localStorage 键（'1' = 静音） */
+const MUTED_PREF_KEY = 'fww_muted';
+
 @ccclass('GameManager')
 export class GameManager extends Component {
 
@@ -277,7 +280,7 @@ export class GameManager extends Component {
         this.floatingText = new FloatingText(this.gameContainer, this.node.layer);
         this.deathEffect = new DeathEffect(this.gameContainer, sf);
         this.audio = new AudioManager();
-        this.tutorial = new TutorialController(uiContainer, sf, this.node.layer);
+        this.tutorial = new TutorialController(uiContainer, sf, this.node.layer, this.artLibrary);
         this.battleEffects = new BattleEffects(this.gameContainer, sf, this.artLibrary);
         this.entityInfo = new EntityInfoPanel(uiContainer, this.gameContainer, sf, this.artLibrary, this.node);
         this.hudView.create();
@@ -915,6 +918,27 @@ export class GameManager extends Component {
         this.hudView.updatePrices(this.engine.state);
     }
 
+    /** 音效开关点击：切换静音并持久化偏好 */
+    onMuteClick(_event: Event) {
+        const muted = !this.audio.isMuted();
+        this.audio.setMuted(muted);
+        try {
+            localStorage.setItem(MUTED_PREF_KEY, muted ? '1' : '0');
+        } catch { /* 无 localStorage 环境静默失败 */ }
+        this.hudView.setMuteIcon(muted);
+        // 解除静音时给一声反馈，确认音效已恢复
+        if (!muted) this.audio.play('coin');
+    }
+
+    /** 读取静音偏好（无记录/异常时默认开启音效） */
+    private readMutedPref(): boolean {
+        try {
+            return localStorage.getItem(MUTED_PREF_KEY) === '1';
+        } catch {
+            return false;
+        }
+    }
+
     onCardClick(_event: Event, cardId: string) {
         // 联机：选卡经服务器定序，随 frame 以选卡方的边执行（双方引擎一致）
         if (this.online) {
@@ -961,6 +985,9 @@ export class GameManager extends Component {
     onStartClick(_event: Event) {
         // 初始化音频（需用户交互后才能播放）
         this.audio.init();
+        // 恢复玩家音效偏好（静音开关持久化）
+        this.audio.setMuted(this.readMutedPref());
+        this.hudView.setMuteIcon(this.audio.isMuted());
         this.online = false;
         this.onlineEnded = false;
 

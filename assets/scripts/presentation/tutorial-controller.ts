@@ -11,8 +11,9 @@
  *  "完成新手首局引导：30 秒内建造第一座工厂并看到第一波出兵"
  */
 
-import { Node, Label, Color, UITransform, Size, Vec2, UIOpacity } from 'cc';
+import { Node, Label, Color, UITransform, Size, Vec2, Vec3, UIOpacity, tween, Sprite } from 'cc';
 import { ColorSpriteFactory } from './color-sprite-factory';
+import type { ArtLibrary } from './art-library';
 
 /** 引导步骤 */
 export type TutorialStep = 'idle' | 'build_factory' | 'wait_spawn' | 'done';
@@ -28,6 +29,9 @@ export class TutorialController {
     private hintNode: Node | null = null;
     private hintLabel: Label | null = null;
 
+    /** 手势提示节点（ico_hand 脉冲动画，指向操作方向） */
+    private handNode: Node | null = null;
+
     /** 是否正在引导中 */
     private active: boolean = false;
 
@@ -37,11 +41,14 @@ export class TutorialController {
     private container: Node;
     private spriteFactory: ColorSpriteFactory;
     private layer: number;
+    /** 美术资源库（可选：手势贴图可用时替换 emoji） */
+    private art: ArtLibrary | null;
 
-    constructor(container: Node, spriteFactory: ColorSpriteFactory, layer: number) {
+    constructor(container: Node, spriteFactory: ColorSpriteFactory, layer: number, art?: ArtLibrary | null) {
         this.container = container;
         this.spriteFactory = spriteFactory;
         this.layer = layer;
+        this.art = art ?? null;
     }
 
     /**
@@ -153,11 +160,55 @@ export class TutorialController {
         if (this.hintLabel) {
             this.hintLabel.string = text;
         }
+        this.showHand();
+    }
+
+    /** 显示手势提示（ico_hand 贴图，旋转指向底部按钮方向，脉冲缩放动画；缺图回退 emoji） */
+    private showHand() {
+        if (!this.hintNode) return;
+        if (!this.handNode || !this.handNode.isValid) {
+            this.handNode = new Node('TutorialHand');
+            this.handNode.layer = this.layer;
+            this.handNode.parent = this.hintNode;
+            const ut = this.handNode.addComponent(UITransform);
+            ut.contentSize = new Size(48, 48);
+            ut.anchorPoint = new Vec2(0.5, 0.5);
+
+            const sprite = this.art?.createSpriteNode('ui/ico_hand', 48, 48) ?? null;
+            if (sprite) {
+                sprite.parent = this.handNode;
+            } else {
+                // emoji 兜底
+                const labelNode = new Node('HandEmoji');
+                labelNode.layer = this.layer;
+                labelNode.parent = this.handNode;
+                labelNode.addComponent(UITransform).contentSize = new Size(48, 48);
+                const l = labelNode.addComponent(Label);
+                l.string = '👇';
+                l.fontSize = 34;
+                l.lineHeight = 34;
+            }
+            // 手势素材原图指向右侧，旋转 125° 指向左下（提示框下方中央偏左，指向底部建造栏）
+            this.handNode.angle = 125;
+            // 脉冲缩放动画
+            tween(this.handNode)
+                .repeatForever(
+                    tween()
+                        .to(0.45, { scale: new Vec3(1.25, 1.25, 1) })
+                        .to(0.45, { scale: new Vec3(1, 1, 1) })
+                )
+                .start();
+        }
+        this.handNode.active = true;
+        this.handNode.setPosition(-140, -60, 0);
     }
 
     private hideHint() {
         if (this.hintNode?.isValid) {
             this.hintNode.active = false;
+        }
+        if (this.handNode?.isValid) {
+            this.handNode.active = false;
         }
     }
 
