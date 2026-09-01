@@ -41,6 +41,15 @@ const RARITY_COLORS: Record<string, Color> = {
 /** 卡牌选择倒计时（秒）：超时自动选第一张，防止选卡暂停导致游戏假死 */
 const CARD_CHOICE_TIMEOUT_S = 15;
 
+/** 卡牌 id → 阵营映射（卡牌立绘路径 cards/card_{faction}_{id}.png 用） */
+const CARD_FACTION: Record<string, FactionId> = (() => {
+    const map: Record<string, FactionId> = {};
+    for (const f of Object.keys(CARD_CONFIG) as FactionId[]) {
+        for (const c of CARD_CONFIG[f]) map[c.id] = f;
+    }
+    return map;
+})();
+
 export class PanelController {
 
     // ---- 面板节点 ----
@@ -826,23 +835,30 @@ export class PanelController {
         ut.contentSize = new Size(200, 260);
         ut.anchorPoint = new Vec2(0.5, 0.5);
 
-        // 背景（卡牌底板九宫格）
-        const bg = this.makePanelBg(node, 'ui/ui_panel_card', 200, 260, new Color(30, 42, 54));
-
-        // 稀有度边框
+        // 稀有度边框（先添加垫底：Cocos 2D 同级按添加顺序渲染，后加的盖住先加的）
         const rarityColor = RARITY_COLORS[card.rarity] || new Color(100, 100, 100);
         const border = this.spriteFactory.createColorNode(rarityColor, 204, 264);
         border.parent = node;
         border.setPosition(0, 0, -1);
 
-        // 图标
-        this.makeLabel(card.icon, 0, 70, Color.WHITE, node, 42);
+        // 背景（卡牌底板九宫格，盖住边框中部只露 2px 稀有度描边）
+        const bg = this.makePanelBg(node, 'ui/ui_panel_card', 200, 260, new Color(30, 42, 54));
+
+        // 卡牌立绘（缺失时回退 emoji 图标）
+        const artNode = this.art?.createSpriteNode(
+            `cards/card_${CARD_FACTION[card.id]}_${card.id}`, 110, 110) ?? null;
+        if (artNode) {
+            artNode.setPosition(0, 74, 0);
+            artNode.parent = node;
+        } else {
+            this.makeLabel(card.icon, 0, 70, Color.WHITE, node, 42);
+        }
 
         // 名称
-        this.makeLabel(card.name, 0, 20, Color.WHITE, node, 20);
+        this.makeLabel(card.name, 0, 10, Color.WHITE, node, 20);
 
         // 描述
-        this.makeLabel(card.desc, 0, -40, new Color(159, 180, 196), node, 14);
+        this.makeLabel(card.desc, 0, -52, new Color(159, 180, 196), node, 14);
 
         // 稀有度标签
         const rarNames: Record<string, string> = { rare: '稀有', epic: '史诗', legendary: '传说' };

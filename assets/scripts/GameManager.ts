@@ -123,7 +123,6 @@ export class GameManager extends Component {
     private prevBuildingHp: Map<string, number> = new Map();
     private prevTowerHp: Map<string, number> = new Map();
     private prevBuildings: number = 0;
-    private prevWave: number = 0;
 
     // ==================== 生命周期 ====================
 
@@ -471,10 +470,10 @@ export class GameManager extends Component {
         }
         this.prevBuildings = currentBuildings;
 
-        if (s.wave > 0 && this.prevWave === 0 && currentBuildings > 0) {
+        // 出兵完成判定：己方工厂已建且场上存在己方存活单位（兼容建厂晚于第 1 波的情况）
+        if (currentBuildings > 0 && s.units.some(u => u.side === s.playerSide && u.hp > 0)) {
             this.tutorial.onFirstWaveSpawned();
         }
-        this.prevWave = s.wave;
     }
 
     // ==================== 表现效果检测 ====================
@@ -994,7 +993,6 @@ export class GameManager extends Component {
         this.prevCrystalHp = { red: 0, blue: 0 };
         this.prevKills = { red: 0, blue: 0 };
         this.prevBuildings = 0;
-        this.prevWave = 0;
         this.prevPhase = 'playing';
 
         this.hudView.updatePrices(this.engine.state);

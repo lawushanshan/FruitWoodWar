@@ -22,6 +22,8 @@
 import {
     Node, UITransform, Size, Vec2, Sprite, SpriteFrame, ImageAsset, resources,
 } from 'cc';
+import { CARD_CONFIG } from '../config/card-config';
+import type { FactionId } from '../core/types';
 
 /** 阵营 id（与 08 指南命名规范一致） */
 const FACTIONS = ['fruit', 'wood', 'animal'] as const;
@@ -38,6 +40,15 @@ const UI_NAMES = [
 /** 建造栏图标（建筑图裁切附带，M3.3 建造栏用） */
 const BUILD_ICONS = ['tank', 'ranged', 'aoe', 'rush', 'siege', 'academy', 'aura'] as const;
 const UI_PANEL_BTN = ['panel_dark', 'panel_light', 'panel_card', 'btn_green', 'btn_blue'] as const;
+
+/** 卡牌立绘路径（CARD_CONFIG 自动同步，新增卡牌无需改这里） */
+function cardPaths(): string[] {
+    const paths: string[] = [];
+    for (const faction of Object.keys(CARD_CONFIG) as FactionId[]) {
+        for (const c of CARD_CONFIG[faction]) paths.push(`art/cards/card_${faction}_${c.id}`);
+    }
+    return paths;
+}
 
 /** 全部需要预载的图片路径（resources 根相对路径，不含扩展名） */
 function buildArtPaths(): string[] {
@@ -58,6 +69,8 @@ function buildArtPaths(): string[] {
     for (const n of UI_NAMES) paths.push(`art/ui/ico_${n}`);
     for (const n of BUILD_ICONS) paths.push(`art/ui/ico_build_${n}`);
     for (const n of UI_PANEL_BTN) paths.push(`art/ui/ui_${n}`);
+    // 卡牌立绘（3 阵营 × 9 张）
+    paths.push(...cardPaths());
     return paths;
 }
 
