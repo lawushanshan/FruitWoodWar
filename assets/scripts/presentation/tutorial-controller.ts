@@ -88,10 +88,16 @@ export class TutorialController {
     update(_dt: number) {
         if (!this.active) return;
 
-        // 超时检测：60 秒未完成引导则自动结束
+        // 超时检测：60 秒未完成引导则提示一次后自动结束，防止提示每帧刷新卡死
         const elapsed = (Date.now() - this.startTime) / 1000;
         if (elapsed > 60 && this.step !== 'done') {
-            this.showHint('💡 提示：点击底部按钮建造兵工厂');
+            this.step = 'done';
+            this.showHint('💡 提示：点击底部「兵工厂」按钮建造工厂');
+            // 3 秒后隐藏提示并结束本次引导（不标记完成，下次进入游戏重新引导）
+            setTimeout(() => {
+                this.hideHint();
+                this.active = false;
+            }, 3000);
         }
     }
 
