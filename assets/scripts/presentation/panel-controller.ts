@@ -10,7 +10,7 @@
  */
 
 import {
-    Node, Label, Color, UITransform, Size, Vec2, Button, EventHandler, Sprite,
+    Node, Label, Color, UITransform, Size, Vec2, Button, EventHandler, Sprite, HorizontalTextAlignment, UIOpacity,
 } from 'cc';
 import { ColorSpriteFactory } from './color-sprite-factory';
 import { ArtLibrary } from './art-library';
@@ -850,34 +850,50 @@ export class PanelController {
         ut.contentSize = new Size(200, 260);
         ut.anchorPoint = new Vec2(0.5, 0.5);
 
-        // 稀有度边框（先添加垫底：Cocos 2D 同级按添加顺序渲染，后加的盖住先加的）
         const rarityColor = RARITY_COLORS[card.rarity] || new Color(100, 100, 100);
-        const border = this.spriteFactory.createColorNode(rarityColor, 204, 264);
-        border.parent = node;
-        border.setPosition(0, 0, -1);
 
-        // 背景（卡牌底板九宫格，盖住边框中部只露 2px 稀有度描边）
+        // 背景（卡牌底板九宫格；v1.8 移除纯色稀有度外框，观感更干净）
         const bg = this.makePanelBg(node, 'ui/ui_panel_card', 200, 260, new Color(30, 42, 54));
+
+        // 稀有度底部分隔色条（120×4，代替整圈色框提示稀有度）
+        const accent = this.spriteFactory.createColorNode(rarityColor.clone(), 120, 4);
+        accent.parent = node;
+        accent.setPosition(0, -110, 0);
+        const accentOpacity = accent.getComponent(UIOpacity) ?? accent.addComponent(UIOpacity);
+        accentOpacity.opacity = 220;
 
         // 卡牌立绘（缺失时回退 emoji 图标）
         const artNode = this.art?.createSpriteNode(
             `cards/card_${CARD_FACTION[card.id]}_${card.id}`, 110, 110) ?? null;
         if (artNode) {
-            artNode.setPosition(0, 74, 0);
+            artNode.setPosition(0, 66, 0);
             artNode.parent = node;
         } else {
-            this.makeLabel(card.icon, 0, 70, Color.WHITE, node, 42);
+            this.makeLabel(card.icon, 0, 62, Color.WHITE, node, 42);
         }
 
         // 名称
-        this.makeLabel(card.name, 0, 10, Color.WHITE, node, 20);
+        this.makeLabel(card.name, 0, 4, Color.WHITE, node, 20);
 
-        // 描述
-        this.makeLabel(card.desc, 0, -52, new Color(159, 180, 196), node, 14);
+        // 描述：固定宽度自动换行 + 水平居中（v1.8：不再单行溢出卡面）
+        const descNode = new Node('CardDesc');
+        descNode.layer = this.gmNode.layer;
+        descNode.parent = node;
+        const dUt = descNode.addComponent(UITransform);
+        dUt.contentSize = new Size(168, 20);
+        dUt.anchorPoint = new Vec2(0.5, 1); // 顶部锚点：多行向下延展
+        const desc = descNode.addComponent(Label);
+        desc.string = card.desc;
+        desc.fontSize = 13;
+        desc.lineHeight = 19;
+        desc.color = new Color(170, 190, 205);
+        desc.overflow = Label.Overflow.RESIZE_HEIGHT;
+        desc.horizontalAlign = HorizontalTextAlignment.CENTER;
+        descNode.setPosition(0, -18, 0);
 
         // 稀有度标签
         const rarNames: Record<string, string> = { rare: '稀有', epic: '史诗', legendary: '传说' };
-        this.makeLabel(rarNames[card.rarity] || '普通', 60, 110, rarityColor, node, 12);
+        this.makeLabel(rarNames[card.rarity] || '普通', 58, 108, rarityColor, node, 12);
 
         // 点击
         const button = node.addComponent(Button);

@@ -420,12 +420,14 @@ export class GameManager extends Component {
                 const sx = e.sx ?? e.x, sy = e.sy ?? e.y;
                 switch (e.atkType) {
                     case 'tank':
-                        // 重击感：命中爆闪 + 碎石迸溅
+                        // 重击感：攻击者冲锋突进 + 命中爆闪 + 碎石迸溅
+                        if (e.uid) this.gameView.playMeleeLunge(e.uid, sx, sy, e.x, e.y);
                         this.battleEffects.playImpact(e.x, e.y, e.side);
                         this.battleEffects.playDebrisBurst(e.x, e.y, 3);
                         break;
                     case 'rush':
-                        // 突进感：斩击弧光 + 轻命中
+                        // 突进感：攻击者冲锋突进 + 斩击弧光 + 轻命中
+                        if (e.uid) this.gameView.playMeleeLunge(e.uid, sx, sy, e.x, e.y);
                         this.battleEffects.playSlash(e.x, e.y, e.side);
                         this.battleEffects.playImpact(e.x, e.y, e.side);
                         break;

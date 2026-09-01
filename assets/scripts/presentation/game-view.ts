@@ -93,8 +93,11 @@ export class GameView {
     private unitOffsets: Map<string, { x: number; y: number }> = new Map();
     /** id → 插值后的渲染位置（联机锁步 10Hz 帧间平滑，消除阶梯卡顿） */
     private unitRenderPos: Map<string, { x: number; y: number }> = new Map();
-    /** id → 程序动画状态（随机相位 + 上帧位置，用于移动检测） */
-    private unitAnim: Map<string, { phase: number; lastX: number; lastY: number; movingHold: number }> = new Map();
+    /** id → 程序动画状态（随机相位 + 上帧位置，用于移动检测；lunge 为近战冲锋动作） */
+    private unitAnim: Map<string, {
+        phase: number; lastX: number; lastY: number; movingHold: number;
+        lunge: { t: number; dur: number; ox: number; oy: number } | null;
+    }> = new Map();
     /** 程序动画累计时间 */
     private animTime = 0;
 
@@ -135,6 +138,19 @@ export class GameView {
         this.unitRenderPos.clear();
         this.unitAnim.clear();
         this.pool.clearAll();
+    }
+
+    /**
+     * 近战冲锋表现：单位 Body 向目标方向突进 7px 再弹回（0.2s sin 半周期）。
+     * 由 GameManager 消费 hit 事件（tank/rush）时调用；与行走/待机动画叠加。
+     */
+    playMeleeLunge(unitId: string, fromX: number, fromY: number, toX: number, toY: number) {
+        const anim = this.unitAnim.get(unitId);
+        if (!anim) return; // 单位节点尚未创建（同帧出生即攻击等边缘情况）
+        const dx = toX - fromX, dy = toY - fromY;
+        const len = Math.hypot(dx, dy);
+        if (len < 1) return;
+        anim.lunge = { t: 0, dur: 0.2, ox: (dx / len) * 7, oy: (dy / len) * 7 };
     }
 
     /** 在节点中心叠加 emoji 图标（灰盒兜底：建筑/塔用） */
@@ -338,6 +354,7 @@ export class GameView {
                 this.unitAnim.set(u.id, {
                     phase: Math.random() * Math.PI * 2,
                     lastX: u.x, lastY: u.y, movingHold: 0,
+                    lunge: null,
                 });
             }
 
@@ -368,7 +385,7 @@ export class GameView {
             }
             node.setPosition(rx + so.x, ry + so.y, 0);
 
-            // 程序动画（07 方案 §6）：待机 sin 浮动 ±3px/2s；行走弹跳 ±2px@8Hz + 微倾 ±2°
+            // 程序动画（07 方案 §6）：待机 sin 浮动 ±3px/2s；行走弹跳 + 挤压拉伸 + 前倾摇摆
             // 纯数学计算在 Body 子节点上叠加，不创建 Tween 对象（120 单位性能守则）
             const anim = this.unitAnim.get(u.id);
             if (anim) {
@@ -380,16 +397,38 @@ export class GameView {
                 else anim.movingHold = Math.max(0, anim.movingHold - dt);
                 anim.lastX = u.x; anim.lastY = u.y;
                 const moving = anim.movingHold > 0;
+
+                // 近战冲锋（lunge）：sin 半周期冲向目标再弹回，与行走动画叠加
+                let lungeX = 0, lungeY = 0;
+                if (anim.lunge) {
+                    anim.lunge.t += dt;
+                    const lp = anim.lunge.t / anim.lunge.dur;
+                    if (lp >= 1) {
+                        anim.lunge = null;
+                    } else {
+                        const k = Math.sin(lp * Math.PI);
+                        lungeX = anim.lunge.ox * k;
+                        lungeY = anim.lunge.oy * k;
+                    }
+                }
+
                 const body = node.getChildByName('Body');
                 if (body) {
+                    // 蓝方立绘 scaleX=-1，挤压拉伸必须保留翻转方向
+                    const dirX = u.side === 'blue' ? -1 : 1;
                     if (moving) {
                         const t = this.animTime * Math.PI * 2 * 8 + anim.phase; // 8Hz 行走弹跳
-                        body.setPosition(0, Math.abs(Math.sin(t)) * 2.4, 0);
-                        body.angle = Math.sin(t) * 2;
+                        body.setPosition(lungeX, Math.abs(Math.sin(t)) * 3 + lungeY, 0);
+                        // 前倾 4°（朝进攻方向）+ 步伐滚动 ±2.5°，走路更有动势
+                        body.angle = Math.sin(t) * 2.5 + dirX * 4;
+                        // 挤压拉伸（squash & stretch）：腾空拉长、落地压扁，Q 版弹性
+                        const k = Math.sin(t);
+                        body.setScale(dirX * (1 - k * 0.05), 1 + k * 0.05, 1);
                     } else {
                         const t = this.animTime * Math.PI + anim.phase; // 2s 周期待机浮动
-                        body.setPosition(0, Math.sin(t) * 3, 0);
-                        body.angle = 0;
+                        body.setPosition(lungeX, Math.sin(t) * 3 + lungeY, 0);
+                        body.angle = lungeX !== 0 || lungeY !== 0 ? dirX * 4 : 0; // 冲锋瞬间保留前倾
+                        body.setScale(dirX, 1, 1); // 恢复正常比例（仅蓝方保留翻转）
                     }
                 }
             }

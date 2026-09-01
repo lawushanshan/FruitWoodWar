@@ -23,3 +23,9 @@
 - 统一掉线清理路径：gateway 心跳清理与 close 事件共用 dropConn（移除连接+退队列+release+离房）
 - 新增 tests/server-stability.test.ts（7 条用例）：覆盖匹配索引释放、双方断线立即结算、单方断线 15 秒宽限、rejoinToken 失效、roomId 清理、倒计时阶段断线结算
 - 全量测试 16 个文件、124 条用例通过；服务器冒烟启动正常；tsc --noEmit 无错误
+- 新增近战攻击动作（用户反馈 #1）：core 的 hit 事件补充攻击者 uid（assets/scripts/core/types.ts、combat-system.ts），GameView 新增 playMeleeLunge——近战（坦克/冲锋）攻击瞬间身体向目标方向突进 7px 再弹回（0.2s sin 半周期），与行走动画叠加；修改了 assets/scripts/GameManager.ts（consumeFx 路由）、assets/scripts/presentation/game-view.ts
+- 攻击特效范围收敛（用户反馈 #1）：命中冲击环最终缩放 +1.4→+0.9（约 51px→42px）并降不透明度；AOE 爆闪从 impact_ring（最大 2.6×72px≈187px 糊屏）改为独立 boom 曲线 0.5→1.4 封顶（≈100px）；修改了 assets/scripts/presentation/battle-effects.ts
+- 单位移动动画增强（用户反馈 #2）：行走弹跳幅度 2.4→3px，新增前倾 4°（朝进攻方向，蓝方镜像）+ 步幅滚动 ±2.5°、squash & stretch（腾空拉长/落地压扁 ±5%），待机恢复比例并保留蓝方翻转；仍是纯程序动画无 Tween 对象；修改了 assets/scripts/presentation/game-view.ts
+- 卡牌选择界面重做（用户反馈 #3）：移除整圈纯色稀有度外框，改为卡底 120×4 稀有度色条 + 右上角稀有度文字；描述文字改为 168px 固定宽自动换行（RESIZE_HEIGHT）+ 水平居中，不再单行溢出卡面；修改了 assets/scripts/presentation/panel-controller.ts
+- 浏览器实测：卡牌面板无彩色外框、描述换行居中确认通过，点击选卡后游戏正常恢复；战斗截图确认命中特效为小范围（约 20~48px）无糊屏，FPS 60、Draw call 69~81、控制台无报错；近战冲锋为 0.2s 瞬时动作，秒级间隔连拍无法捕获帧级画面，逻辑路径已由类型检查与全量测试覆盖，建议人工进入对局肉眼复核
+- 全量测试 16 文件 124 条用例通过后提交

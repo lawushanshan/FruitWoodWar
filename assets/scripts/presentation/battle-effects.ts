@@ -29,7 +29,7 @@ interface EffectInstance {
     elapsed: number;
     duration: number;
     /** 效果类型 */
-    type: 'attack_flash' | 'crystal_shake' | 'building_explode' | 'impact_ring' | 'range_ring' | 'particle' | 'projectile' | 'slash_fx';
+    type: 'attack_flash' | 'crystal_shake' | 'building_explode' | 'impact_ring' | 'range_ring' | 'particle' | 'projectile' | 'slash_fx' | 'boom';
     /** 起始位置 */
     startX: number;
     startY: number;
@@ -210,7 +210,7 @@ export class BattleEffects {
         }
     }
 
-    /** 爆闪火光：AOE 落点橙黄爆光（fx_boom 程序圆兜底） */
+    /** 爆闪火光：AOE 落点橙黄爆光（fx_boom 程序圆兜底）；曲线封顶 1.4×，避免炸糊半屏 */
     playBoom(x: number, y: number) {
         let node: Node;
         let poolKey = 'boom';
@@ -226,13 +226,13 @@ export class BattleEffects {
         node.parent = this.container;
         node.setPosition(x, y, 0);
         node.active = true;
-        setUniformScale(node, 0.4);
+        setUniformScale(node, 0.5);
         const opacity = node.getComponent(UIOpacity);
         if (opacity) opacity.opacity = 230;
 
         this.push({
-            node, elapsed: 0, duration: 0.28,
-            type: 'impact_ring', startX: x, startY: y, origScale: 1.2,
+            node, elapsed: 0, duration: 0.26,
+            type: 'boom', startX: x, startY: y, origScale: 1.4,
             dx: 0, dy: 0,
         }, poolKey);
     }
@@ -441,9 +441,15 @@ export class BattleEffects {
                 break;
 
             case 'impact_ring':
-                // 命中：快速放大 + 淡出
-                setUniformScale(node, fx.origScale + progress * 1.4);
-                if (opacity) opacity.opacity = Math.floor(200 * (1 - progress));
+                // 命中：小幅放大 + 淡出（收敛到 +0.9，近战命中不再糊成一团）
+                setUniformScale(node, fx.origScale + progress * 0.9);
+                if (opacity) opacity.opacity = Math.floor(180 * (1 - progress));
+                break;
+
+            case 'boom':
+                // 爆闪：0.5 → 1.4 封顶，快速淡出（72px 贴图最大 ~100px）
+                setUniformScale(node, 0.5 + (fx.origScale - 0.5) * progress);
+                if (opacity) opacity.opacity = Math.floor(230 * (1 - progress));
                 break;
 
             case 'range_ring':
@@ -513,6 +519,7 @@ export class BattleEffects {
             case 'range_ring': return 'range';
             case 'particle': return 'particle';
             case 'projectile': return 'projectile';
+            case 'boom': return 'boom';
         }
     }
 }

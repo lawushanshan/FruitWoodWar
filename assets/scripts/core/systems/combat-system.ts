@@ -326,9 +326,10 @@ function attack(state: GameState, attacker: UnitState, target: AttackTarget, ran
     if (target.hp < 0) target.hp = 0;
 
     // 命中表现事件：单位 / 建筑 / 塔都产生"hit"（水晶走专属 crystalHit 表现，避免与冲击环叠加）。
-    // atkType = 攻击者兵种，供表现层按兵种播放不同弹道/斩击/冲击特效。
+    // atkType = 攻击者兵种，供表现层按兵种播放不同弹道/斩击/冲击特效；
+    // uid = 攻击者单位 id，供表现层做近战冲锋（lunge）动作。
     if (dmg > 0 && kind !== 'crystal') {
-        fx.push({ type: 'hit', x: target.x, y: target.y, side: target.side, sx: attacker.x, sy: attacker.y, atkType: attacker.type });
+        fx.push({ type: 'hit', x: target.x, y: target.y, side: target.side, sx: attacker.x, sy: attacker.y, atkType: attacker.type, uid: attacker.id });
     }
 
     // 反伤（荆棘之甲）：防御方单位把受到伤害的一部分反弹给攻击者
