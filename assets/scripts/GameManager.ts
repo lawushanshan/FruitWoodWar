@@ -441,8 +441,9 @@ export class GameManager extends Component {
                         this.battleEffects.playProjectile(sx, sy, e.x, e.y, e.side, 'fx/fx_bolt', 0.22, 30);
                         break;
                     case 'siege':
-                        // 笨重感：慢速巨石（40px，与 30px 单位成比例）+ 落地碎石
+                        // 笨重感：慢速巨石（40px，与 30px 单位成比例）+ 命中闪光 + 落地碎石
                         this.battleEffects.playProjectile(sx, sy, e.x, e.y, e.side, 'fx/fx_boulder', 0.3, 40);
+                        this.battleEffects.playImpact(e.x, e.y, e.side);
                         this.battleEffects.playDebrisBurst(e.x, e.y, 4);
                         break;
                     default:

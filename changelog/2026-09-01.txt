@@ -47,3 +47,5 @@
 - 全量测试 17 文件 134 条用例通过后提交
 - 按兵种重调攻击特效（用户反馈：远程 AOE 特效太广）。最佳实践：特效尺寸诚实反映伤害范围、亮核与范围环两层分工、弹道按兵种缩尺。法师 AOE 爆闪从最大 ~100px 收敛为伤害半径×0.7（75px 半径 → ~52px 亮核）+ 淡环提示，透明度 230→190/120→90；弓箭手箭矢 24→18px、飞行 0.1→0.09s；攻城巨石 48→40px、碎石 5→4 颗；修改了 assets/scripts/presentation/battle-effects.ts（playBoom 增加 finalDiameter 参数按贴图基准换算缩放）、GameManager.ts（consumeFx 各兵种参数）
 - 刷新 Cocos 资产（cocos MCP asset refresh）后浏览器实测：AOE 爆闪收敛、箭矢/巨石比例协调、战场清晰无糊屏，4 项全部 PASS；全量 134 用例通过后提交
+- 特效收尾增强（动画资源审查：fx_star/fx_glow 已预载但未使用、攻城命中缺闪光层）：① attack_flash 升级 fx_star 贴图（程序星形兜底）+ 随机初始角；② 攻城命中补 playImpact 闪光（打击感闭环）；③ 法师爆闪叠 fx_glow 柔光底层（比亮核大一圈、透明度仅 70，能量感不加大尺寸）；EffectInstance 增加 baseOpacity 支持亮核 190/柔光 70 分层淡出；修改了 assets/scripts/presentation/battle-effects.ts、GameManager.ts
+- 浏览器实测复验：法师爆炸柔光层、攻击星形闪光、无糊屏，3 项全部 PASS；全量 134 用例通过后提交

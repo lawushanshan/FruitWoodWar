@@ -40,6 +40,8 @@ interface EffectInstance {
     dy: number;
     /** 节点所属池 key（fx_* 为贴图节点，回收时销毁而非入池；缺省按 type 推导） */
     poolKey?: string;
+    /** 初始透明度（boom 亮核/柔光分层淡出用；缺省按 type 内置值） */
+    baseOpacity?: number;
 }
 
 /** 活跃效果总数上限：超过则丢弃新效果（上限判定，保护低端设备帧率） */
@@ -78,14 +80,23 @@ export class BattleEffects {
 
     // 注：出兵脉冲效果已按用户反馈移除——单位出生时不应有类似爆炸的视觉。
 
-    /** 攻击表现：攻击者短暂闪光 */
+    /** 攻击表现：攻击者短暂闪光（fx_star 贴图，程序星形兜底） */
     playAttackFlash(x: number, y: number) {
-        const node = this.pool.acquire('attack', () =>
-            this.spriteFactory.createColorNode(new Color(255, 255, 200, 200), 12, 12, 'star'),
-        );
+        let node: Node;
+        let poolKey = 'attack';
+        const fxNode = this.makeFxNode('fx/fx_star', 16, new Color(255, 250, 210, 235));
+        if (fxNode) {
+            node = fxNode;
+            poolKey = 'fx_attack';
+        } else {
+            node = this.pool.acquire('attack', () =>
+                this.spriteFactory.createColorNode(new Color(255, 255, 200, 200), 12, 12, 'star'),
+            );
+        }
         node.parent = this.container;
         node.setPosition(x, y, 0);
         node.active = true;
+        node.angle = Math.random() * 90; // 随机初始角，闪光不呆板
         setUniformScale(node, 1);
         const opacity = node.getComponent(UIOpacity);
         if (opacity) opacity.opacity = 255;
@@ -94,7 +105,7 @@ export class BattleEffects {
             node, elapsed: 0, duration: 0.15,
             type: 'attack_flash', startX: x, startY: y, origScale: 1,
             dx: 0, dy: 0,
-        });
+        }, poolKey);
     }
 
     /** 命中表现：目标位置小爆发（冲击环 + 少量粒子） */
@@ -242,8 +253,24 @@ export class BattleEffects {
         this.push({
             node, elapsed: 0, duration: 0.24,
             type: 'boom', startX: x, startY: y, origScale: endScale,
-            dx: 0, dy: 0,
+            dx: 0, dy: 0, baseOpacity: 190,
         }, poolKey);
+
+        // 柔光底层（fx_glow）：比亮核大一圈但很淡，给爆炸"能量释放"质感，不增加尺寸压迫感
+        const glow = this.makeFxNode('fx/fx_glow', 64, new Color(255, 210, 130, 80));
+        if (glow) {
+            glow.parent = this.container;
+            glow.setPosition(x, y, 0);
+            glow.active = true;
+            setUniformScale(glow, 0.5);
+            const gOpacity = glow.getComponent(UIOpacity);
+            if (gOpacity) gOpacity.opacity = 70;
+            this.push({
+                node: glow, elapsed: 0, duration: 0.3,
+                type: 'boom', startX: x, startY: y, origScale: (finalDiameter * 1.3) / 64,
+                dx: 0, dy: 0, baseOpacity: 70,
+            }, 'fx_boom');
+        }
     }
 
     /** 范围溅射表现：以目标为圆心的扩散环（AOE / 防御塔溅射）；优先 fx_ring 贴图 */
@@ -456,9 +483,9 @@ export class BattleEffects {
                 break;
 
             case 'boom':
-                // 爆闪：0.5 → 1.4 封顶，快速淡出（72px 贴图最大 ~100px）
-                setUniformScale(node, 0.5 + (fx.origScale - 0.5) * progress);
-                if (opacity) opacity.opacity = Math.floor(230 * (1 - progress));
+                // 爆闪/柔光：0.45 → 目标直径封顶，按各自初始透明度分层淡出
+                setUniformScale(node, 0.45 + (fx.origScale - 0.45) * progress);
+                if (opacity) opacity.opacity = Math.floor((fx.baseOpacity ?? 190) * (1 - progress));
                 break;
 
             case 'range_ring':
