@@ -278,7 +278,7 @@ export class GameManager extends Component {
         this.hudView = new HudView(uiContainer, sf, this.node, this.artLibrary);
         this.panels = new PanelController(uiContainer, sf, this.node, this.artLibrary);
         this.floatingText = new FloatingText(this.gameContainer, this.node.layer);
-        this.deathEffect = new DeathEffect(this.gameContainer, sf);
+        this.deathEffect = new DeathEffect(this.gameContainer, sf, this.artLibrary);
         this.audio = new AudioManager();
         this.tutorial = new TutorialController(uiContainer, sf, this.node.layer, this.artLibrary);
         this.battleEffects = new BattleEffects(this.gameContainer, sf, this.artLibrary);

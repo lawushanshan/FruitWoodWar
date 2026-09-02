@@ -62,6 +62,18 @@ const OVERLAP_SPREAD: ReadonlyArray<[number, number]> = [
 /** 重叠量化粒度（px）：在此范围内视为同格 */
 const OVERLAP_GRID = 12;
 
+/** easeOutBack：带轻微过冲的弹入曲线（出生动画手感） */
+function easeOutBack(x: number): number {
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+}
+
+/** 建筑/塔/水晶出生弹入时长（秒） */
+const STRUCTURE_SPAWN_DUR = 0.38;
+/** 单位出生弹入时长（秒）：战场高频刷兵，用更短时长避免视觉噪音 */
+const UNIT_SPAWN_DUR = 0.25;
+
 /** 单位兵种图标（灰盒兜底：叠加在形状上帮助区分兵种） */
 const UNIT_ICONS: Record<UnitType, string> = {
     tank: '🛡️',
@@ -82,6 +94,13 @@ const SIDE_RING: Record<Side, Color> = {
     blue: new Color(70, 130, 255, 150),
 };
 
+/** 单位程序动画状态（每单位一份，随对象池复用重置） */
+interface UnitAnimState {
+    phase: number; lastX: number; lastY: number; movingHold: number; walkBlend: number;
+    lunge: { t: number; dur: number; ox: number; oy: number } | null;
+    spawnT: number; ghost: number;
+}
+
 export class GameView {
 
     /** id → Node 映射 */
@@ -94,11 +113,10 @@ export class GameView {
     private unitOffsets: Map<string, { x: number; y: number }> = new Map();
     /** id → 插值后的渲染位置（联机锁步 10Hz 帧间平滑，消除阶梯卡顿） */
     private unitRenderPos: Map<string, { x: number; y: number }> = new Map();
-    /** id → 程序动画状态（随机相位 + 上帧位置；movingHold 行走保持；walkBlend 行走/待机平滑过渡；lunge 近战冲锋动作） */
-    private unitAnim: Map<string, {
-        phase: number; lastX: number; lastY: number; movingHold: number; walkBlend: number;
-        lunge: { t: number; dur: number; ox: number; oy: number } | null;
-    }> = new Map();
+    /** id → 程序动画状态（随机相位 + 上帧位置；movingHold 行走保持；walkBlend 行走/待机平滑过渡；lunge 近战冲锋动作；spawnT 出生弹入进度；ghost 血条拖尾比例） */
+    private unitAnim: Map<string, UnitAnimState> = new Map();
+    /** 建筑/塔/水晶出生弹入动画（id → 计时 + 节点；纯程序曲线，不创建 Tween 对象） */
+    private spawnAnims: Map<string, { t: number; dur: number; node: Node }> = new Map();
     /** 程序动画累计时间 */
     private animTime = 0;
 
@@ -119,6 +137,8 @@ export class GameView {
     /** 每帧调用：从 GameState 同步所有实体的视觉（dt 用于单位偏移平滑与程序动画） */
     sync(state: GameState, dt: number = 1 / 60, interpolate: boolean = false) {
         this.animTime += dt;
+        // 出生弹入动画（建筑/塔/水晶）
+        this.tickSpawnAnims(dt);
         // 水晶
         this.syncCrystals(state);
         // 建筑（含学院/光环塔）
@@ -138,6 +158,7 @@ export class GameView {
         this.unitOffsets.clear();
         this.unitRenderPos.clear();
         this.unitAnim.clear();
+        this.spawnAnims.clear();
         this.pool.clearAll();
     }
 
@@ -152,6 +173,28 @@ export class GameView {
         const len = Math.hypot(dx, dy);
         if (len < 1) return;
         anim.lunge = { t: 0, dur: 0.2, ox: (dx / len) * 7, oy: (dy / len) * 7 };
+    }
+
+    /** 开始一段出生弹入动画（建筑/塔/水晶创建时调用） */
+    private beginSpawn(id: string, node: Node, dur: number = STRUCTURE_SPAWN_DUR) {
+        node.setScale(0, 0, 1);
+        this.spawnAnims.set(id, { t: 0, dur, node });
+    }
+
+    /** 推进出生弹入动画：easeOutBack 从 0 过冲弹到 1（纯程序曲线，无 Tween 对象） */
+    private tickSpawnAnims(dt: number) {
+        for (const [id, anim] of this.spawnAnims) {
+            // 实体可能在动画中途死亡：节点已销毁则直接丢弃
+            if (!anim.node.isValid) {
+                this.spawnAnims.delete(id);
+                continue;
+            }
+            anim.t += dt;
+            const p = Math.min(1, anim.t / anim.dur);
+            const s = Math.max(0, easeOutBack(p));
+            anim.node.setScale(s, s, 1);
+            if (p >= 1) this.spawnAnims.delete(id);
+        }
     }
 
     /** 在节点中心叠加 emoji 图标（灰盒兜底：建筑/塔用） */
@@ -221,6 +264,8 @@ export class GameView {
 
                 node.parent = this.container;
                 this.crystalNodes.set(c.id, node);
+                // 水晶（大本营）出生弹入：开局仪式感
+                this.beginSpawn(c.id, node, 0.45);
             }
             node.setPosition(c.x, c.y, 0);
             // 护盾罩跟随护盾状态（呼吸脉冲表现活力）
@@ -288,6 +333,8 @@ export class GameView {
                     badge.setPosition(0, 28, 0);
                 }
                 this.buildingNodes.set(b.id, node);
+                // 建筑出生弹入：落地弹一下，强化"刚建成"的反馈
+                this.beginSpawn(b.id, node);
             }
             node.setPosition(b.x, b.y, 0);
             // 工厂等级用星标区分（v0.5：建筑不再随等级变大，避免视觉挤压）
@@ -332,6 +379,8 @@ export class GameView {
                 }
                 node.parent = this.container;
                 this.towerNodes.set(t.id, node);
+                // 塔出生弹入：与建筑一致的"刚建成"反馈
+                this.beginSpawn(t.id, node);
             }
             node.setPosition(t.x, t.y, 0);
         }
@@ -372,6 +421,8 @@ export class GameView {
                     phase: Math.random() * Math.PI * 2,
                     lastX: u.x, lastY: u.y, movingHold: 0, walkBlend: 0,
                     lunge: null,
+                    spawnT: 0, // 出生弹入从 0 开始
+                    ghost: 1,  // 血条拖尾从满血开始
                 });
             }
 
@@ -406,6 +457,9 @@ export class GameView {
             // 纯数学计算在 Body 子节点上叠加，不创建 Tween 对象（120 单位性能守则）
             const anim = this.unitAnim.get(u.id);
             if (anim) {
+                // 出生弹入计时：独立于行走/待机动画推进，期间整体缩放从 0 弹到等级尺寸
+                if (anim.spawnT < UNIT_SPAWN_DUR) anim.spawnT = Math.min(UNIT_SPAWN_DUR, anim.spawnT + dt);
+
                 // 行走保持计时（v1.4.3）：逻辑 30Hz / 渲染 60Hz 下隔帧 dx=0，
                 // 直接按"本帧是否位移"判定会让行走/待机动画逐帧翻转（视觉闪烁）。
                 // 改为检测到位移后保持 0.2s 行走态，逻辑帧间隙不再回退到待机。
@@ -471,11 +525,14 @@ export class GameView {
                 }
             }
 
-            // 精英等级用缩放表示
+            // 精英等级用缩放表示；出生弹入期间叠加 easeOutBack 缩放（从 0 过冲弹到等级尺寸）
             const levelScale = u.level === 1 ? 1 : u.level === 2 ? 1.2 : 1.4;
-            setUniformScale(node, levelScale);
+            const spawnK = anim && anim.spawnT < UNIT_SPAWN_DUR
+                ? Math.max(0, easeOutBack(anim.spawnT / UNIT_SPAWN_DUR))
+                : 1;
+            setUniformScale(node, levelScale * spawnK);
 
-            this.updateHpBar(node, u);
+            this.updateHpBar(node, u, dt, anim);
             this.updateStatusBadge(node, u);
         }
 
@@ -560,6 +617,15 @@ export class GameView {
         bg.name = 'HpBg';
         bg.parent = bar;
 
+        // 拖尾残影条（ghost bar）：位于底色与填充条之间，受伤后缓慢追赶实际血量，
+        // 直观表现"这一下掉了多少血"
+        const ghost = this.spriteFactory.createColorNode(new Color(255, 120, 110, 220), 22, 3);
+        ghost.name = 'HpGhost';
+        ghost.parent = bar;
+        const ghostUt = ghost.getComponent(UITransform);
+        ghostUt.anchorPoint = new Vec2(0, 0.5);
+        ghost.setPosition(-11, 0, 0);
+
         const fill = this.spriteFactory.createColorNode(new Color(90, 220, 90), 22, 3);
         fill.name = 'HpFill';
         fill.parent = bar;
@@ -569,13 +635,17 @@ export class GameView {
         fill.setPosition(-11, 0, 0);
     }
 
-    /** 每帧更新血条：满血隐藏，受损时按比例缩短并变色 */
-    private updateHpBar(unitNode: Node, u: UnitState) {
+    /** 每帧更新血条：满血隐藏，受损时按比例缩短并变色；拖尾条缓慢追赶表现伤害量 */
+    private updateHpBar(unitNode: Node, u: UnitState, dt: number, anim?: UnitAnimState) {
         const bar = unitNode.getChildByName('HpBar');
         if (!bar) return;
         const damaged = u.hp < u.maxHp;
         bar.active = damaged;
-        if (!damaged) return;
+        if (!damaged) {
+            // 满血时重置拖尾，下次受伤从满血残影开始追赶
+            if (anim) anim.ghost = 1;
+            return;
+        }
 
         const fill = bar.getChildByName('HpFill');
         if (!fill) return;
@@ -584,6 +654,23 @@ export class GameView {
         const sp = fill.getComponent(Sprite);
         if (sp) {
             sp.color = ratio > 0.5 ? HP_GREEN : ratio > 0.25 ? HP_YELLOW : HP_RED;
+        }
+
+        // 拖尾追赶：受伤时残影以固定速率向实际比例收敛；治疗/回升立即贴合
+        let ghost = anim ? anim.ghost : ratio;
+        if (ratio >= ghost) {
+            ghost = ratio;
+        } else {
+            ghost += (ratio - ghost) * Math.min(1, dt * 3.5);
+        }
+        if (anim) anim.ghost = ghost;
+
+        // 残影只在实际血量明显更低时显示，避免与填充条重叠时露边
+        const ghostNode = bar.getChildByName('HpGhost');
+        if (ghostNode) {
+            const showGhost = ghost > ratio + 0.02;
+            ghostNode.active = showGhost;
+            if (showGhost) ghostNode.setScale(ghost, 1, 1);
         }
     }
 

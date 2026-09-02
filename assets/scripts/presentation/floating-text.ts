@@ -26,6 +26,16 @@ interface FloatConfig {
     duration: number;
 }
 
+/** easeOutBack：带轻微过冲的弹入曲线（浮动文字出生手感） */
+function easeOutBack(x: number): number {
+    const c1 = 1.70158;
+    const c3 = c1 + 1;
+    return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+}
+
+/** 弹入缩放耗时（秒）：前 0.18s 从 0 过冲弹到 1 */
+const POP_IN_DURATION = 0.18;
+
 export class FloatingText {
 
     /** 活跃浮动文字列表 */
@@ -48,6 +58,8 @@ export class FloatingText {
         node.parent = this.container;
         node.setPosition(x, y, 0);
         node.active = true;
+        // 从 0 弹入（update 中 easeOutBack 展开到 1）
+        node.setScale(0, 0, 1);
 
         const label = node.getComponent(Label)!;
         label.string = text;
@@ -75,7 +87,7 @@ export class FloatingText {
         this.show('+' + Math.floor(amount), x, y, new Color(100, 255, 100), 14, 0.6);
     }
 
-    /** 每帧更新：驱动浮动动画 */
+    /** 每帧更新：驱动浮动动画（弹入 → 缓出上升 → 后半段淡出） */
     update(dt: number) {
         for (let i = this.active.length - 1; i >= 0; i--) {
             const item = this.active[i];
@@ -89,12 +101,21 @@ export class FloatingText {
                 continue;
             }
 
-            // 上升 + 淡出
-            const yOffset = progress * 40; // 上升 40px
-            item.node.setPosition(item.config.x, item.config.y + yOffset, 0);
+            // 弹入缩放：前 0.18s 从 0 过冲弹到 1，第一眼就抓住视线
+            const pop = Math.min(1, item.elapsed / POP_IN_DURATION);
+            const s = easeOutBack(pop);
+            item.node.setScale(s, s, 1);
+
+            // 上升：easeOutCubic（起跳快、到顶缓停），比线性上升更轻快
+            const ease = 1 - Math.pow(1 - progress, 3);
+            item.node.setPosition(item.config.x, item.config.y + ease * 44, 0);
+
+            // 淡出：前 55% 保持完全不透明（保证数字可读），后 45% 匀速淡出
             const opacity = item.node.getComponent(UIOpacity);
             if (opacity) {
-                opacity.opacity = Math.floor(255 * (1 - progress));
+                opacity.opacity = progress < 0.55
+                    ? 255
+                    : Math.floor(255 * (1 - (progress - 0.55) / 0.45));
             }
         }
     }
@@ -120,6 +141,10 @@ export class FloatingText {
         label.fontSize = 16;
         label.color = Color.WHITE;
         label.lineHeight = 20;
+        // 深色描边：复杂战场背景下保证数字清晰可读（01 总纲：伤害跳字要清晰）
+        label.enableOutline = true;
+        label.outlineColor = new Color(15, 18, 24, 220);
+        label.outlineWidth = 2;
         node.addComponent(UIOpacity);
         return node;
     }

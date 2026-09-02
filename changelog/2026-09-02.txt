@@ -1,0 +1,23 @@
+动画与界面打磨（高标准迭代）：
+
+- 浮动文字手感重做：出生从 0 缩放经 easeOutBack 过冲弹入（0.18s），上升改 44px easeOutCubic，淡出只保留后 45%，并加深色描边提升可读性，修改了 assets/scripts/presentation/floating-text.ts
+- 死亡表现重做：单位阵亡改为重力抛物线飞出（随机初速 + 自旋，G=-700），结尾迸散 3~5 颗金色星星粒子（优先 fx/star 贴图、灰盒兜底），修改了 assets/scripts/presentation/death-effect.ts
+- 建筑类出生弹入：水晶（0.45s）/建筑/塔创建时从 0 缩放经 easeOutBack 弹到原尺寸，强化"刚建成"反馈，修改了 assets/scripts/presentation/game-view.ts
+- 单位出生弹入：新刷单位 0.25s easeOutBack 缩放叠加精英等级缩放，随对象池状态复用，修改了 assets/scripts/presentation/game-view.ts
+- 血条拖尾（ghost bar）：受伤后红橙残影条以固定速率追赶实际血量，直观表现伤害量；治疗立即回弹，满血重置，修改了 assets/scripts/presentation/game-view.ts
+- 波次横幅：波次变化时战场中央弹出"第 N 波"大字（backOut 弹入 → 停留 → 上移淡出，带描边与半透明底条），修改了 assets/scripts/presentation/hud-view.ts
+- 结算面板入场：整体从 82% 缩放 + 透明弹入（backOut），点亮星星逐颗错峰弹出，隐藏时停掉全部 tween，修改了 assets/scripts/presentation/panel-controller.ts
+- 死亡特效接入美术资源库：DeathEffect 构造注入 ArtLibrary，星星粒子使用 fx/star 贴图，修改了 assets/scripts/GameManager.ts
+
+验证：tsc --noEmit 0 错误；vitest 17 文件 135 条用例全部通过。
+
+更正：此前记录的"实机观察"（选卡弹入、'-25'浮字、水晶受击等）发生在浏览器加载的旧编译产物上（页面早于本次改动加载，:7456 预览服务不会自动重编译外部修改的脚本），不能作为本次改动的验证依据。已通过 cocos-mcp 对 6 个改动脚本执行 reimport 强制重导入并刷新页面，确认新代码生效（运行时 hudView 存在 createWaveBanner/showWaveBanner 方法）。
+
+真机验证（新代码实机，节点级动画曲线采样，80/40ms 轮询）：
+- 波次横幅（E）：完整生命周期 ~1.68s 与代码 0.28+1.0+0.35s 吻合；缩放 0.26→0.99→1.1（backOut 过冲实锤）→1.03→1.0 停留；透明度 28→170→255 淡入、252→204→131→82→9.7 上移淡出；第二波横幅再次复测通过
+- 单位出生弹入（C）：实时出生三连拍首见缩放 0.29→0.85→1.03（过冲段）→收敛 1.0，与 0.25s easeOutBack 一致
+- 浮动文字（A）：'-25' 伤害字首见缩放 1.07（easeOutBack 过冲实锤）；淡出曲线 255×3帧→220→190→157→109→78→47→0，符合"前 55% 不透明、后 45% 淡出"；战斗截图画面中清晰可见描边伤害字
+- 死亡星星（B）：fx_fx_star 首见缩放 1.11→1.33（弹出爆开）；伴随 fx_fx_ring 冲击环完整扩散曲线 0.47→0.55→0.67→0.74→0.82→0.93→1.01→1.12→1.2（两组一致）；fx_fx_arrow 投射物消散 0.94→0.77→0.66
+- 结算面板（F）：自然打满一局（6:39、第 19 波、击杀 300）稳态实拍——胜利文案、剩余金币、3 颗金星、再来一局按钮完整显示，3 星数量与监视采样 st=3 一致；入场动画与横幅同用 backOut 弹入系统（横幅曲线已实锤），另有单测背书
+- 血条拖尾（D）：单元测试覆盖，未做实机曲线采样
+- 性能：稳定 60 FPS，Draw call 75~143，Frame time 0.59~0.8ms

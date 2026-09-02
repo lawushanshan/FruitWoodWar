@@ -10,7 +10,7 @@
  */
 
 import {
-    Node, Label, Color, UITransform, Size, Vec2, Vec3, Button, EventHandler, Sprite, HorizontalTextAlignment, UIOpacity, tween,
+    Node, Label, Color, UITransform, Size, Vec2, Vec3, Button, EventHandler, Sprite, HorizontalTextAlignment, UIOpacity, tween, Tween,
 } from 'cc';
 import { ColorSpriteFactory } from './color-sprite-factory';
 import { ArtLibrary } from './art-library';
@@ -258,6 +258,8 @@ export class PanelController {
     showEnd(state: GameState, canRevive: boolean = false, onlineResult?: { winner: 'red' | 'blue'; reason: string }) {
         if (!this.endPanel) return;
         this.endPanel.active = true;
+        // 面板入场动画：缩放弹入 + 淡入（每次展示都重放）
+        this.animateEndPanelIn();
 
         const result = state.stats.result;
         if (!this.endStatsLabel) return;
@@ -289,6 +291,8 @@ export class PanelController {
             '波次：第 ' + state.wave + ' 波';
         // 星级独立图标行（ico_star 贴图）
         this.updateStarsRow(this.endPanel?.getChildByName('EndStars') ?? null, result.stars);
+        // 点亮的星星逐颗弹出（胜利仪式感）
+        this.popEndStars(result.stars);
 
         // 失败时显示复活按钮（如果还可以复活）
         if (this.reviveBtn) {
@@ -296,9 +300,52 @@ export class PanelController {
         }
     }
 
-    /** 隐藏结算面板 */
+    /** 结算面板入场：整体从 82% 缩放 + 透明弹到原位（backOut 过冲，UI 层允许 tween） */
+    private animateEndPanelIn() {
+        const panel = this.endPanel;
+        if (!panel) return;
+        Tween.stopAllByTarget(panel);
+        let op = panel.getComponent(UIOpacity);
+        if (op) Tween.stopAllByTarget(op);
+        if (!op) op = panel.addComponent(UIOpacity);
+        panel.setScale(0.82, 0.82, 1);
+        op.opacity = 0;
+        tween(panel).parallel(
+            tween(panel).to(0.3, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' }),
+            tween(op).to(0.2, { opacity: 255 }),
+        ).start();
+    }
+
+    /** 结算星星逐颗弹出：点亮的星从 0 弹到 1（延迟错开），灰星保持原尺寸 */
+    private popEndStars(litCount: number) {
+        const row = this.endPanel?.getChildByName('EndStars');
+        if (!row) return;
+        for (let i = 0; i < 3; i++) {
+            const star = row.getChildByName('Star_' + i);
+            if (!star) continue;
+            Tween.stopAllByTarget(star);
+            if (i < litCount) {
+                star.setScale(0, 0, 1);
+                tween(star)
+                    .delay(0.35 + i * 0.14)
+                    .to(0.26, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' })
+                    .start();
+            } else {
+                // 灰星与上次残留动画复位
+                star.setScale(1, 1, 1);
+            }
+        }
+    }
+
+    /** 隐藏结算面板（停掉入场/星星动画，避免隐藏后 tween 继续跑） */
     hideEnd() {
-        if (this.endPanel) this.endPanel.active = false;
+        if (!this.endPanel) return;
+        Tween.stopAllByTarget(this.endPanel);
+        const op = this.endPanel.getComponent(UIOpacity);
+        if (op) Tween.stopAllByTarget(op);
+        const row = this.endPanel.getChildByName('EndStars');
+        if (row) for (const star of row.children) Tween.stopAllByTarget(star);
+        this.endPanel.active = false;
     }
 
     /** 显示 Toast 提示（默认 3 秒自动消失，可指定时长） */

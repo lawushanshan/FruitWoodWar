@@ -9,7 +9,8 @@
  */
 
 import {
-    Node, Label, Color, UITransform, Size, Vec2, Button, EventHandler, view, HorizontalTextAlignment,
+    Node, Label, Color, UITransform, Size, Vec2, Vec3, Button, EventHandler, view,
+    HorizontalTextAlignment, UIOpacity, tween, Tween,
 } from 'cc';
 import { ColorSpriteFactory } from './color-sprite-factory';
 import { ArtLibrary } from './art-library';
@@ -62,6 +63,12 @@ export class HudView {
     /** 联机延迟指示（ping ms），显示在身份标识旁 */
     private pingLabel: Label | null = null;
     private onlineBadgeNode: Node | null = null;
+
+    /** 波次横幅（居中大字提示：wave 变化时弹入 → 停留 → 淡出） */
+    private waveBanner: Node | null = null;
+    private waveBannerLabel: Label | null = null;
+    /** 上次显示的波次数（变化检测触发横幅） */
+    private lastWave = 0;
 
     /** 上次可视高度（用于检测屏幕变化） */
     private lastVisibleHeight: number = 0;
@@ -133,6 +140,7 @@ export class HudView {
         this.createBuildBar();
         this.createCardHistory();
         this.createOnlineBadge();
+        this.createWaveBanner();
     }
 
     /** 联机身份标识 + ping 指示（顶部栏下方左侧；仅联机对局显示） */
@@ -222,6 +230,71 @@ export class HudView {
         button.clickEvents = [handler];
     }
 
+    // ==================== 波次横幅 ====================
+
+    /** 波次横幅节点：居中偏上的大字提示条（创建一次，重复播放） */
+    private createWaveBanner() {
+        const banner = new Node('WaveBanner');
+        banner.layer = this.gmNode.layer;
+        banner.parent = this.container;
+        const ut = banner.addComponent(UITransform);
+        ut.contentSize = new Size(420, 64);
+        banner.setPosition(0, 60, 0);
+
+        // 半透明深色底条：压住战场背景，保证大字可读
+        const bg = this.spriteFactory.createColorNode(new Color(15, 22, 30, 200), 420, 60);
+        bg.name = 'WaveBannerBg';
+        bg.parent = banner;
+
+        const labelNode = new Node('WaveBannerLabel');
+        labelNode.layer = this.gmNode.layer;
+        labelNode.parent = banner;
+        labelNode.addComponent(UITransform).contentSize = new Size(400, 44);
+        const label = labelNode.addComponent(Label);
+        label.string = '';
+        label.fontSize = 34;
+        label.lineHeight = 40;
+        label.color = new Color(255, 225, 130);
+        // 描边增强在战场上的可读性
+        label.enableOutline = true;
+        label.outlineColor = new Color(20, 16, 8, 230);
+        label.outlineWidth = 3;
+        this.waveBannerLabel = label;
+
+        banner.active = false;
+        this.waveBanner = banner;
+    }
+
+    /** 播放波次横幅：缩放弹入（backOut 过冲）→ 停留 → 上移淡出（UI 层允许 tween） */
+    private showWaveBanner(wave: number) {
+        const banner = this.waveBanner;
+        if (!banner || !this.waveBannerLabel) return;
+        this.waveBannerLabel.string = `第 ${wave} 波`;
+        banner.active = true;
+
+        // 重复触发时停掉上一次动画再重放（节点与 UIOpacity 都要停）
+        Tween.stopAllByTarget(banner);
+        let op = banner.getComponent(UIOpacity);
+        if (op) Tween.stopAllByTarget(op);
+        if (!op) op = banner.addComponent(UIOpacity);
+        banner.setScale(0, 0, 1);
+        banner.setPosition(0, 60, 0);
+        op.opacity = 0;
+
+        tween(banner)
+            .parallel(
+                tween(banner).to(0.28, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' }),
+                tween(op).to(0.15, { opacity: 255 }),
+            )
+            .delay(1.0)
+            .parallel(
+                tween(banner).to(0.35, { position: new Vec3(0, 110, 0) }, { easing: 'sineIn' }),
+                tween(op).to(0.35, { opacity: 0 }),
+            )
+            .call(() => { banner.active = false; })
+            .start();
+    }
+
     // ==================== 每帧更新 ====================
 
     /** 每帧更新顶部状态栏（只读快照） */
@@ -246,6 +319,12 @@ export class HudView {
         const ps = state.playerSide;
         if (this.goldLabel) this.goldLabel.string = String(state.gold[ps]);
         if (this.waveLabel) this.waveLabel.string = '第 ' + state.wave + ' 波';
+
+        // 波次横幅：wave 变化且非 0 时在战场中央弹入提示（wave=0 为初始化态，不触发）
+        if (state.wave !== this.lastWave) {
+            this.lastWave = state.wave;
+            if (state.wave > 0) this.showWaveBanner(state.wave);
+        }
         if (this.popLabel) {
             const pop = state.units.filter(u => u.side === ps).length;
             this.popLabel.string = pop + '/' + GAME_CONFIG.unitCap;
