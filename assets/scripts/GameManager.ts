@@ -30,6 +30,7 @@ import { BattleEffects } from './presentation/battle-effects';
 import { EntityInfoPanel } from './presentation/entity-info-panel';
 import { makeBuildCommand, makeUpgradeCommand, makeResearchCommand, makeShieldCommand, makeCardCommand } from './input/game-commands';
 import { BUILDING_CONFIG } from './config/building-config';
+import { quoteBuild } from './core/systems/building-system';
 import { BUILD_GRID } from './config/build-grid';
 import { MAP_LAYOUT } from './config/map-layout';
 import { saveFromState } from './core/save-system';
@@ -426,10 +427,15 @@ export class GameManager extends Component {
                         this.battleEffects.playDebrisBurst(e.x, e.y, 3);
                         break;
                     case 'rush':
-                        // 突进感：攻击者冲锋突进 + 斩击弧光 + 轻命中
+                        // 突进感：攻击者冲锋突进；首击为范围冲击（撞上去的冲击波，由 slam 事件补）
+                        // 表现与"挥砍"语义不符 → 首击不放月牙，后续普攻保留月牙斩 + 轻命中
                         if (e.uid) this.gameView.playMeleeLunge(e.uid, sx, sy, e.x, e.y);
-                        this.battleEffects.playSlash(e.x, e.y, e.side);
-                        this.battleEffects.playImpact(e.x, e.y, e.side);
+                        if (e.first) {
+                            this.battleEffects.playImpact(e.x, e.y, e.side);
+                        } else {
+                            this.battleEffects.playSlash(e.x, e.y, e.side);
+                            this.battleEffects.playImpact(e.x, e.y, e.side);
+                        }
                         break;
                     case 'ranged':
                         // 轻快感：细箭（18px，贴合肥身比例）+ 小命中
@@ -456,6 +462,11 @@ export class GameManager extends Component {
                     this.battleEffects.playRangeEffect(e.x, e.y, e.radius, e.side);
                     this.battleEffects.playBoom(e.x, e.y, e.radius * 0.7);
                 });
+            } else if (e.type === 'slam') {
+                // 冲锋首击冲击波：近战撞击无弹道，立即播放范围环 + 爆闪 + 碎石（地面被砸开的感觉）
+                this.battleEffects.playRangeEffect(e.x, e.y, e.radius, e.side);
+                this.battleEffects.playBoom(e.x, e.y, e.radius * 0.7);
+                this.battleEffects.playDebrisBurst(e.x, e.y, 4);
             } else if (e.type === 'tower') {
                 // 塔攻击：弹道飞抵(0.12s)后目标处溅射环，保持同步
                 this.battleEffects.playProjectile(e.sx, e.sy, e.x, e.y, e.side);
@@ -602,6 +613,14 @@ export class GameManager extends Component {
         if (!this.canAct()) return;
         const itemId = id as BuildingItemId;
 
+        // 点击即预检：上限/金币不足直接提示，不进入放置模式（需求：钱不够第一时间反馈，
+        // 而不是拖到格子上放下时才发现白忙一场）。与 tryBuild 共用 quoteBuild，提示语完全一致
+        const quote = quoteBuild(this.engine.state, this.engine.state.playerSide, itemId);
+        if (quote.ok === false) {
+            this.panels.showToast(quote.message);
+            return;
+        }
+
         if (this.pendingBuild === itemId) {
             this.cancelPlacement();
             this.panels.showToast('取消建造');
@@ -613,7 +632,7 @@ export class GameManager extends Component {
         this.showPreview();
         this.showGridOverlay();
         const conf = BUILDING_CONFIG[itemId];
-        this.panels.showToast(`选择格子放置${conf.name}（放错可右键/ESC 取消）`);
+        this.panels.showToast(`选择格子放置${conf.name}（${quote.cost}金，放错可右键/ESC 取消）`);
     }
 
     /** 触摸按下：开始长按计时（移动端长按拖拽建造） */

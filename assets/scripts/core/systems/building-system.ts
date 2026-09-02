@@ -4,7 +4,7 @@
  * - 兵工厂价格 = 基准价 × 阵营倍率 × 同类递增（每多 1 座同类厂 +25%）
  * - 升级：Lv1→2（150 金，属性 ×1.5）、Lv2→3（300 金，属性 ×2.2，需学院 Lv1）
  * - 学院：Lv0→1（200 金，解锁 Lv3）、Lv1→2（400 金，全队攻击 +10%、解锁全军强化）
- * - 光环塔：250 金 / 800 血，每方限 1 座，全队攻速 +15%
+ * - 光环塔：250 金起 / 800 血，每方最多 3 座（价格逐座 +25%），400px 内攻速 +15%（多塔不叠加）
  * - 全军强化：需学院 Lv2，400 金起每层 ×1.15，+8% 攻击/层，无限叠加
  */
 
@@ -12,6 +12,7 @@ import {
     BUILDING_CONFIG,
     AURA_TOWER_CONFIG,
     applyBuildingLevelHp,
+    auraCostInState,
     buildingCostInState,
     researchCost,
     shieldCost,
@@ -48,17 +49,22 @@ function academyMessage(state: GameState, side: Side): string {
         : '战争学院 Lv1！解锁兵工厂 Lv3 升级';
 }
 
-/** 处理建造命令（side 默认玩家方，AI 复用同一路径） */
-export function tryBuild(state: GameState, itemId: BuildingItemId, position: Position, side: Side = state.playerSide): CommandResult {
-    if (state.phase !== 'playing') {
-        return { ok: false };
-    }
+/** 建造报价结果：ok=true 时 cost 为本次实付价格；ok=false 时 message 为不可建/钱不够的原因 */
+export type BuildQuote = { ok: true; cost: number } | { ok: false; message: string };
+
+/**
+ * 建造报价（计价与资格校验的唯一入口，tryBuild 与 UI 点击预检共用）：
+ * - 学院按当前等级计价，满级不可建
+ * - 光环塔按已建数量递增，达到上限不可建
+ * - 工厂按阵营倍率 × 同类递增
+ * - 金币不足直接给出提示（需求：点建造时钱不够要立刻反馈）
+ */
+export function quoteBuild(state: GameState, side: Side, itemId: BuildingItemId): BuildQuote {
     const conf = BUILDING_CONFIG[itemId];
     if (!conf) {
-        return { ok: false };
+        return { ok: false, message: '未知建筑' };
     }
 
-    // 学院按当前等级计价；光环塔固定价；工厂按阵营倍率 × 同类递增
     let cost: number;
     if (conf.kind === 'academy') {
         const level = state.academyLevel[side];
@@ -69,9 +75,9 @@ export function tryBuild(state: GameState, itemId: BuildingItemId, position: Pos
     } else if (conf.kind === 'aura') {
         const owned = state.towers.filter(t => t.side === side && t.kind === 'aura').length;
         if (owned >= GAME_CONFIG.auraTowerLimit) {
-            return { ok: false, message: '光环塔每方只能建造 1 座！' };
+            return { ok: false, message: `光环塔每方最多建造 ${GAME_CONFIG.auraTowerLimit} 座！` };
         }
-        cost = conf.cost;
+        cost = auraCostInState(state, side);
     } else {
         cost = buildingCostInState(state, side, itemId);
     }
@@ -79,6 +85,25 @@ export function tryBuild(state: GameState, itemId: BuildingItemId, position: Pos
     if (state.gold[side] < cost) {
         return { ok: false, message: `金币不足！需要 ${cost} 金` };
     }
+    return { ok: true, cost };
+}
+
+/** 处理建造命令（side 默认玩家方，AI 复用同一路径） */
+export function tryBuild(state: GameState, itemId: BuildingItemId, position: Position, side: Side = state.playerSide): CommandResult {
+    if (state.phase !== 'playing') {
+        return { ok: false };
+    }
+    const conf = BUILDING_CONFIG[itemId];
+    if (!conf) {
+        return { ok: false };
+    }
+
+    // 计价 + 上限 + 金币预检全部收敛到 quoteBuild（与建造按钮点击时的提示完全一致）
+    const quote = quoteBuild(state, side, itemId);
+    if (quote.ok === false) {
+        return quote; // 直接透传失败原因（上限/金币不足等）
+    }
+    const cost = quote.cost;
 
     // 光环塔：可攻击的塔实体（弱化版范围攻击 + 400px 攻速光环，可被敌方拆掉）
     if (conf.kind === 'aura') {

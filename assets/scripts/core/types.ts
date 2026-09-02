@@ -35,8 +35,11 @@ export type Phase = 'idle' | 'playing' | 'card-pause' | 'ended';
  * 不写入 GameState（避免影响确定性序列化），而是经 GameEngine.drainFx() 一次性读取并清空。
  */
 export type FxEvent =
-    | { type: 'hit'; x: number; y: number; side: Side; sx?: number; sy?: number; atkType?: UnitType; uid?: string }
+    // first=true 标记冲锋兵首击（表现层据此播范围冲击而非普通月牙斩）
+    | { type: 'hit'; x: number; y: number; side: Side; sx?: number; sy?: number; atkType?: UnitType; uid?: string; first?: boolean }
     | { type: 'aoe'; x: number; y: number; radius: number; side: Side }
+    // 冲锋首击冲击波：撞击点范围伤害的专属表现（近战无弹道，表现层立即播放）
+    | { type: 'slam'; x: number; y: number; radius: number; side: Side }
     | { type: 'tower'; x: number; y: number; sx: number; sy: number; radius: number; side: Side };
 
 /** 平面坐标（像素） */

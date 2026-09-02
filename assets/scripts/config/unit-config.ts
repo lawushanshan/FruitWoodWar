@@ -10,7 +10,8 @@
  * | 攻城 | 250 | 12 | 0.5 | 6.5→325| 0.5→25  | 12 | 1 |
  *
  * 攻城对建筑伤害 ×15（见 game-config.siegeVsBuildingMult），即对建筑 180。
- * 冲锋首击倍率见 faction-config.firstStrikeMult。
+ * 冲锋首击倍率见 faction-config.firstStrikeMult；首击为范围冲击（半径/比例见
+ * game-config.rushFirstStrikeSplash*），后续普攻仍为单体。
  * cost 为对应兵工厂的基准价格（动物价，实际价格 = cost × 阵营价格倍率）。
  */
 

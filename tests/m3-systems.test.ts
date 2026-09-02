@@ -134,23 +134,37 @@ describe('建筑：学院 / 光环塔 / 全军强化', () => {
         expect(lv3.ok).toBe(false);
     });
 
-    it('光环塔：250 金、每方限 1 座、400px 内己方攻速 +15%（范围外无效）', () => {
+    it('光环塔：250 金起逐座递增、每方限 3 座、400px 内攻速 +15%（多塔不叠加）', () => {
         const engine = makeEngine();
         const s = writableState(engine);
         s.gold.blue = 0;
-        s.gold.red = 1000;
+        s.gold.red = 2000;
         expect(effectiveAttackSpeedMult(s, 'red', -420, 0)).toBe(1);
 
-        const built = engine.execute({ type: 'build', itemId: 'aura', position: { x: -420, y: 0 } });
-        expect(built.ok).toBe(true);
-        expect(s.gold.red).toBe(750);
+        // 第 1 座：250 金
+        const first = engine.execute({ type: 'build', itemId: 'aura', position: { x: -420, y: 0 } });
+        expect(first.ok).toBe(true);
+        expect(s.gold.red).toBe(1750);
         // 塔周围 400px 内生效
         expect(effectiveAttackSpeedMult(s, 'red', -420, 0)).toBeCloseTo(1.15, 5);
         expect(effectiveAttackSpeedMult(s, 'red', -100, 0)).toBeCloseTo(1.15, 5);
         // 400px 外不生效（v0.4：光环不再全场）
         expect(effectiveAttackSpeedMult(s, 'red', 0, 0)).toBe(1);
 
-        // 限 1 座
+        // 第 2 座：313 金（250 × 1.25 递增）
+        const second = engine.execute({ type: 'build', itemId: 'aura', position: { x: -420, y: 100 } });
+        expect(second.ok).toBe(true);
+        expect(s.gold.red).toBe(1437);
+        // 三塔同覆盖同一点，攻速仍只 +15%（不叠加）
+        expect(effectiveAttackSpeedMult(s, 'red', -420, 0)).toBeCloseTo(1.15, 5);
+
+        // 第 3 座：375 金（250 × 1.5 递增）
+        const third = engine.execute({ type: 'build', itemId: 'aura', position: { x: -420, y: 200 } });
+        expect(third.ok).toBe(true);
+        expect(s.gold.red).toBe(1062);
+        expect(effectiveAttackSpeedMult(s, 'red', -420, 0)).toBeCloseTo(1.15, 5);
+
+        // 限 3 座：金币充足（余额 1062 ≥ 第 4 座 438 金）仍拒绝
         const again = engine.execute({ type: 'build', itemId: 'aura', position: POS });
         expect(again.ok).toBe(false);
 

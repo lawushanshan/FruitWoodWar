@@ -16,7 +16,7 @@ import { ColorSpriteFactory } from './color-sprite-factory';
 import { ArtLibrary } from './art-library';
 import { setUniformScale } from './scale-helper';
 import { GAME_CONFIG } from '../config/game-config';
-import { BUILDING_CONFIG, BUILDING_IDS, buildingCostInState, researchCost, shieldCost } from '../config/building-config';
+import { BUILDING_CONFIG, BUILDING_IDS, auraCostInState, buildingCostInState, researchCost, shieldCost } from '../config/building-config';
 import { CARD_CONFIG } from '../config/card-config';
 import type { BuildingItemId, GameState } from '../core/types';
 
@@ -366,6 +366,16 @@ export class HudView {
                     const cost = level === 0 ? GAME_CONFIG.academyLv1Cost : GAME_CONFIG.academyLv2Cost;
                     label.string = cost + '金';
                 }
+            } else if (conf.kind === 'aura') {
+                // 光环塔：显示下一座实际价格（含逐座递增），达上限显示"已满"（与 quoteBuild 判定一致）
+                const owned = state.towers.filter(t => t.side === side && t.kind === 'aura').length;
+                const countLabel = this.buildCountLabels.get(id);
+                if (owned >= GAME_CONFIG.auraTowerLimit) {
+                    label.string = '已满';
+                } else {
+                    label.string = auraCostInState(state, side) + '金';
+                }
+                if (countLabel) countLabel.string = owned > 0 ? `已建${owned}座·递增` : '';
             } else {
                 label.string = conf.cost + '金';
             }

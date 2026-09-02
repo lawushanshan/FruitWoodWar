@@ -9,7 +9,7 @@
  * 收入倍率在 economy-system 按 state.difficulty 生效；本文件只管花钱。
  */
 
-import { BUILDING_CONFIG, buildingCostInState, cheapestFactoryId, researchCost, shieldCost, upgradeCost } from '../../config/building-config';
+import { BUILDING_CONFIG, auraCostInState, buildingCostInState, cheapestFactoryId, researchCost, shieldCost, upgradeCost } from '../../config/building-config';
 import { BUILD_GRID } from '../../config/build-grid';
 import { GAME_CONFIG } from '../../config/game-config';
 import type { BuildingItemId, GameCommand, GameState, UnitType } from '../types';
@@ -95,8 +95,9 @@ export function aiDecide(state: GameState, random: RandomSource): GameCommand | 
         if (academyLevel === 1 && gold >= GAME_CONFIG.academyLv2Cost + 100) {
             return { type: 'build', itemId: 'academy', position: gridPosition(state, random) };
         }
-        const hasAura = state.towers.some(t => t.side === 'blue' && t.kind === 'aura');
-        if (academyLevel >= 1 && !hasAura && gold >= 250 + 100) {
+        // 光环塔放开多建（v0.7）：AI 保守建到 2 座即可（玩家上限 3），按实际递增价预留余钱
+        const auraCount = state.towers.filter(t => t.side === 'blue' && t.kind === 'aura').length;
+        if (academyLevel >= 1 && auraCount < 2 && gold >= auraCostInState(state, 'blue') + 100) {
             return { type: 'build', itemId: 'aura', position: gridPosition(state, random) };
         }
         if (academyLevel === 2 && gold >= researchCost(state.researchLayers.blue) + 150) {

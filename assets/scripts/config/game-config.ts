@@ -34,6 +34,10 @@ export interface GameConfig {
     siegeVsBuildingMult: number;
     /** AOE 单位溅射伤害比例（文档未明确，暂定 50%，待真人试玩校准） */
     aoeSplashRatio: number;
+    /** 冲锋首击冲击波半径（px）：首次撞击对周围敌人造成范围伤害 */
+    rushFirstStrikeSplashRadius: number;
+    /** 冲锋首击冲击波伤害比例（按基础攻击的百分比，不吃首击倍率） */
+    rushFirstStrikeSplashRatio: number;
     /** 卡牌触发波次 */
     cardTriggerWaves: readonly number[];
     /** 同类建筑价格递增步长（+25%/座） */
@@ -50,7 +54,7 @@ export interface GameConfig {
     eliteBountyMult: Record<string, number>;
     /** 光环塔攻速加成 */
     auraAttackSpeedBonus: number;
-    /** 每方光环塔数量上限 */
+    /** 每方光环塔数量上限（v0.7：放开到 3 座，价格逐座递增，攻速光环不叠加） */
     auraTowerLimit: number;
     /** 战争学院 Lv1 费用 */
     academyLv1Cost: number;
@@ -98,6 +102,9 @@ export const GAME_CONFIG: GameConfig = {
     counterMult: 1.4,
     siegeVsBuildingMult: 15,
     aoeSplashRatio: 0.5,
+    // 冲锋首击冲击波：撞击点 90px 内敌人受基础攻击 50%（不吃首击倍率，避免数值爆炸）
+    rushFirstStrikeSplashRadius: 90,
+    rushFirstStrikeSplashRatio: 0.5,
     cardTriggerWaves: [5, 10, 15],
     priceEscalateStep: 0.25,
     upgradeLv2Cost: 150,
@@ -106,7 +113,7 @@ export const GAME_CONFIG: GameConfig = {
     lv3StatMult: 2.2,
     eliteBountyMult: { '2': 1.5, '3': 2 },
     auraAttackSpeedBonus: 0.15,
-    auraTowerLimit: 1,
+    auraTowerLimit: 3,
     academyLv1Cost: 200,
     academyLv2Cost: 400,
     researchBaseCost: 400,

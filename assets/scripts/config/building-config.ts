@@ -4,7 +4,8 @@
  * - 兵工厂价格 = 基准价 × 阵营倍率 × 同类递增（每多 1 座同类厂 +25%）
  * - 工厂升级：Lv2 150 金（属性 ×1.5）、Lv3 300 金（属性 ×2.2，需学院 Lv1）
  * - 战争学院：Lv1 200 金（解锁 Lv3）、Lv2 再花 400 金（全队攻击 +10%、解锁全军强化）
- * - 光环塔：250 金 / 1600 血，攻速光环（400px 内 +15%）+ 弱化版范围攻击，每方限 1 座
+ * - 光环塔：250 金起 / 1600 血，攻速光环（400px 内 +15%，多塔不叠加）+ 弱化版范围攻击，
+ *   每方最多 3 座（每多 1 座 +25%，与工厂同类递增一致）
  * - 全军强化：400 金起、每层 ×1.15 递增，全队攻击 +8%/层，无限叠加
  * - 基地防御塔为固定建筑（双方各 2 座，不可建造）
  */
@@ -73,10 +74,19 @@ function sameFactoryCount(state: GameState, side: Side, itemId: BuildingItemId):
 }
 
 /**
+ * 光环塔当前价格（v0.7 放开多建后引入递增）：
+ * 250 × (1 + 0.25 × 已建数量)，不乘阵营价格倍率（保持基准价语义）。
+ */
+export function auraCostInState(state: GameState, side: Side): number {
+    const owned = state.towers.filter(t => t.side === side && t.kind === 'aura').length;
+    return Math.round(BUILDING_CONFIG.aura.cost * (1 + GAME_CONFIG.priceEscalateStep * owned));
+}
+
+/**
  * 计算建造实际价格：
  * - 工厂 = 基准价 × 阵营倍率 × (1 + 0.25 × 同类现存数量)，四舍五入
  * - 学院 = 按当前等级（Lv0→200，Lv1→400，Lv2 不可再买）
- * - 光环塔 = 固定 250
+ * - 光环塔 = 250 × (1 + 0.25 × 已建数量)（走 auraCostInState，含递增）
  */
 export function buildingCost(itemId: BuildingItemId, faction: FactionId, existing = 0): number {
     const conf = BUILDING_CONFIG[itemId];

@@ -21,3 +21,12 @@
 - 结算面板（F）：自然打满一局（6:39、第 19 波、击杀 300）稳态实拍——胜利文案、剩余金币、3 颗金星、再来一局按钮完整显示，3 星数量与监视采样 st=3 一致；入场动画与横幅同用 backOut 弹入系统（横幅曲线已实锤），另有单测背书
 - 血条拖尾（D）：单元测试覆盖，未做实机曲线采样
 - 性能：稳定 60 FPS，Draw call 75~143，Frame time 0.59~0.8ms
+
+三大玩法需求迭代：
+
+- 需求1（建造点击即预检）：抽取 quoteBuild 唯一计价入口（金币不足/光环塔上限/学院满级三类校验），建造按钮点击时直接预检，钱不够第一时间 Toast 提示（如"金币不足！需要 141 金"），不再进入放置模式白忙一场；进入放置模式的提示文案附带实时价格，修改了 assets/scripts/core/systems/building-system.ts、assets/scripts/GameManager.ts
+- 需求2（光环塔放开多座、攻速不叠加）：光环塔每方上限 1 → 3 座，价格按 250 × (1 + 25% × 已建数) 逐座递增（250/313/375）；攻速光环基于"400px 内存在任意己方光环塔"判定，多塔同覆盖仍只 +15% 不叠加；HUD 按钮显示递增价/已建数量/已满状态；困难 AI 保守建到 2 座，修改了 assets/scripts/config/game-config.ts、assets/scripts/config/building-config.ts、assets/scripts/presentation/hud-view.ts、assets/scripts/core/systems/ai-system.ts
+- 需求3（冲锋首击改范围冲击）：原首击表现沿用月牙斩（挥砍语义与"撞上去"不符），改为范围冲击——主目标仍吃首击倍率（×2/×2/×2.5）+ 克制全额，撞击点 90px 内其他敌人受基础攻击 50% 溅射（不吃首击/克制倍率防数值爆炸），后续普攻恢复单体月牙斩；新增 slam 表现事件（近战无弹道立即播放：范围环 + 爆闪 + 碎石），hit 事件加 first 标记供表现层区分，修改了 assets/scripts/core/combat（core/systems/combat-system.ts）、assets/scripts/core/types.ts、assets/scripts/GameManager.ts、assets/scripts/config/game-config.ts、assets/scripts/config/unit-config.ts
+- 测试同步：光环塔用例改写为限 3 座 + 递增价（250/313/375）+ 三塔同覆盖攻速仍 ×1.15 + 第 4 座拒绝 + 拆塔失效；新增冲锋首击范围冲击用例（主目标 440、近旁 485、远处 500、第二击后近旁不再掉血），修改了 tests/m3-systems.test.ts、tests/combat.test.ts
+
+验证：vitest 17 文件 136 条用例全部通过；改动文件 GetDiagnostics 零诊断（根目录 tsc 的 322 个错误均为 cocos-mcp 扩展/vite 类型/server 的预存问题，与本次改动无关）。

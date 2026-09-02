@@ -124,6 +124,26 @@ describe('战斗系统：首击与溅射', () => {
         expect(s.units.find(u => u.id === 'b1')!.hp).toBeCloseTo(425, 5);
     });
 
+    it('冲锋首击附带范围冲击：撞击点 90px 内其他敌人受 50% 基础攻击（不吃首击倍率），后续普攻恢复单体', () => {
+        const engine = makeEngine();
+        const s = writableState(engine);
+        clearBattlefield(s);
+        s.units = [
+            makeUnit({ side: 'red', id: 'r1', type: 'rush', x: 0, y: 0, atk: 30, range: 55, speed: 0 }),
+            makeUnit({ side: 'blue', id: 'main', type: 'tank', x: 30, y: 0, hp: 500, maxHp: 500, atk: 0, range: 10, speed: 0 }),
+            makeUnit({ side: 'blue', id: 'near', type: 'ranged', x: 100, y: 0, hp: 500, maxHp: 500, atk: 0, range: 10, speed: 0 }),
+            makeUnit({ side: 'blue', id: 'far', type: 'ranged', x: 200, y: 0, hp: 500, maxHp: 500, atk: 0, range: 10, speed: 0 }),
+        ];
+        engine.step(1 / 60);
+        // 主目标吃首击倍率 30×2 = 60；near 距撞击点 70px（<90）受溅射 30×0.5 = 15；far 距 170px 不受
+        expect(s.units.find(u => u.id === 'main')!.hp).toBeCloseTo(440, 5);
+        expect(s.units.find(u => u.id === 'near')!.hp).toBeCloseTo(485, 5);
+        expect(s.units.find(u => u.id === 'far')!.hp).toBe(500);
+        engine.step(1); // 第二击恢复单体：main 再受 30，near 不再掉血
+        expect(s.units.find(u => u.id === 'main')!.hp).toBeCloseTo(410, 5);
+        expect(s.units.find(u => u.id === 'near')!.hp).toBeCloseTo(485, 5);
+    });
+
     it('AOE 兵种攻击附带溅射：75px 内敌方单位受 50% 伤害，范围外不受', () => {
         const engine = makeEngine();
         const s = writableState(engine);

@@ -290,8 +290,9 @@ function attack(state: GameState, attacker: UnitState, target: AttackTarget, ran
 
     let dmg = attacker.atk * atkBuff;
 
-    // 冲锋首击倍率（仅第一次攻击）
-    if (attacker.type === 'rush' && !attacker.firstStrikeDone) {
+    // 冲锋首击倍率（仅第一次攻击）；isFirstStrike 同时驱动范围冲击波结算与表现事件标记
+    const isFirstStrike = attacker.type === 'rush' && !attacker.firstStrikeDone;
+    if (isFirstStrike) {
         dmg *= fConf.firstStrikeMult;
         attacker.firstStrikeDone = true;
     }
@@ -329,7 +330,7 @@ function attack(state: GameState, attacker: UnitState, target: AttackTarget, ran
     // atkType = 攻击者兵种，供表现层按兵种播放不同弹道/斩击/冲击特效；
     // uid = 攻击者单位 id，供表现层做近战冲锋（lunge）动作。
     if (dmg > 0 && kind !== 'crystal') {
-        fx.push({ type: 'hit', x: target.x, y: target.y, side: target.side, sx: attacker.x, sy: attacker.y, atkType: attacker.type, uid: attacker.id });
+        fx.push({ type: 'hit', x: target.x, y: target.y, side: target.side, sx: attacker.x, sy: attacker.y, atkType: attacker.type, uid: attacker.id, first: isFirstStrike || undefined });
     }
 
     // 反伤（荆棘之甲）：防御方单位把受到伤害的一部分反弹给攻击者
@@ -356,6 +357,20 @@ function attack(state: GameState, attacker: UnitState, target: AttackTarget, ran
         }
         // 范围溅射表现事件（画一个半径环）
         fx.push({ type: 'aoe', x: target.x, y: target.y, radius: uConf.splashRadius, side: target.side });
+    }
+
+    // 冲锋首击冲击波（v0.7：首次撞击为范围攻击）：撞击点周围敌方单位受基础攻击的一部分，
+    // 不吃首击倍率/克制倍率（避免数值爆炸）；后续普攻仍为单体。slam 表现事件由表现层立即播放
+    if (isFirstStrike && dmg > 0) {
+        const radius = GAME_CONFIG.rushFirstStrikeSplashRadius;
+        const slamDmg = attacker.atk * atkBuff * GAME_CONFIG.rushFirstStrikeSplashRatio * state.buffs[target.side].damageReduce;
+        for (const e of state.units) {
+            if (e.side === attacker.side || e === target) continue;
+            if (Math.abs(e.x - target.x) + Math.abs(e.y - target.y) < radius) {
+                e.hp -= slamDmg;
+            }
+        }
+        fx.push({ type: 'slam', x: target.x, y: target.y, radius, side: target.side });
     }
 
     // 卡牌"果弹飞溅"额外溅射
