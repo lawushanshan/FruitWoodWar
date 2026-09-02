@@ -106,6 +106,42 @@ export function stepCombat(state: GameState, dt: number, random: RandomSource, f
     for (const t of state.towers) {
         updateTower(state, t, dt, fx);
     }
+    // 同族单位分离推挤：行军/集结时保持间距，减少重叠成团
+    separateUnits(state, dt);
+}
+
+/**
+ * 同阵营单位分离推挤：两两间距小于最小间距时沿连线缓缓互相推开。
+ * - 只推同阵营（敌方交战时的贴合由攻击距离决定，不干预战斗节奏）
+ * - 推挤量设每帧上限（unitSeparateSpeed × dt），保证平滑无抖动
+ * - 完全重合时固定向 +x 方向分开（无随机，保持锁步确定性）
+ */
+function separateUnits(state: GameState, dt: number): void {
+    const minDist = GAME_CONFIG.unitSeparateDist;
+    const maxPush = GAME_CONFIG.unitSeparateSpeed * dt;
+    const units = state.units;
+    for (let i = 0; i < units.length; i++) {
+        const a = units[i];
+        if (a.hp <= 0) continue;
+        for (let j = i + 1; j < units.length; j++) {
+            const b = units[j];
+            if (b.hp <= 0 || b.side !== a.side) continue;
+            let dx = b.x - a.x;
+            let dy = b.y - a.y;
+            let d = Math.sqrt(dx * dx + dy * dy);
+            if (d >= minDist) continue;
+            if (d < 0.01) {
+                dx = 1; dy = 0; d = 1; // 完全重叠：固定方向分开（确定性）
+            }
+            const push = Math.min((minDist - d) / 2, maxPush);
+            const ux = dx / d;
+            const uy = dy / d;
+            a.x -= ux * push;
+            a.y -= uy * push;
+            b.x += ux * push;
+            b.y += uy * push;
+        }
+    }
 }
 
 /** 清理本帧死亡实体；死亡爆炸（适者生存）在此统一结算 */

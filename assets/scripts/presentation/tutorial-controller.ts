@@ -11,7 +11,7 @@
  *  "完成新手首局引导：30 秒内建造第一座工厂并看到第一波出兵"
  */
 
-import { Node, Label, Color, UITransform, Size, Vec2, Vec3, UIOpacity, tween, Sprite } from 'cc';
+import { Node, Label, Color, UITransform, Size, Vec2, Vec3, UIOpacity, tween, Tween, Sprite } from 'cc';
 import { ColorSpriteFactory } from './color-sprite-factory';
 import type { ArtLibrary } from './art-library';
 
@@ -208,6 +208,8 @@ export class TutorialController {
             this.hintNode.active = false;
         }
         if (this.handNode?.isValid) {
+            // 停掉指向手势的 repeatForever tween，避免隐藏后仍在后台空转（泄漏）
+            Tween.stopAllByTarget(this.handNode);
             this.handNode.active = false;
         }
     }

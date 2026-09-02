@@ -65,10 +65,14 @@ export class PanelController {
     private cardCountdownLabel: Label | null = null;
     private endStatsLabel: Label | null = null;
     private toastLabel: Label | null = null;
+    /** Toast 根节点（含黑色底条；只激活子 label 不够，根节点必须一起激活） */
+    private toastNode: Node | null = null;
 
     // ---- 卡牌倒计时 ----
     /** 倒计时剩余秒数；<=0 表示无进行中的选卡 */
     private cardTimeoutSeconds = 0;
+    /** 倒计时上次显示的整秒数（跨秒时触发紧急脉冲；-1 表示非紧急态） */
+    private lastCountdownSec = -1;
 
     // ---- 建筑升级面板 ----
     private upgradePanel: Node | null = null;
@@ -173,8 +177,17 @@ export class PanelController {
         eh.component = 'GameManager';
         eh.handler = handler;
         if (customData !== undefined) eh.customEventData = customData;
-        button.clickEvents = [eh];
+        button.clickEvents = [this.makeClickSoundHandler(), eh];
         return btn;
+    }
+
+    /** UI 按钮统一点击音：插入 clickEvents 首位，任何按钮按下都有确认反馈（不影响业务 handler） */
+    private makeClickSoundHandler(): EventHandler {
+        const h = new EventHandler();
+        h.target = this.gmNode;
+        h.component = 'GameManager';
+        h.handler = 'onUiClick';
+        return h;
     }
 
     /** 创建所有面板（初始化时调用一次） */
@@ -234,15 +247,33 @@ export class PanelController {
     /**
      * 卡牌倒计时（GameManager 每帧调用，含 card-pause 阶段）。
      * 倒计时归零时回调 onTimeout（自动选第一张），防止选卡暂停导致游戏假死。
+     * 最后 5 秒进入紧急态：数字转红 + 每跨一秒放大脉冲，催促玩家决策。
      */
     updateCardCountdown(dt: number, onTimeout: () => void) {
         if (this.cardTimeoutSeconds <= 0) return;
         this.cardTimeoutSeconds -= dt;
         if (this.cardCountdownLabel) {
-            this.cardCountdownLabel.string =
+            const label = this.cardCountdownLabel;
+            label.string =
                 this.cardTimeoutSeconds > 0
                     ? `⏱ ${Math.ceil(this.cardTimeoutSeconds)} 秒后自动选择`
                     : '';
+            const urgent = this.cardTimeoutSeconds > 0 && this.cardTimeoutSeconds <= 5;
+            if (urgent) {
+                // 紧急态：红色 + 跨秒脉冲（0.18s backOut 回弹，与全局弹入手感一致）
+                label.color = new Color(255, 84, 74);
+                const sec = Math.ceil(this.cardTimeoutSeconds);
+                if (sec !== this.lastCountdownSec) {
+                    this.lastCountdownSec = sec;
+                    Tween.stopAllByTarget(label.node);
+                    label.node.setScale(1.35, 1.35, 1);
+                    tween(label.node).to(0.18, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' }).start();
+                }
+            } else if (this.lastCountdownSec !== -1) {
+                // 退出紧急态（理论上只在重新开局时发生）：恢复默认橙色
+                label.color = new Color(255, 160, 90);
+                this.lastCountdownSec = -1;
+            }
         }
         if (this.cardTimeoutSeconds <= 0) {
             this.cardTimeoutSeconds = 0;
@@ -350,15 +381,24 @@ export class PanelController {
 
     /** 显示 Toast 提示（默认 3 秒自动消失，可指定时长） */
     showToast(msg: string, durationMs: number = 3000) {
-        if (!this.toastLabel) return;
+        if (!this.toastLabel || !this.toastNode) return;
         this.toastLabel.string = msg;
-        const toast = this.toastLabel.node;
+        // v0.7 修复：此前只激活了子 label 节点，Toast 根节点仍是 inactive，
+        // 导致所有提示（金币不足/建造结果/联机状态…）实际不可见
+        const toast = this.toastNode;
         toast.active = true;
+
+        // 轻量淡入 + 到期淡出（复用结算面板同款 tween 手法）
+        const op = toast.getComponent(UIOpacity) ?? toast.addComponent(UIOpacity);
+        Tween.stopAllByTarget(op);
+        op.opacity = 0;
+        tween(op).to(0.15, { opacity: 255 }).start();
 
         // 清除旧定时器
         if (this.toastTimer) clearTimeout(this.toastTimer);
         this.toastTimer = setTimeout(() => {
-            if (toast) toast.active = false;
+            Tween.stopAllByTarget(op);
+            tween(op).to(0.25, { opacity: 0 }).start();
         }, durationMs);
     }
 
@@ -428,11 +468,12 @@ export class PanelController {
         this.makeLabel('✕ 取消', 0, 0, Color.WHITE, cancelBtn, 14);
         const cxButton = cancelBtn.addComponent(Button);
         cxButton.transition = Button.Transition.SCALE;
+        cxButton.zoomScale = 0.93;
         const cxHandler = new EventHandler();
         cxHandler.target = this.gmNode;
         cxHandler.component = 'GameManager';
         cxHandler.handler = 'onCancelRoomClick';
-        cxButton.clickEvents = [cxHandler];
+        cxButton.clickEvents = [this.makeClickSoundHandler(), cxHandler];
 
         this.roomCard = card;
     }
@@ -593,11 +634,12 @@ export class PanelController {
         closeBtn.setPosition(0, -255, 0);
         const cButton = closeBtn.addComponent(Button);
         cButton.transition = Button.Transition.SCALE;
+        cButton.zoomScale = 0.93;
         const cHandler = new EventHandler();
         cHandler.target = this.gmNode;
         cHandler.component = 'GameManager';
         cHandler.handler = 'onCloseCardHistoryClick';
-        cButton.clickEvents = [cHandler];
+        cButton.clickEvents = [this.makeClickSoundHandler(), cHandler];
 
         this.cardHistoryPanel = panel;
     }
@@ -649,7 +691,8 @@ export class PanelController {
         handler.target = this.gmNode;
         handler.component = 'GameManager';
         handler.handler = 'onBuildingUpgradeClick';
-        button.clickEvents = [handler];
+        button.zoomScale = 0.93; // 统一按压缩放标准
+        button.clickEvents = [this.makeClickSoundHandler(), handler];
 
         this.upgradeBtnNode = btn;
         this.upgradePanel = panel;
@@ -791,14 +834,14 @@ export class PanelController {
 
         const button = btn.addComponent(Button);
         button.transition = Button.Transition.SCALE;
-        button.zoomScale = 1.04;
+        button.zoomScale = 0.93;
         button.duration = 0.08;
         const handler = new EventHandler();
         handler.target = this.gmNode;
         handler.component = 'GameManager';
         handler.handler = 'onFactionClick';
         handler.customEventData = id;
-        button.clickEvents = [handler];
+        button.clickEvents = [this.makeClickSoundHandler(), handler];
 
         return btn;
     }
@@ -891,6 +934,7 @@ export class PanelController {
         this.toastLabel = this.makeLabel('', 0, -20, Color.WHITE, toast, 18);
         toast.setPosition(0, 340, 0);
         toast.active = false;
+        this.toastNode = toast;
     }
 
     // ==================== 卡牌节点 ====================
@@ -928,20 +972,22 @@ export class PanelController {
         this.makeLabel(card.name, 0, 4, Color.WHITE, node, 20);
 
         // 描述：固定宽度自动换行 + 水平居中（提亮一档，与深底对比更清晰）
+        // 注意顺序：必须先设 overflow 再写 contentSize——若 Label 以默认 NONE 模式渲染过一帧，
+        // 会把 UITransform 宽度撑成文本自然宽度，之后换行永久失效导致文字横向溢出卡牌
         const descNode = new Node('CardDesc');
         descNode.layer = this.gmNode.layer;
         descNode.parent = node;
         const dUt = descNode.addComponent(UITransform);
-        dUt.contentSize = new Size(168, 20);
-        dUt.anchorPoint = new Vec2(0.5, 1); // 顶部锚点：多行向下延展
         const desc = descNode.addComponent(Label);
+        desc.overflow = Label.Overflow.RESIZE_HEIGHT; // 限宽自动换行、高度自适应
         desc.string = card.desc;
-        desc.fontSize = 13;
-        desc.lineHeight = 19;
+        desc.fontSize = 12;
+        desc.lineHeight = 17;
         desc.color = new Color(192, 210, 224);
-        desc.overflow = Label.Overflow.RESIZE_HEIGHT;
         desc.horizontalAlign = HorizontalTextAlignment.CENTER;
-        descNode.setPosition(0, -18, 0);
+        dUt.anchorPoint = new Vec2(0.5, 1); // 顶部锚点：多行向下延展
+        dUt.setContentSize(164, 17); // 换行限宽（卡牌 200 留边距），再设一次确保生效
+        descNode.setPosition(0, -24, 0); // 名称下方起始；最长描述 2 行底缘约 -58，远离色条(-110)
 
         // 稀有度标签：底部色条下方居中（原右上角易与立绘打架，底部与色条成组更规整）
         const rarNames: Record<string, string> = { rare: '稀有', epic: '史诗', legendary: '传说' };
@@ -950,13 +996,13 @@ export class PanelController {
         // 点击
         const button = node.addComponent(Button);
         button.transition = Button.Transition.SCALE;
-        button.zoomScale = 1.08;
+        button.zoomScale = 0.93;
         const handler = new EventHandler();
         handler.target = this.gmNode;
         handler.component = 'GameManager';
         handler.handler = 'onCardClick';
         handler.customEventData = card.id;
-        button.clickEvents = [handler];
+        button.clickEvents = [this.makeClickSoundHandler(), handler];
 
         return node;
     }

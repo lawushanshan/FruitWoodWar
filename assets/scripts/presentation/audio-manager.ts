@@ -13,7 +13,13 @@
  */
 
 /** 音效类型 */
-export type SoundEffect = 'build' | 'coin' | 'kill' | 'victory' | 'defeat' | 'attack' | 'hit' | 'upgrade';
+export type SoundEffect = 'build' | 'coin' | 'kill' | 'victory' | 'defeat' | 'attack' | 'hit' | 'upgrade' | 'click';
+
+/** 高频音效最小播放间隔（毫秒）：战斗事件密集，限流避免嘈杂与性能浪费 */
+const THROTTLE_MS: Partial<Record<SoundEffect, number>> = {
+    attack: 80,
+    hit: 80,
+};
 
 export class AudioManager {
 
@@ -21,6 +27,8 @@ export class AudioManager {
     private masterGain: GainNode | null = null;
     private muted: boolean = false;
     private volume: number = 0.3;
+    /** 各音效上次播放时间戳（毫秒），用于高频音效节流 */
+    private lastPlayedAt: Partial<Record<SoundEffect, number>> = {};
 
     /** 初始化音频上下文（需在用户交互后调用） */
     init() {
@@ -41,6 +49,14 @@ export class AudioManager {
     play(effect: SoundEffect) {
         if (!this.ctx || !this.masterGain || this.muted) return;
 
+        // 高频音效节流：间隔内重复触发直接丢弃（团战时攻防事件每秒可达数十次）
+        const throttle = THROTTLE_MS[effect];
+        if (throttle) {
+            const now = Date.now();
+            if (now - (this.lastPlayedAt[effect] ?? 0) < throttle) return;
+            this.lastPlayedAt[effect] = now;
+        }
+
         // 确保上下文在运行状态（浏览器要求用户交互后才能播放）
         if (this.ctx.state === 'suspended') {
             this.ctx.resume();
@@ -55,6 +71,7 @@ export class AudioManager {
             case 'attack': this.playAttack(); break;
             case 'hit': this.playHit(); break;
             case 'upgrade': this.playUpgrade(); break;
+            case 'click': this.playClick(); break;
         }
     }
 
@@ -126,6 +143,11 @@ export class AudioManager {
         this.playTone(600, 0.1, 'sine');
         setTimeout(() => this.playTone(800, 0.1, 'sine'), 100);
         setTimeout(() => this.playTone(1200, 0.15, 'sine'), 200);
+    }
+
+    /** 按钮点击：极短清脆 tick（所有 UI 按钮统一的操作确认音） */
+    private playClick() {
+        this.playTone(880, 0.03, 'sine');
     }
 
     // ==================== 底层 ====================

@@ -30,3 +30,19 @@
 - 测试同步：光环塔用例改写为限 3 座 + 递增价（250/313/375）+ 三塔同覆盖攻速仍 ×1.15 + 第 4 座拒绝 + 拆塔失效；新增冲锋首击范围冲击用例（主目标 440、近旁 485、远处 500、第二击后近旁不再掉血），修改了 tests/m3-systems.test.ts、tests/combat.test.ts
 
 验证：vitest 17 文件 136 条用例全部通过；改动文件 GetDiagnostics 零诊断（根目录 tsc 的 322 个错误均为 cocos-mcp 扩展/vite 类型/server 的预存问题，与本次改动无关）。
+
+BUG 修复 + 动画/界面/交互体验二轮优化（8 项）：
+
+- 修复 Toast 整体不可见的重大 BUG：showToast 此前只操作内部子节点，根节点自身未激活导致永远不显示；改为激活根节点 + 透明度淡入淡出 + 自动隐藏，实机视觉验证通过，修改了 assets/scripts/presentation/panel-controller.ts
+- 战斗音效接线：attack/hit 音效此前已实现但零调用（战斗全程无声）；hit 事件接 attack 音（近战挥击/命中），aoe 炮弹落地与 slam 冲锋撞击接 hit 重击音（与爆闪/冲击波同步），修改了 assets/scripts/GameManager.ts
+- AudioManager 高频音效节流：新增 THROTTLE_MS（attack/hit 间隔 80ms 内重复触发直接丢弃），防止大规模团战音效爆音，并新增 click 点击音（880Hz 短促正弦），修改了 assets/scripts/presentation/audio-manager.ts
+- 全部 UI 按钮统一点击反馈：GameManager 新增 onUiClick 公开方法，hud-view / panel-controller 所有按钮的 clickEvents 首位插入共享点击音 handler（不改任何业务 handler），覆盖开始/联机/难度/阵营/卡牌/建造/升级/护盾/静音/取消房间/卡牌历史等全部按钮，修改了 assets/scripts/presentation/hud-view.ts、assets/scripts/presentation/panel-controller.ts、assets/scripts/GameManager.ts
+- 按钮按压缩放标准统一为 0.93：废除 1.04/1.05/1.08/1.1 多套放大/缩小混用标准，全部统一为按下缩小（0.93），无 zoomScale 的按钮补齐，修改了 assets/scripts/presentation/hud-view.ts、assets/scripts/presentation/panel-controller.ts
+- HUD 数值变化反馈：金币/人口/击杀标签数值变化时脉冲弹跳（1.22→1，0.14s），消除数字跳变的生硬感；花钱时金币数字变红 0.35s 后恢复；我方水晶血量 ≤30% 时对应阵营标签持续红色警示，修改了 assets/scripts/presentation/hud-view.ts
+- 结构血条：水晶/建筑/防御塔满血时隐藏，受损后显示三段变色血条（绿>50%/黄>25%/红），与单位血条同一套配色规则，修改了 assets/scripts/presentation/game-view.ts
+- 死亡特效分兵种：新增 DEATH_STYLE 按兵种差异化死亡碎块（重甲矩形大块/冲锋三角形/射手小圆/AOE 六边形/攻城菱形），替代全场统一圆点，修改了 assets/scripts/GameManager.ts
+- 卡牌倒计时紧急态：最后 5 秒倒计时数字转红 + 每跨一秒脉冲放大（1.35→1，0.18s backOut），催促决策；超时自动选卡流程不变，修改了 assets/scripts/presentation/panel-controller.ts
+- 修复 tutorial 指向手势 tween 泄漏：hideHint 此前只隐藏节点不停止 repeatForever 动画，手势节点隐藏后仍在后台每帧空转，补 Tween.stopAllByTarget，修改了 assets/scripts/presentation/tutorial-controller.ts
+- 金币获得/消费战场跳字：金币增加显示金色 '+N金'（伴随 coin 音），消费显示红色 '-N金'，修改了 assets/scripts/GameManager.ts
+
+验证：vitest 17 文件 136 条用例全部通过；6 个改动文件 GetDiagnostics 零 Error。实机复验（reimport 后新代码）：全部按钮 clickEvents 首位 onUiClick + zoomScale=0.93 无遗漏；战斗音效实拍 attack×23 / kill×13 / coin×19 / click×1；HUD 标签脉冲实拍触发 17 次；结构血条 8 座结构全挂载、受损 2 座正确显示；死亡样式精确命中 ranged（circle/10）；倒计时紧急态 lastCountdownSec 正确跨秒更新、退出后恢复橙色、超时自动选卡正常。

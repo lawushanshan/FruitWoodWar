@@ -32,6 +32,17 @@ interface IconSlot {
     node: Node | null;
 }
 
+/** 顶部栏数值标签的默认色（变化脉冲/警示色恢复时使用，需与 createTopBar 保持一致） */
+const TOP_LABEL_BASE: Record<string, Color> = {
+    gold: new Color(255, 215, 94),
+    red: new Color(255, 138, 122),
+    blue: new Color(122, 184, 255),
+};
+/** 金币消费警示色（短暂变红，提示"钱花出去了"） */
+const GOLD_SPEND_COLOR = new Color(255, 110, 95);
+/** 水晶低血量警示阈值（低于 30% 血量数字转红） */
+const CRYSTAL_LOW_RATIO = 0.3;
+
 export class HudView {
 
     // ---- 顶部状态栏标签 ----
@@ -57,6 +68,13 @@ export class HudView {
     /** 已抽卡牌历史行（顶部栏下方，展示玩家本局已选卡图标） */
     private cardHistoryLabel: Label | null = null;
     private lastCardCount = -1;
+
+    // ---- 数值变化反馈（脉冲 + 消费变色） ----
+    private lastGold = -1;
+    private lastPop = -1;
+    private lastKills = -1;
+    /** 金币消费变红的截止时刻（state.time，秒；-1 表示无） */
+    private goldTintUntil = -1;
 
     /** 联机身份标识（你是红方/蓝方），显示在顶部栏下方左侧 */
     private sideBadgeLabel: Label | null = null;
@@ -222,12 +240,12 @@ export class HudView {
         // 点击 → 打开卡牌详情面板（GameManager 路由到 PanelController.showCardHistory）
         const button = node.addComponent(Button);
         button.transition = Button.Transition.SCALE;
-        button.zoomScale = 1.05;
+        button.zoomScale = 0.93;
         const handler = new EventHandler();
         handler.target = this.gmNode;
         handler.component = 'GameManager';
         handler.handler = 'onCardHistoryClick';
-        button.clickEvents = [handler];
+        button.clickEvents = [this.makeClickSoundHandler(), handler];
     }
 
     // ==================== 波次横幅 ====================
@@ -317,7 +335,26 @@ export class HudView {
         }
 
         const ps = state.playerSide;
-        if (this.goldLabel) this.goldLabel.string = String(state.gold[ps]);
+
+        // 金币：变化弹跳脉冲；花钱时短暂变红（恢复由下方计时驱动）
+        if (this.goldLabel) {
+            const gold = state.gold[ps];
+            if (gold !== this.lastGold) {
+                const spent = this.lastGold >= 0 && gold < this.lastGold;
+                this.lastGold = gold;
+                this.goldLabel.string = String(gold);
+                this.pulseLabel(this.goldLabel);
+                if (spent) {
+                    this.goldLabel.color = GOLD_SPEND_COLOR.clone();
+                    this.goldTintUntil = state.time + 0.35;
+                }
+            } else if (this.goldTintUntil >= 0 && state.time >= this.goldTintUntil) {
+                // 消费红色到期，恢复默认金色
+                this.goldLabel.color = TOP_LABEL_BASE.gold.clone();
+                this.goldTintUntil = -1;
+            }
+        }
+
         if (this.waveLabel) this.waveLabel.string = '第 ' + state.wave + ' 波';
 
         // 波次横幅：wave 变化且非 0 时在战场中央弹入提示（wave=0 为初始化态，不触发）
@@ -327,14 +364,44 @@ export class HudView {
         }
         if (this.popLabel) {
             const pop = state.units.filter(u => u.side === ps).length;
-            this.popLabel.string = pop + '/' + GAME_CONFIG.unitCap;
+            if (pop !== this.lastPop) {
+                this.lastPop = pop;
+                this.popLabel.string = pop + '/' + GAME_CONFIG.unitCap;
+                this.pulseLabel(this.popLabel);
+            }
         }
-        if (this.killsLabel) this.killsLabel.string = String(state.stats.kills[ps]);
+        if (this.killsLabel) {
+            const kills = state.stats.kills[ps];
+            if (kills !== this.lastKills) {
+                this.lastKills = kills;
+                this.killsLabel.string = String(kills);
+                this.pulseLabel(this.killsLabel);
+            }
+        }
 
+        // 水晶血量：数字更新 + 低于 30% 转红常亮（核心目标告急的直观警示）
         const rc = state.crystals.find(c => c.side === 'red');
         const bc = state.crystals.find(c => c.side === 'blue');
-        if (this.hpRedLabel && rc) this.hpRedLabel.string = String(Math.max(0, Math.floor(rc.hp)));
-        if (this.hpBlueLabel && bc) this.hpBlueLabel.string = String(Math.max(0, Math.floor(bc.hp)));
+        if (this.hpRedLabel && rc) {
+            this.hpRedLabel.string = String(Math.max(0, Math.floor(rc.hp)));
+            const low = rc.hp / rc.maxHp <= CRYSTAL_LOW_RATIO;
+            this.hpRedLabel.color = low ? new Color(255, 86, 74) : TOP_LABEL_BASE.red.clone();
+        }
+        if (this.hpBlueLabel && bc) {
+            this.hpBlueLabel.string = String(Math.max(0, Math.floor(bc.hp)));
+            const low = bc.hp / bc.maxHp <= CRYSTAL_LOW_RATIO;
+            this.hpBlueLabel.color = low ? new Color(255, 86, 74) : TOP_LABEL_BASE.blue.clone();
+        }
+    }
+
+    // ==================== 数值变化反馈 ====================
+
+    /** 数值变化反馈：标签节点快速弹跳一次（重复触发时重放，避免叠加） */
+    private pulseLabel(label: Label) {
+        const node = label.node;
+        Tween.stopAllByTarget(node);
+        node.setScale(1.22, 1.22, 1);
+        tween(node).to(0.14, { scale: new Vec3(1, 1, 1) }).start();
     }
 
     /** 按当前游戏状态刷新建造栏价格（建造/升级/科研后调用） */
@@ -467,15 +534,27 @@ export class HudView {
 
         const button = btn.addComponent(Button);
         button.transition = Button.Transition.SCALE;
-        button.zoomScale = 1.1;
+        button.zoomScale = 0.93;
         const handler = new EventHandler();
         handler.target = this.gmNode;
         handler.component = 'GameManager';
         handler.handler = 'onMuteClick';
-        button.clickEvents = [handler];
+        button.clickEvents = [this.makeClickSoundHandler(), handler];
 
         btn.setPosition(x, y, 0);
         return btn;
+    }
+
+    /**
+     * 生成统一点击音事件（插入各按钮 clickEvents 首位）。
+     * 点击任何按钮都会先触发 GameManager.onUiClick 播放确认音，再执行各自逻辑。
+     */
+    private makeClickSoundHandler(): EventHandler {
+        const h = new EventHandler();
+        h.target = this.gmNode;
+        h.component = 'GameManager';
+        h.handler = 'onUiClick';
+        return h;
     }
 
     /** 更新静音按钮显示（ GameManager 切换后回调） */
@@ -637,13 +716,13 @@ export class HudView {
         // 点击事件 → GameManager.onBuildClick
         const button = btn.addComponent(Button);
         button.transition = Button.Transition.SCALE;
-        button.zoomScale = 1.1;
+        button.zoomScale = 0.93;
         const handler = new EventHandler();
         handler.target = this.gmNode;
         handler.component = 'GameManager';
         handler.handler = 'onBuildClick';
         handler.customEventData = id;
-        button.clickEvents = [handler];
+        button.clickEvents = [this.makeClickSoundHandler(), handler];
 
         return btn;
     }
@@ -672,12 +751,12 @@ export class HudView {
 
         const button = btn.addComponent(Button);
         button.transition = Button.Transition.SCALE;
-        button.zoomScale = 1.1;
+        button.zoomScale = 0.93;
         const handler = new EventHandler();
         handler.target = this.gmNode;
         handler.component = 'GameManager';
         handler.handler = handlerName;
-        button.clickEvents = [handler];
+        button.clickEvents = [this.makeClickSoundHandler(), handler];
 
         return btn;
     }

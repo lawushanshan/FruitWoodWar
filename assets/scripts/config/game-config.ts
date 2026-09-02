@@ -38,6 +38,10 @@ export interface GameConfig {
     rushFirstStrikeSplashRadius: number;
     /** 冲锋首击冲击波伤害比例（按基础攻击的百分比，不吃首击倍率） */
     rushFirstStrikeSplashRatio: number;
+    /** 同阵营单位间最小间距（px）：分离推挤保持的间隔，减少行军/集结时重叠 */
+    unitSeparateDist: number;
+    /** 同阵营单位分离推挤速度（px/秒）：限制每帧推开量，避免瞬移抖动 */
+    unitSeparateSpeed: number;
     /** 卡牌触发波次 */
     cardTriggerWaves: readonly number[];
     /** 同类建筑价格递增步长（+25%/座） */
@@ -105,6 +109,9 @@ export const GAME_CONFIG: GameConfig = {
     // 冲锋首击冲击波：撞击点 90px 内敌人受基础攻击 50%（不吃首击倍率，避免数值爆炸）
     rushFirstStrikeSplashRadius: 90,
     rushFirstStrikeSplashRatio: 0.5,
+    // 同族单位分离：保持 30px 间距，以 90px/秒 的速度缓缓推开（避免重叠成一团）
+    unitSeparateDist: 30,
+    unitSeparateSpeed: 90,
     cardTriggerWaves: [5, 10, 15],
     priceEscalateStep: 0.25,
     upgradeLv2Cost: 150,

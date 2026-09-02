@@ -4,6 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { clearBattlefield, makeEngine, makeUnit, writableState } from './helpers';
+import { GAME_CONFIG } from '../assets/scripts/config/game-config';
 
 describe('战斗系统：基础伤害与克制', () => {
     it('无克制关系时造成攻击力全额伤害', () => {
@@ -269,5 +270,36 @@ describe('战斗系统：控制与位移', () => {
         ];
         engine.step(1 / 60);
         expect(s.units[0].hp).toBeCloseTo(100 + 1000 * 0.2, 5);
+    });
+});
+
+describe('战斗系统：同族分离推挤', () => {
+    it('同阵营重叠单位在数秒内被推开至最小间距', () => {
+        const engine = makeEngine();
+        const s = writableState(engine);
+        clearBattlefield(s);
+        s.units = [
+            makeUnit({ side: 'red', id: 'r1', x: 100, y: 100, speed: 0, range: 0 }),
+            makeUnit({ side: 'red', id: 'r2', x: 100, y: 100, speed: 0, range: 0 }),
+        ];
+        for (let i = 0; i < 120; i++) engine.step(1 / 60);
+        const a = s.units.find(u => u.id === 'r1')!;
+        const b = s.units.find(u => u.id === 'r2')!;
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        expect(d).toBeGreaterThanOrEqual(GAME_CONFIG.unitSeparateDist - 1e-6);
+    });
+
+    it('敌我单位保持交战贴合，不被分离逻辑推开', () => {
+        const engine = makeEngine();
+        const s = writableState(engine);
+        clearBattlefield(s);
+        s.units = [
+            makeUnit({ side: 'red', id: 'r1', x: 100, y: 100, atk: 0, speed: 0 }),
+            makeUnit({ side: 'blue', id: 'b1', x: 100, y: 100, atk: 0, hp: 9999, maxHp: 9999, speed: 0 }),
+        ];
+        for (let i = 0; i < 60; i++) engine.step(1 / 60);
+        const a = s.units.find(u => u.id === 'r1')!;
+        const b = s.units.find(u => u.id === 'b1')!;
+        expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeLessThan(5);
     });
 });

@@ -17,7 +17,7 @@ import {
     Camera, EventTouch, EventMouse, Input, input, Layers, director, Sprite, sys,
 } from 'cc';
 import { GameEngine } from './core/game-engine';
-import { ColorSpriteFactory } from './presentation/color-sprite-factory';
+import { ColorSpriteFactory, type Shape } from './presentation/color-sprite-factory';
 import { ArtLibrary } from './presentation/art-library';
 import { GameView } from './presentation/game-view';
 import { HudView } from './presentation/hud-view';
@@ -49,6 +49,20 @@ const FIXED_LOGIC_DT = 1 / 30;
 
 /** 静音偏好 localStorage 键（'1' = 静音） */
 const MUTED_PREF_KEY = 'fww_muted';
+
+/** 水晶受击伤害合并展示窗口（秒）：窗口内伤害累计为一次小号淡红跳字，避免围攻时大红字刷屏 */
+const CRYSTAL_DMG_FLUSH_INTERVAL = 2;
+/** 水晶受击闪光特效最小间隔（秒）：围攻时多单位同时命中也不反复闪烁 */
+const CRYSTAL_HIT_FX_COOLDOWN = 0.35;
+
+/** 兵种死亡碎块样式：形状与大小随定位差异化（重甲大块、射手小圆、攻城巨块…） */
+const DEATH_STYLE: Record<string, { shape: Shape; size: number }> = {
+    tank: { shape: 'rect', size: 16 },
+    rush: { shape: 'triangle', size: 14 },
+    ranged: { shape: 'circle', size: 10 },
+    aoe: { shape: 'hexagon', size: 13 },
+    siege: { shape: 'diamond', size: 18 },
+};
 
 @ccclass('GameManager')
 export class GameManager extends Component {
@@ -122,6 +136,12 @@ export class GameManager extends Component {
     private prevAtkCd: Map<string, number> = new Map();
     private prevGold: Record<string, number> = { red: 0, blue: 0 };
     private prevCrystalHp: Record<string, number> = { red: 0, blue: 0 };
+    /** 水晶受击伤害累计（合并窗口内汇总为一次跳字，弱化围攻时的视觉冲击） */
+    private crystalDmgAcc: Record<string, number> = { red: 0, blue: 0 };
+    /** 合并窗口计时器（秒） */
+    private crystalDmgTimer: number = 0;
+    /** 受击闪光特效冷却（秒），≤0 时可再次播放 */
+    private crystalFxCooldown: number = 0;
     private prevKills: Record<string, number> = { red: 0, blue: 0 };
     /** 上一帧建筑/塔血量（id → hp），受击伤害跳字用（对齐水晶反馈） */
     private prevBuildingHp: Map<string, number> = new Map();
@@ -398,6 +418,7 @@ export class GameManager extends Component {
 
         if (phase === 'playing') {
             this.detectEffects();
+            this.flushCrystalDamage(dt);
             this.consumeFx();
             this.detectTutorial();
             this.entityInfo.update(this.engine.state, dt);
@@ -411,12 +432,36 @@ export class GameManager extends Component {
         }
     }
 
+    /**
+     * 水晶受击伤害的合并展示：每个合并窗口结束时，把窗口内累计的伤害汇总为一次
+     * 小号淡红跳字（弱化围攻时的视觉冲击）；同时递减受击闪光冷却。
+     */
+    private flushCrystalDamage(dt: number) {
+        this.crystalDmgTimer += dt;
+        this.crystalFxCooldown -= dt;
+        if (this.crystalDmgTimer < CRYSTAL_DMG_FLUSH_INTERVAL) return;
+        this.crystalDmgTimer = 0;
+        const s = this.engine.state;
+        for (const side of ['red', 'blue'] as const) {
+            const acc = this.crystalDmgAcc[side];
+            if (acc <= 0) continue;
+            this.crystalDmgAcc[side] = 0;
+            const crystal = s.crystals.find(c => c.side === side);
+            if (crystal) {
+                this.floatingText.show('-' + Math.round(acc), crystal.x, crystal.y + 40,
+                    new Color(255, 135, 125), 11, 0.9);
+            }
+        }
+    }
+
     /** 消费引擎结算出的战斗表现事件，路由到对应特效（07 方案 §6.1 五定位攻击签名） */
     private consumeFx() {
         const fx = this.engine.drainFx();
         if (fx.length === 0) return;
         for (const e of fx) {
             if (e.type === 'hit') {
+                // 命中音效（AudioManager 内部限流，团战不会嘈杂）
+                this.audio.play('attack');
                 // 按攻击者定位差异化（缺 sx 的旧事件回退通用命中表现）
                 const sx = e.sx ?? e.x, sy = e.sy ?? e.y;
                 switch (e.atkType) {
@@ -461,12 +506,14 @@ export class GameManager extends Component {
                 this.battleEffects.schedule(0.22, () => {
                     this.battleEffects.playRangeEffect(e.x, e.y, e.radius, e.side);
                     this.battleEffects.playBoom(e.x, e.y, e.radius * 0.7);
+                    this.audio.play('hit'); // 落地重击音（与爆闪同步）
                 });
             } else if (e.type === 'slam') {
                 // 冲锋首击冲击波：近战撞击无弹道，立即播放范围环 + 爆闪 + 碎石（地面被砸开的感觉）
                 this.battleEffects.playRangeEffect(e.x, e.y, e.radius, e.side);
                 this.battleEffects.playBoom(e.x, e.y, e.radius * 0.7);
                 this.battleEffects.playDebrisBurst(e.x, e.y, 4);
+                this.audio.play('hit'); // 冲击波低频重击音
             } else if (e.type === 'tower') {
                 // 塔攻击：弹道飞抵(0.12s)后目标处溅射环，保持同步
                 this.battleEffects.playProjectile(e.sx, e.sy, e.x, e.y, e.side);
@@ -509,7 +556,9 @@ export class GameManager extends Component {
                 const color = snap.side === 'red'
                     ? new Color(255, 150, 150, 180)
                     : new Color(150, 200, 255, 180);
-                this.deathEffect.play(snap.x, snap.y, color, 'circle', 12);
+                // 按兵种区分死亡碎块形状/大小：重甲大块、射手小圆、冲锋三角、法师六角、攻城菱形
+                const deathStyle = DEATH_STYLE[snap.type] ?? { shape: 'circle' as const, size: 12 };
+                this.deathEffect.play(snap.x, snap.y, color, deathStyle.shape, deathStyle.size);
             }
         }
 
@@ -552,25 +601,28 @@ export class GameManager extends Component {
         for (const id of this.prevBuildingHp.keys()) if (!buildingIds.has(id)) this.prevBuildingHp.delete(id);
         for (const id of this.prevTowerHp.keys()) if (!towerIds.has(id)) this.prevTowerHp.delete(id);
 
-        // ---- 金币变化 → 金币跳字 + 音效 ----
+        // ---- 金币变化 → 金币跳字 + 音效（进账金色 / 消费红色，让花钱也有感知） ----
         for (const side of ['red', 'blue'] as const) {
             const diff = s.gold[side] - (this.prevGold[side] || 0);
-            if (diff > 0 && side === s.playerSide) {
+            if (side !== s.playerSide) continue;
+            if (diff > 0) {
                 this.floatingText.showGold(diff, -500, 300);
                 this.audio.play('coin');
+            } else if (diff < 0) {
+                this.floatingText.show(String(diff) + '金', -500, 300, new Color(255, 120, 100), 14, 0.8);
             }
         }
 
-        // ---- 水晶受击 → 伤害数字 + 震动闪烁 ----
+        // ---- 水晶受击 → 伤害累计合并 + 节流闪光（避免围攻时大红字刷屏/频繁闪烁） ----
         for (const side of ['red', 'blue'] as const) {
             const crystal = s.crystals.find(c => c.side === side);
             if (crystal) {
                 const prevHp = this.prevCrystalHp[side] || crystal.maxHp;
                 if (crystal.hp < prevHp) {
-                    const dmg = prevHp - crystal.hp;
-                    if (dmg > 5) { // 忽略微小伤害（决战时刻过载）
-                        this.floatingText.showDamage(dmg, crystal.x, crystal.y + 40);
+                    this.crystalDmgAcc[side] += prevHp - crystal.hp;
+                    if (this.crystalFxCooldown <= 0) {
                         this.battleEffects.playCrystalHit(crystal.x, crystal.y, side);
+                        this.crystalFxCooldown = CRYSTAL_HIT_FX_COOLDOWN;
                     }
                 }
                 this.prevCrystalHp[side] = crystal.hp;
@@ -949,6 +1001,11 @@ export class GameManager extends Component {
         if (result.ok) this.audio.play('build');
         if (result.message) this.panels.showToast(result.message);
         this.hudView.updatePrices(this.engine.state);
+    }
+
+    /** UI 按钮统一点击音：所有 Button 的 clickEvents 首位共享此 handler，按下即有确认反馈 */
+    onUiClick(_event: Event) {
+        this.audio.play('click');
     }
 
     /** 音效开关点击：切换静音并持久化偏好 */

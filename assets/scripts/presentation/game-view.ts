@@ -266,8 +266,11 @@ export class GameView {
                 this.crystalNodes.set(c.id, node);
                 // 水晶（大本营）出生弹入：开局仪式感
                 this.beginSpawn(c.id, node, 0.45);
+                // 大本营血条：核心目标受损必须一眼可见
+                this.addStructureHpBar(node, 56, 48);
             }
             node.setPosition(c.x, c.y, 0);
+            this.updateStructureHpBar(node, c.hp, c.maxHp);
             // 护盾罩跟随护盾状态（呼吸脉冲表现活力）
             const shieldFx = node.getChildByName('ShieldFx');
             if (shieldFx) {
@@ -335,8 +338,11 @@ export class GameView {
                 this.buildingNodes.set(b.id, node);
                 // 建筑出生弹入：落地弹一下，强化"刚建成"的反馈
                 this.beginSpawn(b.id, node);
+                // 建筑血条：被打时能直观看到耐久变化
+                this.addStructureHpBar(node, 36, 38);
             }
             node.setPosition(b.x, b.y, 0);
+            this.updateStructureHpBar(node, b.hp, b.maxHp);
             // 工厂等级用星标区分（v0.5：建筑不再随等级变大，避免视觉挤压）
             const badge = node.getChildByName('StarBadge');
             if (badge) {
@@ -381,8 +387,11 @@ export class GameView {
                 this.towerNodes.set(t.id, node);
                 // 塔出生弹入：与建筑一致的"刚建成"反馈
                 this.beginSpawn(t.id, node);
+                // 塔血条：与建筑/水晶统一
+                this.addStructureHpBar(node, 34, 30);
             }
             node.setPosition(t.x, t.y, 0);
+            this.updateStructureHpBar(node, t.hp, t.maxHp);
         }
         this.cleanupDead(aliveIds, this.towerNodes, 'tower');
     }
@@ -672,6 +681,48 @@ export class GameView {
             ghostNode.active = showGhost;
             if (showGhost) ghostNode.setScale(ghost, 1, 1);
         }
+    }
+
+    // ==================== 结构体血条（水晶 / 建筑 / 塔） ====================
+
+    /** 给结构节点挂血条（创建时调用一次）：底条 + 填充条（锚定左缘，从右向左缩短） */
+    private addStructureHpBar(node: Node, width: number, y: number) {
+        const bar = new Node('StructHpBar');
+        bar.layer = node.layer;
+        bar.parent = node;
+        const barUt = bar.addComponent(UITransform);
+        barUt.contentSize = new Size(width, 4);
+        barUt.anchorPoint = new Vec2(0.5, 0.5);
+        bar.setPosition(0, y, 0);
+
+        const bg = this.spriteFactory.createColorNode(new Color(20, 20, 20, 200), width, 4);
+        bg.name = 'HpBg';
+        bg.parent = bar;
+
+        const fill = this.spriteFactory.createColorNode(HP_GREEN, width, 4);
+        fill.name = 'HpFill';
+        fill.parent = bar;
+        const fillUt = fill.getComponent(UITransform);
+        fillUt.anchorPoint = new Vec2(0, 0.5);
+        fill.setPosition(-width / 2, 0, 0);
+
+        // 满血隐藏，受损才出现（与单位血条同规则，避免满屏血条噪音）
+        bar.active = false;
+    }
+
+    /** 每帧更新结构血条：满血隐藏，受损时按比例缩短并三段变色 */
+    private updateStructureHpBar(node: Node, hp: number, maxHp: number) {
+        const bar = node.getChildByName('StructHpBar');
+        if (!bar) return;
+        const damaged = hp < maxHp;
+        bar.active = damaged;
+        if (!damaged) return;
+        const fill = bar.getChildByName('HpFill');
+        if (!fill) return;
+        const ratio = Math.max(0, Math.min(1, hp / maxHp));
+        fill.setScale(ratio, 1, 1);
+        const sp = fill.getComponent(Sprite);
+        if (sp) sp.color = ratio > 0.5 ? HP_GREEN : ratio > 0.25 ? HP_YELLOW : HP_RED;
     }
 
     /** 给单位节点挂状态图标子节点（创建时调用一次） */
