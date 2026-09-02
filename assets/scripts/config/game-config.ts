@@ -42,6 +42,10 @@ export interface GameConfig {
     unitSeparateDist: number;
     /** 同阵营单位分离推挤速度（px/秒）：限制每帧推开量，避免瞬移抖动 */
     unitSeparateSpeed: number;
+    /** 水晶（主城堡）本体视觉半径（px）：单位停靠/阻挡按本体边缘判定，防止叠在城堡上 */
+    crystalBodyRadius: number;
+    /** 单位本体视觉半径（px）：与水晶本体半径共同构成最小停靠间距 */
+    unitBodyRadius: number;
     /** 卡牌触发波次 */
     cardTriggerWaves: readonly number[];
     /** 同类建筑价格递增步长（+25%/座） */
@@ -112,6 +116,10 @@ export const GAME_CONFIG: GameConfig = {
     // 同族单位分离：保持 30px 间距，以 90px/秒 的速度缓缓推开（避免重叠成一团）
     unitSeparateDist: 30,
     unitSeparateSpeed: 90,
+    // 水晶本体阻挡：水晶立绘 80×80（半径 40）+ 单位半径 16 = 最小停靠 56px，
+    // 近战射程 50 < 56 时按本体边缘停靠攻击，不再叠进主城堡身体
+    crystalBodyRadius: 40,
+    unitBodyRadius: 16,
     cardTriggerWaves: [5, 10, 15],
     priceEscalateStep: 0.25,
     upgradeLv2Cost: 150,

@@ -108,6 +108,8 @@ export function stepCombat(state: GameState, dt: number, random: RandomSource, f
     }
     // 同族单位分离推挤：行军/集结时保持间距，减少重叠成团
     separateUnits(state, dt);
+    // 水晶本体阻挡：任何单位不得进入主城堡身体（分离推挤/移动的最终兜底钳位）
+    keepOffCrystals(state);
 }
 
 /**
@@ -140,6 +142,37 @@ function separateUnits(state: GameState, dt: number): void {
             a.y -= uy * push;
             b.x += ux * push;
             b.y += uy * push;
+        }
+    }
+}
+
+/**
+ * 水晶本体阻挡：任何单位（不分敌我）中心不得进入"水晶本体半径 + 单位半径"的圆内，
+ * 防止兵种走到主城堡上面与其重叠。直接钳位到圆边（硬约束）：
+ * 单位每帧最多深入 1-2px（移动步长），钳位回退量极小、无跳变；水晶远离河区，不会破坏走廊约束。
+ */
+function keepOffCrystals(state: GameState): void {
+    const minDist = GAME_CONFIG.crystalBodyRadius + GAME_CONFIG.unitBodyRadius;
+    for (const u of state.units) {
+        if (u.hp <= 0) continue;
+        for (const c of state.crystals) {
+            const dx = u.x - c.x;
+            const dy = u.y - c.y;
+            let d = Math.sqrt(dx * dx + dy * dy);
+            if (d >= minDist) continue;
+            let ux: number;
+            let uy: number;
+            if (d < 0.01) {
+                // 极端重合：按单位所在半场方向向外推（无随机，保持锁步确定性）
+                ux = u.x >= c.x ? 1 : -1;
+                uy = 0;
+                d = 1;
+            } else {
+                ux = dx / d;
+                uy = dy / d;
+            }
+            u.x = c.x + ux * minDist;
+            u.y = c.y + uy * minDist;
         }
     }
 }
@@ -202,7 +235,12 @@ function updateUnit(state: GameState, u: UnitState, dt: number, random: RandomSo
         const dx = target.x - u.x;
         const dy = target.y - u.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist <= u.range) {
+        // 水晶按本体边缘停靠：近战射程（50）小于水晶本体+单位半径（56）时，
+        // 贴着城堡边缘攻击，而不是走到城堡中心身上
+        const stopDist = targetKindOf(target) === 'crystal'
+            ? Math.max(u.range, GAME_CONFIG.crystalBodyRadius + GAME_CONFIG.unitBodyRadius)
+            : u.range;
+        if (dist <= stopDist) {
             if (u.atkCd <= 0) {
                 attack(state, u, target, random, fx);
                 u.atkCd = 1 / (u.atkSpeed * effectiveAttackSpeedMult(state, u.side, u.x, u.y));

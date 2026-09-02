@@ -303,3 +303,37 @@ describe('战斗系统：同族分离推挤', () => {
         expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeLessThan(5);
     });
 });
+
+describe('战斗系统：水晶本体阻挡', () => {
+    it('近战单位不再叠在敌方主城堡上，贴边停靠并持续造成伤害', () => {
+        const engine = makeEngine();
+        const s = writableState(engine);
+        clearBattlefield(s);
+        const crystal = s.crystals.find(c => c.side === 'blue')!;
+        crystal.hp = 9999;
+        crystal.maxHp = 9999;
+        // 初始把单位放在水晶正中心（复现"走到城堡上面"的场景）
+        s.units = [
+            makeUnit({ side: 'red', id: 'r1', x: crystal.x, y: crystal.y, atk: 10, range: 50, speed: 60 }),
+        ];
+        for (let i = 0; i < 180; i++) engine.step(1 / 60);
+        const a = s.units.find(u => u.id === 'r1')!;
+        const minDist = GAME_CONFIG.crystalBodyRadius + GAME_CONFIG.unitBodyRadius;
+        expect(Math.hypot(a.x - crystal.x, a.y - crystal.y)).toBeGreaterThanOrEqual(minDist - 1e-6);
+        expect(crystal.hp).toBeLessThan(9999);
+    });
+
+    it('己方单位同样不能停留在己方水晶身体内', () => {
+        const engine = makeEngine();
+        const s = writableState(engine);
+        clearBattlefield(s);
+        const crystal = s.crystals.find(c => c.side === 'red')!;
+        s.units = [
+            makeUnit({ side: 'red', id: 'r1', x: crystal.x, y: crystal.y, atk: 0, speed: 60 }),
+        ];
+        for (let i = 0; i < 60; i++) engine.step(1 / 60);
+        const a = s.units.find(u => u.id === 'r1')!;
+        const minDist = GAME_CONFIG.crystalBodyRadius + GAME_CONFIG.unitBodyRadius;
+        expect(Math.hypot(a.x - crystal.x, a.y - crystal.y)).toBeGreaterThanOrEqual(minDist - 1e-6);
+    });
+});
