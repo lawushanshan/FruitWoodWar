@@ -180,8 +180,8 @@ export class EntityInfoPanel {
         if (!t || !this.nameLabel) return;
         // 非单位分支不展示攻速加成，先重置第一行右栏颜色（防止上一次选中的绿色残留）
         if (this.statsL1b) this.statsL1b.color = STAT_DEFAULT.clone();
-        // 从单位切到其他实体时立即隐藏攻击距离圈（仅单位显示）
-        if (this.rangeRing) this.rangeRing.active = t.kind === 'unit';
+        // 从单位/塔切到其他实体时立即隐藏攻击距离圈（仅单位与塔显示）
+        if (this.rangeRing) this.rangeRing.active = t.kind === 'unit' || t.kind === 'tower';
 
         const sideColor = (side: Side) => side === 'red'
             ? new Color(255, 138, 122) : new Color(122, 184, 255);
@@ -254,6 +254,11 @@ export class EntityInfoPanel {
             this.setHp(w.hp, w.maxHp, 0);
             this.setStats('攻击', `${w.atk}`, '射程', `${w.range}`);
             this.setStats2('特性', w.kind === 'aura' ? '全体我方攻速 +15%' : '攻击附带范围溅射', '', '');
+            // 塔也展示攻击范围（蓝色阴影圈）：光环塔 280px / 基地防御塔 270px，塔不移动画一次即可
+            if (this.rangeRing) {
+                this.rangeRing.active = true;
+                this.updateRangeRingGeometry(w.range);
+            }
             if (this.fxLabel) { this.fxLabel.string = ''; this.fxLabel.node.active = false; }
         } else {
             const c = state.crystals.find(e => e.side === t.side);
@@ -391,7 +396,7 @@ export class EntityInfoPanel {
 
         this.panel = panel;
 
-        // ---- 攻击距离圈（战场层，仅单位显示）：蓝色半透明阴影圈，以单位为圆心、半径=射程。
+        // ---- 攻击距离圈（战场层，单位与塔选中时显示）：蓝色半透明阴影圈，以实体为圆心、半径=射程。
         //      战场背景固定 9 个节点（底图/河/河岸×2/道路/建造区×4），置于 index 9 = 实体区起点，
         //      保证圈绘制在所有战斗实体之下、不会被填充色盖住单位立绘 ----
         const rangeRing = new Node('AttackRangeRing');

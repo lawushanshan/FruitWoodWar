@@ -22,7 +22,7 @@ export const CARD_CONFIG: Record<FactionId, CardConfig[]> = {
         { id: 'spore', name: '孢子爆发', icon: '💨', desc: '对周围敌人造成150伤害', rarity: 'rare' },
         { id: 'vine', name: '万木缠缚', icon: '🌾', desc: '敌人定身3秒', rarity: 'epic' },
         { id: 'bark', name: '树皮铠甲', icon: '🪵', desc: '全体减伤20%永久', rarity: 'legendary' },
-        { id: 'bloom', name: '百花绽放', icon: '🌸', desc: '召唤3个高护甲树人（400血+200护盾）', rarity: 'epic' },
+        { id: 'bloom', name: '百花绽放', icon: '🌸', desc: '召唤3个二级树人（坦克，护盾200）', rarity: 'epic' },
         { id: 'thorn', name: '荆棘之甲', icon: '🌵', desc: '受击反弹20%伤害', rarity: 'rare' },
         { id: 'growth', name: '自然生长', icon: '🌱', desc: '出兵速度+30%永久', rarity: 'legendary' },
         { id: 'forest', name: '森林守护', icon: '🌲', desc: '水晶回血500', rarity: 'rare' },

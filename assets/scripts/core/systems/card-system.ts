@@ -10,7 +10,7 @@
 import { CARD_CONFIG } from '../../config/card-config';
 import { FACTION_CONFIG } from '../../config/faction-config';
 import { GAME_CONFIG } from '../../config/game-config';
-import { nextEntityId } from '../game-state';
+import { makeUnit } from './spawn-system';
 import type { CardConfig, CardRarity, CommandResult, GameState, TempBuff } from '../types';
 import type { RandomSource } from '../random';
 
@@ -173,34 +173,21 @@ function applyCardEffect(state: GameState, cardId: string, spawnRandom: RandomSo
         case 'bark': // 全体减伤 20% 永久
             buff.damageReduce *= 0.8;
             break;
-        case 'bloom': // 召唤 3 个树人
+        case 'bloom': { // 召唤 3 个二级树人（数值与描述一致：走工厂 Lv2 精英同源公式）
             for (let i = 0; i < 3; i++) {
-                state.units.push({
-                    id: nextEntityId(state),
-                    side,
-                    type: 'tank',
-                    level: 1,
-                    // P0-S2：位置经注入随机源（帧同步确定性；禁 Math.random）；
-                    // 联机双端一致的前提：坐标基于 side 对称生成（红方负 x、蓝方正 x）
-                    x: (side === 'red' ? -1 : 1) * (300 + spawnRandom.range(0, 100)),
-                    y: -50 + spawnRandom.range(-30, 30),
-                    hp: 400,
-                    maxHp: 400,
-                    atk: 20,
-                    speed: 48, // v0.4 修复：过慢会卡住不动，对齐常规坦克速度量级
-                    range: 50,
-                    atkSpeed: 0.8,
-                    atkCd: 0,
-                    firstStrikeDone: true, // 树人不享受冲锋首击
-                    shield: 200, // 高护甲：召唤树人定位为前排肉盾
-                    stunDur: 0,
-                    slowMult: 1,
-                    slowDur: 0,
-                    bleedDps: 0,
-                    bleedDur: 0,
-                });
+                // 复用 makeUnit：二级属性（×1.5）× 阵营修正 × 己方血量 buff 出兵烘焙，
+                // 与兵工厂升级后出的精英坦克完全同源，避免召唤单位数值与描述不符；
+                // 位置经注入随机源（帧同步确定性；禁 Math.random），坐标基于 side 对称生成
+                const treant = makeUnit(state, side, 'tank', 2,
+                    (side === 'red' ? -1 : 1) * (300 + spawnRandom.range(0, 100)),
+                    -50 + spawnRandom.range(-30, 30),
+                    spawnRandom);
+                treant.firstStrikeDone = true; // 树人不享受冲锋首击
+                treant.shield = 200;           // 高护甲：召唤树人定位为前排肉盾
+                state.units.push(treant);
             }
             break;
+        }
         case 'thorn': // 受击反弹 20% 伤害
             buff.thorn = 0.2;
             break;

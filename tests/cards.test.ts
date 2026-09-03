@@ -219,15 +219,21 @@ describe('卡牌系统', () => {
         expect(s.units[0].stunDur).toBe(3);
     });
 
-    it('效果：百花绽放 召唤 3 个高护甲树人', () => {
+    it('效果：百花绽放 召唤 3 个二级树人', () => {
         const engine = makeEngine();
+        engine.reset({ playerFaction: 'wood' });
         const s = writableState(engine);
         s.units = [];
         forceChooseCard(engine, findCard('wood', 'bloom'));
         expect(s.units.filter(u => u.side === 'red').length).toBe(3);
-        expect(s.units[0].hp).toBe(400);
+        // 二级树人：与工厂 Lv2 精英坦克同源公式（400 × 1.10 木系血量修正 × 1.5 精英倍率 = 660）
+        expect(s.units[0].type).toBe('tank');
+        expect(s.units[0].level).toBe(2);
+        expect(s.units[0].hp).toBeCloseTo(660);
+        expect(s.units[0].maxHp).toBeCloseTo(660);
+        expect(s.units[0].atk).toBeCloseTo(22.5);
         expect(s.units[0].shield).toBe(200);
-        expect(s.units[0].atk).toBe(20);
+        expect(s.units[0].firstStrikeDone).toBe(true);
     });
 
     it('效果：森林守护 水晶回血 500（不超上限）', () => {
