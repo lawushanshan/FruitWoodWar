@@ -269,8 +269,10 @@ export interface CardChoiceState {
     offers: CardConfig[];
     /** 各触发波次是否已触发 */
     triggeredWaves: Record<number, boolean>;
-    /** 已抽中/已被选用的卡牌 id（跨波次去重，抽过的不再出现） */
+    /** 已展示/已被选用的卡牌 id（展示即弃，后续轮次不再出现） */
     usedCardIds: string[];
+    /** 已完成的抽卡轮数（决定下一轮稀有度：稀有→史诗→传说循环） */
+    drawCount: number;
 }
 
 /** 对局结果 */

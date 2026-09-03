@@ -1,7 +1,8 @@
 /**
  * 卡牌系统（M3：27 张卡牌效果全部实装，增益只作用于玩家方）
  *
- * 触发：第 5/10/15 波暂停，从玩家阵营卡池抽 3 选 1（跨波次去重，抽过的不再出现）。
+ * 触发：第 5/10/15 波暂停，从玩家阵营卡池抽 3 选 1（每轮同一稀有度：稀有→史诗→传说，
+ * 展示过的卡无论是否被选均永久移出卡池）。
  * 效果类型：永久增益 / 即时效果 / 召唤 / 临时 buff（攻速、攻击、速度、回血）/ 周期效果（果雨）
  * / 被动触发（反伤、狼群、流血、死亡爆炸、处决、击杀回血）。
  */
@@ -10,7 +11,7 @@ import { CARD_CONFIG } from '../../config/card-config';
 import { FACTION_CONFIG } from '../../config/faction-config';
 import { GAME_CONFIG } from '../../config/game-config';
 import { nextEntityId } from '../game-state';
-import type { CardConfig, CommandResult, GameState, TempBuff } from '../types';
+import type { CardConfig, CardRarity, CommandResult, GameState, TempBuff } from '../types';
 import type { RandomSource } from '../random';
 
 /** 果雨周期（秒） */
@@ -19,6 +20,12 @@ const RAIN_INTERVAL = 5;
 const RAIN_DAMAGE = 100;
 /** 果雨持续到对局结束（用大数表示"永久"） */
 const RAIN_DURATION = 9999;
+
+/**
+ * 每轮抽卡的稀有度轮换表（按触发顺序）：
+ * 第 1 轮（第 5 波）全稀有、第 2 轮（第 10 波）全史诗、第 3 轮（第 15 波）全传说。
+ */
+const ROUND_RARITY: readonly CardRarity[] = ['rare', 'epic', 'legendary'] as const;
 
 /** 若当前波次命中卡牌触发点则进入暂停并抽 3 张卡；返回是否触发 */
 export function triggerCardChoiceIfDue(state: GameState, random: RandomSource): boolean {
@@ -34,12 +41,15 @@ export function triggerCardChoiceIfDue(state: GameState, random: RandomSource): 
 }
 
 /**
- * 从卡池中不重复抽取 3 张（跨波次去重：已用过的卡不再入池）。
+ * 从卡池中不重复抽取 3 张（当前轮全部为同一稀有度，展示过的卡永久移出卡池）。
+ * 稀有度按轮次递进：第 1 轮全稀有 → 第 2 轮全史诗 → 第 3 轮全传说（超出后循环）；
+ * 轮次由 drawCount 显式计数，正常触发与 QA 调试触发（debugTriggerCardChoice）口径一致。
  * 单机：玩家自己阵营的卡池（保留阵营风味）。
  * 联机一致性（aiEnabled=false）：卡池 = 双方阵营卡池的并集（排序去重），
  * 保证双端 offers 完全相同——否则红蓝引擎各按自己阵营抽卡，
  * 选卡命令无法在对端 offers 中命中（chooseCard 查 offers 会失败）。
- * 导出供引擎 debugTriggerCardChoice（QA 调试参数 ?fww_card）复用。
+ * 展示即弃：本轮展示的 3 张（无论是否被选）全部登记进 usedCardIds，
+ * 后续轮次不再出现。导出供引擎 debugTriggerCardChoice（QA 调试参数 ?fww_card）复用。
  */
 export function drawOffers(state: GameState, random: RandomSource): void {
     const mine = CARD_CONFIG[state.factions[state.playerSide]] ?? [];
@@ -48,10 +58,15 @@ export function drawOffers(state: GameState, random: RandomSource): void {
         const theirs = CARD_CONFIG[state.factions[state.playerSide === 'red' ? 'blue' : 'red']] ?? [];
         candidates = [...mine, ...theirs];
     }
+    // 当前轮次对应的稀有度（drawCount 显式计数，超出表长时循环取模）
+    const roundIndex = state.cards.drawCount % ROUND_RARITY.length;
+    const rarity = ROUND_RARITY[roundIndex];
     const seen = new Set<string>();
     const pool = candidates
         .filter(c => {
+            // 去重：同阵营重复 id 跳过；展示过/选过的卡永久移出卡池；只保留当前轮稀有度
             if (seen.has(c.id) || state.cards.usedCardIds.includes(c.id)) return false;
+            if (c.rarity !== rarity) return false;
             seen.add(c.id);
             return true;
         })
@@ -60,6 +75,14 @@ export function drawOffers(state: GameState, random: RandomSource): void {
     for (let i = 0; i < 3 && pool.length > 0; i++) {
         offers.push(pool.splice(random.int(pool.length), 1)[0]);
     }
+    // 展示即弃：本轮展示过的卡（含未被选中的）在后续游戏中不得再次出现
+    for (const c of offers) {
+        if (!state.cards.usedCardIds.includes(c.id)) {
+            state.cards.usedCardIds.push(c.id);
+        }
+    }
+    // 登记本轮抽卡完成，下一轮稀有度递进
+    state.cards.drawCount += 1;
     state.cards.offers = offers;
 }
 
@@ -71,7 +94,10 @@ export function chooseCard(state: GameState, cardId: string, random: RandomSourc
         return { ok: false };
     }
     state.cards.offers = [];
-    state.cards.usedCardIds.push(card.id);
+    // 防重登记（drawOffers 已登记展示的卡；此处兜底覆盖直接构造 offers 的调试路径）
+    if (!state.cards.usedCardIds.includes(card.id)) {
+        state.cards.usedCardIds.push(card.id);
+    }
     applyCardEffect(state, cardId, random, side);
     state.phase = 'playing';
     return { ok: true };

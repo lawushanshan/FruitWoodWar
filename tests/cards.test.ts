@@ -344,21 +344,68 @@ describe('卡牌效果补全（v1.6.3 覆盖剩余 11 张）', () => {
         expect(s.buffs.red.execute).toBe(true);
     });
 
-    it('跨波次去重：抽过的卡不再出现在备选', async () => {
+    it('跨波次去重：展示过的卡不再出现在备选', async () => {
         const { triggerCardChoiceIfDue } = await import('../assets/scripts/core/systems/card-system');
         const engine = makeEngine();
         engine.reset({ playerFaction: 'wood' });
         const s = writableState(engine);
-        const used = CARD_CONFIG.wood.slice(0, 7).map(c => c.id); // 已用 7 张
+        const used = CARD_CONFIG.wood.slice(0, 7).map(c => c.id); // 已展示弃置 7 张
         s.cards.usedCardIds = used;
         s.wave = 10;
         s.cards.triggeredWaves[10] = false;
         const triggered = triggerCardChoiceIfDue(s, engine.random);
         expect(triggered).toBe(true);
-        // 卡池 9 张，已用 7 张 → 只剩 2 张可抽
-        expect(s.cards.offers.length).toBe(2);
+        // 第 1 轮抽稀有卡：wood 共 4 张 rare，其中 3 张已弃置 → 只剩 1 张可抽
+        expect(s.cards.offers.length).toBe(1);
+        // 注意：used 与 state.cards.usedCardIds 同引用（展示即弃会向其追加），断言用快照
         for (const c of s.cards.offers) {
-            expect(used).not.toContain(c.id);
+            expect(CARD_CONFIG.wood.slice(0, 7).map(x => x.id)).not.toContain(c.id);
+        }
+    });
+
+    it('稀有度轮换：三轮依次全稀有、全史诗、全传说', async () => {
+        const { triggerCardChoiceIfDue } = await import('../assets/scripts/core/systems/card-system');
+        const engine = makeEngine();
+        engine.reset({ playerFaction: 'fruit' });
+        const s = writableState(engine);
+        s.crystals.forEach(c => { c.hp = 1e9; c.maxHp = 1e9; });
+        const expectRarity = (rarity: string) => {
+            expect(s.cards.offers.length).toBeGreaterThan(0);
+            for (const c of s.cards.offers) expect(c.rarity).toBe(rarity);
+        };
+        // 第 1 轮（第 5 波）：全稀有
+        s.wave = 5; s.cards.triggeredWaves[5] = false;
+        expect(triggerCardChoiceIfDue(s, engine.random)).toBe(true);
+        expectRarity('rare');
+        engine.execute({ type: 'choose-card', cardId: s.cards.offers[0].id });
+        // 第 2 轮（第 10 波）：全史诗
+        s.wave = 10; s.cards.triggeredWaves[10] = false;
+        expect(triggerCardChoiceIfDue(s, engine.random)).toBe(true);
+        expectRarity('epic');
+        engine.execute({ type: 'choose-card', cardId: s.cards.offers[0].id });
+        // 第 3 轮（第 15 波）：全传说（legendary 仅 3 张，可能不足 3 张展示）
+        s.wave = 15; s.cards.triggeredWaves[15] = false;
+        expect(triggerCardChoiceIfDue(s, engine.random)).toBe(true);
+        expectRarity('legendary');
+    });
+
+    it('展示即弃：未被选中的卡在后续轮次不再出现', async () => {
+        const { triggerCardChoiceIfDue } = await import('../assets/scripts/core/systems/card-system');
+        const engine = makeEngine();
+        engine.reset({ playerFaction: 'fruit' });
+        const s = writableState(engine);
+        s.crystals.forEach(c => { c.hp = 1e9; c.maxHp = 1e9; });
+        // 第 1 轮：记录展示的全部卡后只选 1 张
+        s.wave = 5; s.cards.triggeredWaves[5] = false;
+        expect(triggerCardChoiceIfDue(s, engine.random)).toBe(true);
+        const shown = s.cards.offers.map(c => c.id);
+        expect(shown.length).toBe(3);
+        engine.execute({ type: 'choose-card', cardId: shown[0] });
+        // 第 2 轮：3 张展示过的卡（含未选中的 2 张）均不得再出现
+        s.wave = 10; s.cards.triggeredWaves[10] = false;
+        expect(triggerCardChoiceIfDue(s, engine.random)).toBe(true);
+        for (const c of s.cards.offers) {
+            expect(shown).not.toContain(c.id);
         }
     });
 });

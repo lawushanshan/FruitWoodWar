@@ -403,6 +403,8 @@ export class GameManager extends Component {
             if (phase === 'card-pause') this.panels.showCards(this.engine.state);
             else if (phase === 'playing' && this.prevPhase === 'card-pause') this.panels.hideCards();
             else if (phase === 'ended') {
+                // 修复 BUG：选中单位弹出的信息面板/升级面板在结算时残留 → 先统一收起
+                this.hideBattleOverlays();
                 const canRevive = AdManager.getInstance().canWatch('revive');
                 this.panels.showEnd(this.engine.state, canRevive);
                 this.onGameEnd();
@@ -641,6 +643,13 @@ export class GameManager extends Component {
         this.prevBuildingIds = new Map(s.buildings.map(b => [b.id, { x: b.x, y: b.y }]));
         this.prevGold = { ...s.gold };
         this.prevKills = { ...s.stats.kills };
+    }
+
+    /** 收起战场内浮层（实体信息面板/升级面板/卡牌面板）：弹出结算界面调用，防止面板残留遮挡 */
+    private hideBattleOverlays() {
+        this.entityInfo.hide();
+        this.panels.hideUpgrade();
+        this.panels.hideCards();
     }
 
     /** 游戏结束时的表现 */
@@ -1313,6 +1322,8 @@ export class GameManager extends Component {
                 this.net = null;
                 this.panels.hideRoomCode();
                 this.panels.updateOnlineStatus('');
+                // 联机结果直达结算：本地模拟可能还在进行，同样要先收起战场内浮层
+                this.hideBattleOverlays();
                 // 复用结算面板（联机结果以服务器为准；本地模拟可能尚未结束，
                 // 传入服务器结果兜底，且按玩家所在边判定胜负）
                 this.panels.showEnd(this.engine.state, false, { winner: msg.winner, reason: msg.reason });

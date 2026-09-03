@@ -16,6 +16,8 @@ import { ArtLibrary } from './art-library';
 import { UNIT_CONFIG } from '../config/unit-config';
 import { BUILDING_CONFIG } from '../config/building-config';
 import { FACTION_CONFIG } from '../config/faction-config';
+import { GAME_CONFIG } from '../config/game-config';
+import { effectiveAttackSpeedMult, auraCovers } from '../core/systems/combat-system';
 import type { GameState, FactionId, UnitType, Side } from '../core/types';
 
 /** 15 兵种 Q 版专名（表现层专属；来自 01 玩法总纲 §4 兵种表） */
@@ -42,12 +44,21 @@ const PANEL_POS: [number, number] = [458, -160];
 const HP_GREEN = new Color(96, 220, 96);
 const HP_YELLOW = new Color(235, 190, 70);
 const HP_RED = new Color(235, 90, 80);
+/** 光环加成绿色（攻速受光环塔加成时高亮） */
+const AURA_GREEN = new Color(90, 220, 120);
+/** 属性数值默认色（与 statsL1b 初始色一致） */
+const STAT_DEFAULT = new Color(223, 233, 240);
 
 export class EntityInfoPanel {
 
     private target: EntityTarget | null = null;
     private panel: Node | null = null;
     private ring: Node | null = null;
+    /** 攻击距离圈（战场层，仅单位显示）：蓝色半透明阴影圈 */
+    private rangeRing: Node | null = null;
+    private rangeRingG: Graphics | null = null;
+    /** 攻击距离圈当前半径（变化时才重画，避免每帧 clear/重绘） */
+    private rangeRingRadius = -1;
     private time = 0;
 
     // 动态标签
@@ -89,13 +100,17 @@ export class EntityInfoPanel {
         this.createOnce();
         if (this.panel) this.panel.active = true;
         this.drawRing();
-        this.refresh(state);
+        this.refresh(state);   // 内部按需重画攻击距离圈（半径变化检测）
+        // 当帧先把攻击距离圈对齐到单位脚下（等下一帧 update 也能接上）
+        const pos = this.resolve(state);
+        if (pos && this.rangeRing) this.rangeRing.setPosition(pos.x, pos.y, 0);
     }
 
     hide() {
         this.target = null;
         if (this.panel) this.panel.active = false;
         if (this.ring) this.ring.active = false;
+        if (this.rangeRing) this.rangeRing.active = false;
     }
 
     /** 每帧：实体死亡自动隐藏；刷新血量/特效；选中圈跟随 + 脉冲 */
@@ -111,6 +126,10 @@ export class EntityInfoPanel {
             this.ring.setPosition(pos.x, pos.y - this.ringYOff(), 0);
             const pulse = 1 + Math.sin(this.time * 5) * 0.08;
             this.ring.setScale(pulse, pulse, 1);
+        }
+        // 攻击距离圈跟随单位（以单位为圆心）
+        if (this.rangeRing && this.rangeRing.active) {
+            this.rangeRing.setPosition(pos.x, pos.y, 0);
         }
     }
 
@@ -159,6 +178,10 @@ export class EntityInfoPanel {
     private refresh(state: GameState) {
         const t = this.target;
         if (!t || !this.nameLabel) return;
+        // 非单位分支不展示攻速加成，先重置第一行右栏颜色（防止上一次选中的绿色残留）
+        if (this.statsL1b) this.statsL1b.color = STAT_DEFAULT.clone();
+        // 从单位切到其他实体时立即隐藏攻击距离圈（仅单位显示）
+        if (this.rangeRing) this.rangeRing.active = t.kind === 'unit';
 
         const sideColor = (side: Side) => side === 'red'
             ? new Color(255, 138, 122) : new Color(122, 184, 255);
@@ -177,9 +200,21 @@ export class EntityInfoPanel {
                 this.sideLabel.color = sideColor(u.side);
             }
             this.setHp(u.hp, u.maxHp, u.shield);
-            this.setStats('攻击', `${Math.round(u.atk)}`, '攻速', `${u.atkSpeed.toFixed(1)}/秒`);
+            // 攻速显示实际生效值（永久 buff × 光环塔 × 临时 buff），与战斗结算口径一致
+            const mult = effectiveAttackSpeedMult(state, u.side, u.x, u.y);
+            const inAura = auraCovers(state, u.side, u.x, u.y);
+            const speedText = `${(u.atkSpeed * mult).toFixed(1)}/秒`
+                + (inAura ? ` (+${Math.round(GAME_CONFIG.auraAttackSpeedBonus * 100)}%)` : '');
+            this.setStats('攻击', `${Math.round(u.atk)}`, '攻速', speedText);
+            // 光环塔覆盖时攻速字段绿色高亮，提示"此处吃到光环加成"
+            if (this.statsL1b) this.statsL1b.color = inAura ? AURA_GREEN.clone() : STAT_DEFAULT.clone();
             this.setStats2('射程', `${Math.round(u.range)}`, '移速', `${Math.round(u.speed)}`);
             this.setFx(u);
+            // 攻击距离蓝色阴影圈：仅单位显示，射程变化时重画
+            if (this.rangeRing) {
+                this.rangeRing.active = true;
+                this.updateRangeRingGeometry(u.range);
+            }
         } else if (t.kind === 'building') {
             const b = state.buildings.find(e => e.id === t.id);
             if (!b) return;
@@ -356,6 +391,18 @@ export class EntityInfoPanel {
 
         this.panel = panel;
 
+        // ---- 攻击距离圈（战场层，仅单位显示）：蓝色半透明阴影圈，以单位为圆心、半径=射程。
+        //      战场背景固定 9 个节点（底图/河/河岸×2/道路/建造区×4），置于 index 9 = 实体区起点，
+        //      保证圈绘制在所有战斗实体之下、不会被填充色盖住单位立绘 ----
+        const rangeRing = new Node('AttackRangeRing');
+        rangeRing.layer = this.gmNode.layer;
+        rangeRing.parent = this.field;
+        rangeRing.addComponent(UITransform);
+        rangeRing.setSiblingIndex(9);
+        rangeRing.active = false;
+        this.rangeRingG = rangeRing.addComponent(Graphics);
+        this.rangeRing = rangeRing;
+
         // ---- 选中圈（战场层，跟随实体）：Graphics 空心红环 + 半透明外光环，
         //      按实体类型动态定尺寸，正圆不压扁，能"包裹"住单位 ----
         const ring = new Node('SelectionRing');
@@ -382,6 +429,25 @@ export class EntityInfoPanel {
         g.strokeColor = new Color(255, 80, 80, 235);
         g.lineWidth = 3;
         g.ellipse(0, 0, rx, ry);
+        g.stroke();
+    }
+
+    /** 重画攻击距离圈（半径变化时才调用）：蓝色半透明阴影填充 + 亮蓝描边标示范围边界 */
+    private updateRangeRingGeometry(range: number) {
+        const r = Math.round(range);
+        if (r === this.rangeRingRadius) return;   // 半径未变化，跳过重绘
+        this.rangeRingRadius = r;
+        const g = this.rangeRingG;
+        if (!g) return;
+        g.clear();
+        // 半透明蓝色填充（阴影圈主体，alpha 52 保证不遮挡地面纹理）
+        g.fillColor = new Color(80, 150, 255, 52);
+        g.circle(0, 0, r);
+        g.fill();
+        // 亮蓝描边（范围边界）
+        g.strokeColor = new Color(120, 185, 255, 190);
+        g.lineWidth = 2;
+        g.circle(0, 0, r);
         g.stroke();
     }
 
