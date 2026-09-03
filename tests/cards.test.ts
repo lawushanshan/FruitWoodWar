@@ -414,4 +414,26 @@ describe('卡牌效果补全（v1.6.3 覆盖剩余 11 张）', () => {
             expect(shown).not.toContain(c.id);
         }
     });
+
+    it('本局卡牌记录：chosenCardIds 只含选中的卡，不含展示未选的卡', async () => {
+        const { triggerCardChoiceIfDue } = await import('../assets/scripts/core/systems/card-system');
+        const engine = makeEngine();
+        engine.reset({ playerFaction: 'fruit' });
+        const s = writableState(engine);
+        s.crystals.forEach(c => { c.hp = 1e9; c.maxHp = 1e9; });
+        // 第 1 轮：展示 3 张只选 1 张
+        s.wave = 5; s.cards.triggeredWaves[5] = false;
+        expect(triggerCardChoiceIfDue(s, engine.random)).toBe(true);
+        const shown = s.cards.offers.map(c => c.id);
+        engine.execute({ type: 'choose-card', cardId: shown[0] });
+        // usedCardIds 收录全部展示的卡；chosenCardIds 只有选中的那张
+        expect(s.cards.usedCardIds.length).toBe(3);
+        expect(s.cards.chosenCardIds).toEqual([shown[0]]);
+        // 第 2 轮再选 1 张：chosenCardIds 按选择顺序累积
+        s.wave = 10; s.cards.triggeredWaves[10] = false;
+        expect(triggerCardChoiceIfDue(s, engine.random)).toBe(true);
+        const secondPick = s.cards.offers[0].id;
+        engine.execute({ type: 'choose-card', cardId: secondPick });
+        expect(s.cards.chosenCardIds).toEqual([shown[0], secondPick]);
+    });
 });

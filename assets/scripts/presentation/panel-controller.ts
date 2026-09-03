@@ -577,11 +577,12 @@ export class PanelController {
         // 重建列表
         if (this.cardHistoryContent) {
             this.cardHistoryContent.removeAllChildren();
-            const used = state.cards.usedCardIds;
-            if (used.length === 0) {
-                this.makeLabel('本局还没有抽到卡牌（第 5/10/15 波触发）', 0, 0, new Color(159, 180, 196), this.cardHistoryContent, 16);
+            // 只展示玩家实际选中的卡（usedCardIds 含展示未选的卡，不在此列）
+            const chosen = state.cards.chosenCardIds;
+            if (chosen.length === 0) {
+                this.makeLabel('本局还没有选中卡牌（第 5/10/15 波触发）', 0, 0, new Color(159, 180, 196), this.cardHistoryContent, 16);
             } else {
-                used.forEach((id, i) => {
+                chosen.forEach((id, i) => {
                     const c = this.findCardConfig(id);
                     if (!c) return;
                     const y = 130 - i * 52;

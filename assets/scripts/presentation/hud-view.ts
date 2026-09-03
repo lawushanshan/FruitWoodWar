@@ -320,8 +320,8 @@ export class HudView {
         // 检测屏幕尺寸变化，调整布局
         this.checkResponsiveLayout();
 
-        // 已抽卡牌历史（数量变化时才重建，避免每帧拼字符串）
-        const used = state.cards.usedCardIds;
+        // 已选中卡牌图标（数量变化时才重建，避免每帧拼字符串；只显示选中的，不含展示未选的）
+        const used = state.cards.chosenCardIds;
         if (used.length !== this.lastCardCount && this.cardHistoryLabel) {
             this.lastCardCount = used.length;
             const icons = used.map(id => {

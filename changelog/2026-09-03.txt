@@ -14,3 +14,5 @@
 - 新增塔的攻击范围展示：选中光环塔（射程 280px）或基地防御塔（射程 270px）时同样绘制蓝色半透明阴影圈（复用单位攻击距离圈，塔不移动画一次即可），切实体/塔被摧毁时自动隐藏。修改了 entity-info-panel.ts
 - 修复绿木林"百花绽放"召唤树人数值与描述不符：改用 makeUnit 复用工厂 Lv2 精英同源公式（二级属性 ×1.5 × 阵营修正 × 己方血量 buff 烘焙，绿木基准 660 血/22.5 攻），保留树人特性（护盾 200、不享受冲锋首击）；卡牌描述同步改为"召唤3个二级树人（坦克，护盾200）"。修改了 card-system.ts、card-config.ts
 - 测试适配：百花绽放用例改为断言二级树人（level 2 / 660 血 / 22.5 攻 / 护盾 200 / 无首击），浮点用 toBeCloseTo；vitest 142/142 全部通过
+- 修复"本局卡牌"面板与顶部卡牌图标行混入未选中卡牌的问题：上一轮"展示即弃"后 usedCardIds 语义变为"展示过的卡"（含未选中），CardChoiceState 新增 chosenCardIds 记录玩家实际选中的卡（chooseCard 时登记，联机只记玩家方），"🃏 本局卡牌"详情面板与 HUD 顶部卡牌图标行数据源切换为 chosenCardIds，空文案改为"本局还没有选中卡牌"。修改了 types.ts、game-state.ts、card-system.ts、panel-controller.ts、hud-view.ts
+- 测试新增：chosenCardIds 记录用例（第 1 轮展示 3 张选 1 张 → usedCardIds 3 张 / chosenCardIds 仅选中的 1 张；第 2 轮再选累积按序）；vitest 143/143 全部通过

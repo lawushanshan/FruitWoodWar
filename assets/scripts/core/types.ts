@@ -271,6 +271,8 @@ export interface CardChoiceState {
     triggeredWaves: Record<number, boolean>;
     /** 已展示/已被选用的卡牌 id（展示即弃，后续轮次不再出现） */
     usedCardIds: string[];
+    /** 玩家实际选中的卡牌 id（"本局卡牌"面板与顶部图标行只展示这些） */
+    chosenCardIds: string[];
     /** 已完成的抽卡轮数（决定下一轮稀有度：稀有→史诗→传说循环） */
     drawCount: number;
 }

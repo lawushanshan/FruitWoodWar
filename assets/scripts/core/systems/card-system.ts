@@ -98,6 +98,10 @@ export function chooseCard(state: GameState, cardId: string, random: RandomSourc
     if (!state.cards.usedCardIds.includes(card.id)) {
         state.cards.usedCardIds.push(card.id);
     }
+    // 登记玩家实际选中的卡（"本局卡牌"面板与顶部图标行只展示选中的；联机只记玩家方）
+    if (side === state.playerSide && !state.cards.chosenCardIds.includes(card.id)) {
+        state.cards.chosenCardIds.push(card.id);
+    }
     applyCardEffect(state, cardId, random, side);
     state.phase = 'playing';
     return { ok: true };
