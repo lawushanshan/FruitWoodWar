@@ -16,3 +16,6 @@
 - 测试适配：百花绽放用例改为断言二级树人（level 2 / 660 血 / 22.5 攻 / 护盾 200 / 无首击），浮点用 toBeCloseTo；vitest 142/142 全部通过
 - 修复"本局卡牌"面板与顶部卡牌图标行混入未选中卡牌的问题：上一轮"展示即弃"后 usedCardIds 语义变为"展示过的卡"（含未选中），CardChoiceState 新增 chosenCardIds 记录玩家实际选中的卡（chooseCard 时登记，联机只记玩家方），"🃏 本局卡牌"详情面板与 HUD 顶部卡牌图标行数据源切换为 chosenCardIds，空文案改为"本局还没有选中卡牌"。修改了 types.ts、game-state.ts、card-system.ts、panel-controller.ts、hud-view.ts
 - 测试新增：chosenCardIds 记录用例（第 1 轮展示 3 张选 1 张 → usedCardIds 3 张 / chosenCardIds 仅选中的 1 张；第 2 轮再选累积按序）；vitest 143/143 全部通过
+- 修复工程车（siege 投石车）攻击缺少范围表现：巨石飞抵落点后新增"范围冲击"组合特效——70px 橙色范围扩散环（SIEGE_IMPACT_RADIUS，与光环塔溅射 70 同量级，纯表现不影响数值）+ 49px 爆闪亮核 + 5 颗碎石迸溅 + 落地重击音（与弹道 0.3s 严格同步，"石头落地才炸"）。修改了 GameManager.ts
+- 各兵种攻击特效实测调优（Cocos 预览引擎冻结+慢动作连拍逐帧检查后调参）：①命中冲击环 playImpact 30px/透明度200 → 42px/230 不透明、粒子 3→4（原参数在草地与深色路带上辨识度过低，近战打击感不可读）；②远程细箭 18px → 24px（原尺寸在深色路带上几乎隐形）；③冲锋月牙斩 playSlash 48px → 56px、透明度提满（首击更凌厉）；④弹道 tint 透明度 235 → 255（法球/箭不再发灰）；⑤范围扩散环 playRangeEffect 透明度 90 → 130（AOE 法师 75 环/塔溅射/工程车 70 环的范围提示此前几乎不可读）。修改了 battle-effects.ts、GameManager.ts
+- 特效调优浏览器复验：注入循环特效+连拍确认 42px 冲击环/56px 月牙斩/24px 细箭/49px 爆闪在深色路带与草地上全部清晰可读，间隙帧无残留；vitest 143/143 全部通过（core 零改动，模拟确定性不受表现层影响）

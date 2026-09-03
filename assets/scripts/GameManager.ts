@@ -55,6 +55,9 @@ const CRYSTAL_DMG_FLUSH_INTERVAL = 2;
 /** 水晶受击闪光特效最小间隔（秒）：围攻时多单位同时命中也不反复闪烁 */
 const CRYSTAL_HIT_FX_COOLDOWN = 0.35;
 
+/** 工程车（投石）落地冲击的视觉半径（px）：比单位尺寸(38)大一圈、与光环塔溅射(70)同量级，纯表现不影响数值 */
+const SIEGE_IMPACT_RADIUS = 70;
+
 /** 兵种死亡碎块样式：形状与大小随定位差异化（重甲大块、射手小圆、攻城巨块…） */
 const DEATH_STYLE: Record<string, { shape: Shape; size: number }> = {
     tank: { shape: 'rect', size: 16 },
@@ -485,19 +488,26 @@ export class GameManager extends Component {
                         }
                         break;
                     case 'ranged':
-                        // 轻快感：细箭（18px，贴合肥身比例）+ 小命中
-                        this.battleEffects.playProjectile(sx, sy, e.x, e.y, e.side, 'fx/fx_arrow', 0.09, 18);
-                        this.battleEffects.playImpact(e.x, e.y, e.side);
+                        // 轻快感：细箭（24px——实测 18px 在深色路带上几乎隐形）+ 小命中（飞抵后同步，箭到即中）
+                        this.battleEffects.playProjectile(sx, sy, e.x, e.y, e.side, 'fx/fx_arrow', 0.09, 24);
+                        this.battleEffects.schedule(0.09, () => {
+                            this.battleEffects.playImpact(e.x, e.y, e.side);
+                        });
                         break;
                     case 'aoe':
                         // 法球（30px 辉光球）飞抵，落点爆光由 aoe 事件在弹道落地后补
                         this.battleEffects.playProjectile(sx, sy, e.x, e.y, e.side, 'fx/fx_bolt', 0.22, 30);
                         break;
                     case 'siege':
-                        // 笨重感：慢速巨石（40px，与 30px 单位成比例）+ 命中闪光 + 落地碎石
+                        // 笨重感：慢速巨石（40px）飞抵落点后砸出"范围冲击"——重型投石
+                        // 落地应有范围表现（冲击环 + 爆闪 + 尘土碎石），与弹道同步不再提前闪
                         this.battleEffects.playProjectile(sx, sy, e.x, e.y, e.side, 'fx/fx_boulder', 0.3, 40);
-                        this.battleEffects.playImpact(e.x, e.y, e.side);
-                        this.battleEffects.playDebrisBurst(e.x, e.y, 4);
+                        this.battleEffects.schedule(0.3, () => {
+                            this.battleEffects.playRangeEffect(e.x, e.y, SIEGE_IMPACT_RADIUS, e.side);
+                            this.battleEffects.playBoom(e.x, e.y, SIEGE_IMPACT_RADIUS * 0.7);
+                            this.battleEffects.playDebrisBurst(e.x, e.y, 5);
+                            this.audio.play('hit'); // 落地重击音（与爆闪同步）
+                        });
                         break;
                     default:
                         this.battleEffects.playImpact(e.x, e.y, e.side);

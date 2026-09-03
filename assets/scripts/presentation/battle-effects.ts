@@ -108,18 +108,20 @@ export class BattleEffects {
         }, poolKey);
     }
 
-    /** 命中表现：目标位置小爆发（冲击环 + 少量粒子） */
+    /** 命中表现：目标位置小爆发（冲击环 + 少量粒子）。
+     * 实测调优（2026-09-03）：30px/透明度200 的环在草地与深色路带上辨识度过低，
+     * 提升到 42px/不透明，并加 1 颗粒子，保证近战命中打击感可读 */
     playImpact(x: number, y: number, side: 'red' | 'blue') {
-        const color = side === 'red' ? new Color(255, 90, 90, 200) : new Color(90, 140, 255, 200);
+        const color = side === 'red' ? new Color(255, 90, 90, 230) : new Color(90, 140, 255, 230);
         const ring = this.pool.acquire('impact', () =>
-            this.spriteFactory.createColorNode(color, 30, 30, 'circle'),
+            this.spriteFactory.createColorNode(color, 42, 42, 'circle'),
         );
         ring.parent = this.container;
         ring.setPosition(x, y, 0);
         ring.active = true;
         setUniformScale(ring, 0.3);
         const opacity = ring.getComponent(UIOpacity);
-        if (opacity) opacity.opacity = 200;
+        if (opacity) opacity.opacity = 255;
 
         this.push({
             node: ring, elapsed: 0, duration: 0.25,
@@ -128,7 +130,7 @@ export class BattleEffects {
         });
 
         // 少量粒子飞散（上限判定：受 MAX_ACTIVE_EFFECTS 约束）
-        this.spawnParticles(x, y, color, 3);
+        this.spawnParticles(x, y, color, 4);
     }
 
     /**
@@ -139,8 +141,9 @@ export class BattleEffects {
      */
     playProjectile(sx: number, sy: number, tx: number, ty: number, side: 'red' | 'blue',
         tex: string = 'fx/fx_arrow', duration = 0.12, size: number = FX_SIZE.projectile) {
-        // 弹道贴图多为有色素材（teal 法球/灰石），用近白 tint 保留原色不糊，仅留轻微敌我冷暖
-        const color = side === 'red' ? new Color(255, 232, 214, 235) : new Color(214, 232, 255, 235);
+        // 弹道贴图多为有色素材（teal 法球/灰石），用近白 tint 保留原色不糊，仅留轻微敌我冷暖；
+        // 实测调优（2026-09-03）：alpha 235 在深色路带上偏灰淡，提满到 255
+        const color = side === 'red' ? new Color(255, 232, 214, 255) : new Color(214, 232, 255, 255);
         let node: Node;
         let poolKey = 'projectile';
         const fxNode = this.makeFxNode(tex, size, color.clone());
@@ -169,27 +172,28 @@ export class BattleEffects {
         }, poolKey);
     }
 
-    /** 冲锋斩击：目标处月牙弧光快速掠过（fx_slash；程序白弧兜底） */
+    /** 冲锋斩击：目标处月牙弧光快速掠过（fx_slash；程序白弧兜底）。
+     * 实测调优（2026-09-03）：48px 在深色路带上偏小，放大到 56px 并提满透明度 */
     playSlash(x: number, y: number, side: 'red' | 'blue') {
-        const color = side === 'red' ? new Color(255, 240, 200, 230) : new Color(200, 230, 255, 230);
+        const color = side === 'red' ? new Color(255, 240, 200, 255) : new Color(200, 230, 255, 255);
         let node: Node;
         let poolKey = 'slash';
-        const fxNode = this.makeFxNode('fx/fx_slash', 48, color.clone());
+        const fxNode = this.makeFxNode('fx/fx_slash', 56, color.clone());
         if (fxNode) {
             node = fxNode;
             poolKey = 'fx_slash';
         } else {
             node = this.pool.acquire('slash', () =>
-                this.spriteFactory.createColorNode(color, 36, 10, 'rect'),
+                this.spriteFactory.createColorNode(color, 42, 12, 'rect'),
             );
         }
         node.parent = this.container;
         node.setPosition(x, y, 0);
         node.active = true;
         node.angle = -30 + Math.random() * 60; // 随机倾角，避免整齐划一
-        setUniformScale(node, 0.6);
+        setUniformScale(node, 0.7);
         const opacity = node.getComponent(UIOpacity);
-        if (opacity) opacity.opacity = 235;
+        if (opacity) opacity.opacity = 255;
 
         this.push({
             node, elapsed: 0, duration: 0.18,
