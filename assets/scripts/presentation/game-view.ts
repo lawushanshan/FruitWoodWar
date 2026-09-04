@@ -752,8 +752,9 @@ export class GameView {
         let text = '';
         if (u.stunDur > 0) text += '💫';
         else if (u.slowDur > 0) text += '🐌';
-        if (u.level === 2) text += '★';
-        else if (u.level === 3) text += '★★';
+        // 星级与等级一致：二级=★★、三级=★★★（与信息面板口径统一）
+        if (u.level === 2) text += '★★';
+        else if (u.level === 3) text += '★★★';
         label.string = text;
         badge.active = text.length > 0;
     }
