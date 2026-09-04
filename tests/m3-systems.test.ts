@@ -48,7 +48,8 @@ describe('建筑：价格递增与升级', () => {
         factory.waveTimer = 0.001;
         engine.step(0.002);
         const tank = s.units.find(u => u.side === 'red')!;
-        expect(tank.level).toBe(2);
+        // 属性为 Lv2 精英（×1.5），但等级标识恒 1 级（"等级=星数"只属于卡片召唤单位）
+        expect(tank.level).toBe(1);
         expect(tank.maxHp).toBeCloseTo(570, 5);
         expect(tank.atk).toBeCloseTo(15 * 0.95 * 1.5, 5);
     });

@@ -210,7 +210,8 @@ export class EntityInfoPanel {
             // 光环塔覆盖时攻速字段绿色高亮，提示"此处吃到光环加成"
             if (this.statsL1b) this.statsL1b.color = inAura ? AURA_GREEN.clone() : STAT_DEFAULT.clone();
             this.setStats2('射程', `${Math.round(u.range)}`, '移速', `${Math.round(u.speed)}`);
-            this.setFx(u);
+            // 特效行：有 buff 时显示 buff；否则 AOE 兵种显示"范围攻击"特性（用户需求：面板说明补范围攻击）
+            this.setFx(u, UNIT_CONFIG[u.type].splashRadius > 0 ? '💥 范围攻击：溅射周围敌人 50% 伤害' : '无特殊状态');
             // 攻击距离蓝色阴影圈：仅单位显示，射程变化时重画
             if (this.rangeRing) {
                 this.rangeRing.active = true;
@@ -332,14 +333,16 @@ export class EntityInfoPanel {
         if (this.statsL2b) this.statsL2b.string = bLabel ? `${bLabel} ${bValue}` : '';
     }
 
-    private setFx(u: { stunDur: number; slowDur: number; slowMult: number; bleedDur: number; bleedDps: number; shield: number }) {
+    /** 特效行：有 buff 时显示 buff；无 buff 时显示 fallback（AOE 兵种传"范围攻击"特性文案） */
+    private setFx(u: { stunDur: number; slowDur: number; slowMult: number; bleedDur: number; bleedDps: number; shield: number },
+        fallback = '无特殊状态') {
         if (!this.fxLabel) return;
         const parts: string[] = [];
         if (u.stunDur > 0) parts.push('💫定身 ' + u.stunDur.toFixed(1) + 's');
         if (u.slowDur > 0) parts.push('🐌减速 ' + Math.round((1 - u.slowMult) * 100) + '% ' + u.slowDur.toFixed(1) + 's');
         if (u.bleedDur > 0) parts.push('🩸流血 ' + Math.round(u.bleedDps) + '/s ' + u.bleedDur.toFixed(1) + 's');
         if (u.shield > 0) parts.push('🛡护盾 ' + Math.ceil(u.shield));
-        this.fxLabel.string = parts.length > 0 ? parts.join('   ') : '无特殊状态';
+        this.fxLabel.string = parts.length > 0 ? parts.join('   ') : fallback;
         this.fxLabel.color = parts.length > 0 ? new Color(255, 210, 130) : new Color(130, 150, 168);
         this.fxLabel.node.active = true;
     }

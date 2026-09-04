@@ -2,7 +2,9 @@
  * 出兵系统：兵工厂计时与出兵（M3：精英等级、buff 按阵营隔离）
  *
  * - 出兵数 = 兵种模板 unitsPerWave（等级不改变出兵数量）
- * - Lv2/Lv3 工厂出的兵属性 ×1.5/×2.2，赏金 ×1.5/×2
+ * - Lv2/Lv3 工厂出的兵属性 ×1.5/×2.2，但等级标识恒为 1 级：
+ *   "等级=星数"只属于卡片召唤单位（如百花绽放的二级树人）；
+ *   精英赏金随 unit.level 走，故工厂兵击杀赏金为基础值
  * - buff 结算口径：血量在出兵时烘焙；攻击/攻速在战斗结算时按当时 buff 生效
  *   （M2 之前"出兵烘焙 + 攻击再乘"的双重应用已修正为只算一次）
  * - 绿木"生生不息"：每厂每波 50% 概率额外 +2 兵
@@ -50,11 +52,12 @@ function spawnWave(state: GameState, factory: BuildingState, random: RandomSourc
     }
 
     for (let i = 0; i < count; i++) {
-        state.units.push(makeUnit(state, factory.side, unitType, factory.level, factory.x, factory.y, random));
+        // 等级标识恒 1 级（星标只属于卡片召唤单位）；属性档位仍按工厂等级（Lv2/Lv3 → ×1.5/×2.2）
+        state.units.push(makeUnit(state, factory.side, unitType, 1, factory.x, factory.y, random, factory.level));
     }
 }
 
-/** 生成一个新单位（阵营修正 × 工厂等级 × 己方血量 buff） */
+/** 生成一个新单位（阵营修正 × 属性档位 × 己方血量 buff）；level=显示等级（星标/赏金/体型），statLevel=属性档位 */
 export function makeUnit(
     state: GameState,
     side: BuildingState['side'],
@@ -63,10 +66,12 @@ export function makeUnit(
     x: number,
     y: number,
     random: RandomSource,
+    /** 属性档位：工厂出兵传工厂等级（Lv2/Lv3 → ×1.5/×2.2），默认与显示等级一致（卡牌召唤） */
+    statLevel: UnitState['level'] = level,
 ): UnitState {
     const uConf = UNIT_CONFIG[unitType];
     const fConf = FACTION_CONFIG[state.factions[side]];
-    const eliteMult = factoryStatMult(level);
+    const eliteMult = factoryStatMult(statLevel);
     const hp = uConf.hp * fConf.hpMult * eliteMult * state.buffs[side].hp;
     return {
         id: nextEntityId(state),

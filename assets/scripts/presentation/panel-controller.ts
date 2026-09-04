@@ -229,7 +229,7 @@ export class PanelController {
         state.cards.offers.forEach((card, i) => {
             const cardNode = this.createCardNode(card, i);
             cardNode.parent = this.cardPanel;
-            cardNode.setPosition(-220 + i * 220, 0, 0);
+            cardNode.setPosition(-290 + i * 290, 0, 0);
             cardNode.setScale(0, 0, 0);
             tween(cardNode)
                 .delay(i * 0.07)
@@ -944,24 +944,24 @@ export class PanelController {
         const node = new Node('Card_' + index);
         node.layer = this.gmNode.layer;
         const ut = node.addComponent(UITransform);
-        ut.contentSize = new Size(200, 260);
+        ut.contentSize = new Size(260, 260);
         ut.anchorPoint = new Vec2(0.5, 0.5);
 
         const rarityColor = RARITY_COLORS[card.rarity] || new Color(100, 100, 100);
 
         // 背景（卡牌底板九宫格；v1.8 移除纯色稀有度外框，观感更干净）
-        const bg = this.makePanelBg(node, 'ui/ui_panel_card', 200, 260, new Color(30, 42, 54));
+        const bg = this.makePanelBg(node, 'ui/ui_panel_card', 260, 260, new Color(30, 42, 54));
 
-        // 稀有度底部分隔色条（加粗至 150×6 且不透明，增强稀有度辨识度）
-        const accent = this.spriteFactory.createColorNode(rarityColor.clone(), 150, 6);
+        // 稀有度底部分隔色条（200×6 不透明，增强稀有度辨识度）
+        const accent = this.spriteFactory.createColorNode(rarityColor.clone(), 200, 6);
         accent.parent = node;
         accent.setPosition(0, -108, 0);
         const accentOpacity = accent.getComponent(UIOpacity) ?? accent.addComponent(UIOpacity);
         accentOpacity.opacity = 255;
 
-        // 卡牌立绘（缺失时回退 emoji 图标）
+        // 卡牌立绘（缺失时回退 emoji 图标；卡牌加宽后 110→120 保持占比）
         const artNode = this.art?.createSpriteNode(
-            `cards/card_${CARD_FACTION[card.id]}_${card.id}`, 110, 110) ?? null;
+            `cards/card_${CARD_FACTION[card.id]}_${card.id}`, 120, 120) ?? null;
         if (artNode) {
             artNode.setPosition(0, 66, 0);
             artNode.parent = node;
@@ -987,7 +987,7 @@ export class PanelController {
         desc.color = new Color(192, 210, 224);
         desc.horizontalAlign = HorizontalTextAlignment.CENTER;
         dUt.anchorPoint = new Vec2(0.5, 1); // 顶部锚点：多行向下延展
-        dUt.setContentSize(164, 17); // 换行限宽（卡牌 200 留边距），再设一次确保生效
+        dUt.setContentSize(224, 17); // 换行限宽（卡牌 260 留边距），再设一次确保生效
         descNode.setPosition(0, -24, 0); // 名称下方起始；最长描述 2 行底缘约 -58，远离色条(-110)
 
         // 稀有度标签：底部色条下方居中，加衬底胶囊 + 加大字号（13→16）增强辨识度

@@ -177,10 +177,11 @@ function applyCardEffect(state: GameState, cardId: string, spawnRandom: RandomSo
         case 'bark': // 全体减伤 20% 永久
             buff.damageReduce *= 0.8;
             break;
-        case 'bloom': { // 召唤 3 个二级树人（数值与描述一致：走工厂 Lv2 精英同源公式）
+        case 'bloom': { // 召唤 3 个二级树人（属性与工厂 Lv2 出兵同源公式；"二级"★ 标为卡片召唤专属）
             for (let i = 0; i < 3; i++) {
                 // 复用 makeUnit：二级属性（×1.5）× 阵营修正 × 己方血量 buff 出兵烘焙，
-                // 与兵工厂升级后出的精英坦克完全同源，避免召唤单位数值与描述不符；
+                // 与兵工厂升级后的出兵属性同源，避免召唤单位数值与描述不符；
+                // 工厂出兵等级标识恒 1 级，level=2（头顶 ★★）只有卡片召唤单位使用；
                 // 位置经注入随机源（帧同步确定性；禁 Math.random），坐标基于 side 对称生成
                 const treant = makeUnit(state, side, 'tank', 2,
                     (side === 'red' ? -1 : 1) * (300 + spawnRandom.range(0, 100)),
