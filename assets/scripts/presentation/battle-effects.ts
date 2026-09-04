@@ -308,11 +308,11 @@ export class BattleEffects {
         }, poolKey);
     }
 
-    /** 水晶受击：震动 + 闪烁 */
+    /** 水晶受击：震动 + 闪烁（六边形贴合水晶轮廓 48px，避免大面积遮罩） */
     playCrystalHit(x: number, y: number, side: 'red' | 'blue') {
         const color = side === 'red' ? new Color(255, 50, 50, 200) : new Color(50, 100, 255, 200);
         const node = this.pool.acquire('crystal_hit', () =>
-            this.spriteFactory.createColorNode(color, 70, 70, 'hexagon'),
+            this.spriteFactory.createColorNode(color, 48, 48, 'hexagon'),
         );
         node.parent = this.container;
         node.setPosition(x, y, 0);

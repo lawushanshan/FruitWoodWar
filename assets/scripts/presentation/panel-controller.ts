@@ -952,12 +952,12 @@ export class PanelController {
         // 背景（卡牌底板九宫格；v1.8 移除纯色稀有度外框，观感更干净）
         const bg = this.makePanelBg(node, 'ui/ui_panel_card', 200, 260, new Color(30, 42, 54));
 
-        // 稀有度底部分隔色条（140×4，代替整圈色框提示稀有度）
-        const accent = this.spriteFactory.createColorNode(rarityColor.clone(), 140, 4);
+        // 稀有度底部分隔色条（加粗至 150×6 且不透明，增强稀有度辨识度）
+        const accent = this.spriteFactory.createColorNode(rarityColor.clone(), 150, 6);
         accent.parent = node;
-        accent.setPosition(0, -110, 0);
+        accent.setPosition(0, -108, 0);
         const accentOpacity = accent.getComponent(UIOpacity) ?? accent.addComponent(UIOpacity);
-        accentOpacity.opacity = 220;
+        accentOpacity.opacity = 255;
 
         // 卡牌立绘（缺失时回退 emoji 图标）
         const artNode = this.art?.createSpriteNode(
@@ -990,9 +990,15 @@ export class PanelController {
         dUt.setContentSize(164, 17); // 换行限宽（卡牌 200 留边距），再设一次确保生效
         descNode.setPosition(0, -24, 0); // 名称下方起始；最长描述 2 行底缘约 -58，远离色条(-110)
 
-        // 稀有度标签：底部色条下方居中（原右上角易与立绘打架，底部与色条成组更规整）
+        // 稀有度标签：底部色条下方居中，加衬底胶囊 + 加大字号（13→16）增强辨识度
         const rarNames: Record<string, string> = { rare: '稀有', epic: '史诗', legendary: '传说' };
-        this.makeLabel(rarNames[card.rarity] || '普通', 0, -124, rarityColor, node, 13);
+        // 衬底胶囊：稀有度色低透明度打底，把文字从卡底板里衬出来
+        const chip = this.spriteFactory.createColorNode(rarityColor.clone(), 64, 26, 'rect');
+        chip.parent = node;
+        chip.setPosition(0, -127, 0);
+        const chipOpacity = chip.getComponent(UIOpacity) ?? chip.addComponent(UIOpacity);
+        chipOpacity.opacity = 64;
+        this.makeLabel(rarNames[card.rarity] || '普通', 0, -127, Color.WHITE, node, 16);
 
         // 点击
         const button = node.addComponent(Button);

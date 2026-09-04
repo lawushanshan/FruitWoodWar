@@ -190,7 +190,8 @@ export class EntityInfoPanel {
             const u = state.units.find(e => e.id === t.id);
             if (!u) return;
             const fac = state.factions[u.side];
-            const stars = u.level === 3 ? ' ★★' : u.level === 2 ? ' ★' : '';
+            // 单位星级与等级一致：二级=★★、三级=★★★（"绿木林"召唤的二级树人也按此显示）
+            const stars = u.level === 3 ? ' ★★★' : u.level === 2 ? ' ★★' : '';
             this.setPortrait(`units/u_${fac}_${u.type}`, UNIT_CONFIG[u.type].icon);
             this.nameLabel.string = UNIT_NAMES[fac][u.type] + stars;
             this.nameLabel.color = Color.WHITE;
