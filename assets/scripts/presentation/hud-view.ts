@@ -88,6 +88,11 @@ export class HudView {
     /** 上次显示的波次数（变化检测触发横幅） */
     private lastWave = 0;
 
+    /** 决战时刻预告横幅是否已播放（4:45 提示一次） */
+    private suddenWarnShown = false;
+    /** 决战时刻启动横幅是否已播放（5:00 提示一次） */
+    private suddenDeathShown = false;
+
     /** 上次可视高度（用于检测屏幕变化） */
     private lastVisibleHeight: number = 0;
 
@@ -283,11 +288,13 @@ export class HudView {
         this.waveBanner = banner;
     }
 
-    /** 播放波次横幅：缩放弹入（backOut 过冲）→ 停留 → 上移淡出（UI 层允许 tween） */
-    private showWaveBanner(wave: number) {
+    /** 播放通用横幅：缩放弹入（backOut 过冲）→ 停留 → 上移淡出（波次/决战时刻共用；可指定文字颜色） */
+    private showBanner(text: string, color?: Color) {
         const banner = this.waveBanner;
         if (!banner || !this.waveBannerLabel) return;
-        this.waveBannerLabel.string = `第 ${wave} 波`;
+        this.waveBannerLabel.string = text;
+        // 未指定颜色时用波次默认金黄色（每次显式设置，避免上次的颜色残留）
+        this.waveBannerLabel.color = color ? color.clone() : new Color(255, 225, 130);
         banner.active = true;
 
         // 重复触发时停掉上一次动画再重放（节点与 UIOpacity 都要停）
@@ -360,7 +367,17 @@ export class HudView {
         // 波次横幅：wave 变化且非 0 时在战场中央弹入提示（wave=0 为初始化态，不触发）
         if (state.wave !== this.lastWave) {
             this.lastWave = state.wave;
-            if (state.wave > 0) this.showWaveBanner(state.wave);
+            if (state.wave > 0) this.showBanner(`第 ${state.wave} 波`);
+        }
+
+        // 决战时刻提示：提前 15 秒预告 + 启动横幅（败因透明化——玩家必须知道水晶为何开始掉血）
+        if (!this.suddenWarnShown && state.time >= GAME_CONFIG.suddenDeathTime - 15) {
+            this.suddenWarnShown = true;
+            this.showBanner('⚠️ 决战时刻即将到来', new Color(255, 202, 40));
+        }
+        if (!this.suddenDeathShown && state.time >= GAME_CONFIG.suddenDeathTime) {
+            this.suddenDeathShown = true;
+            this.showBanner('💥 决战时刻！水晶开始崩解', new Color(255, 112, 67));
         }
         if (this.popLabel) {
             const pop = state.units.filter(u => u.side === ps).length;

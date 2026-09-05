@@ -18,6 +18,7 @@ import { NodePool } from './node-pool';
 import { setUniformScale } from './scale-helper';
 import { BUILDING_CONFIG } from '../config/building-config';
 import { UNIT_CONFIG } from '../config/unit-config';
+import { GAME_CONFIG } from '../config/game-config';
 import { ArtLibrary } from './art-library';
 import type { GameState, Side, UnitType, UnitState, FactionId } from '../core/types';
 
@@ -262,6 +263,12 @@ export class GameView {
                 shieldFx.parent = node;
                 shieldFx.active = false;
 
+                // 决战警示罩：半透明红圆，决战时刻起呼吸闪烁（水晶掉血可视化归因）
+                const dangerFx = this.spriteFactory.createColorNode(new Color(255, 82, 82, 70), 104, 104, 'circle');
+                dangerFx.name = 'DangerFx';
+                dangerFx.parent = node;
+                dangerFx.active = false;
+
                 node.parent = this.container;
                 this.crystalNodes.set(c.id, node);
                 // 水晶（大本营）出生弹入：开局仪式感
@@ -278,6 +285,16 @@ export class GameView {
                 if (c.shield > 0) {
                     const pulse = 1 + Math.sin(state.time * 6) * 0.06;
                     shieldFx.setScale(pulse, pulse, 1);
+                }
+            }
+            // 决战警示罩：决战时刻起红色呼吸闪烁，提示水晶正在持续崩解
+            const dangerFx = node.getChildByName('DangerFx');
+            if (dangerFx) {
+                const inDanger = state.time >= GAME_CONFIG.suddenDeathTime;
+                dangerFx.active = inDanger;
+                if (inDanger) {
+                    const pulse = 1 + Math.sin(state.time * 8) * 0.12;
+                    dangerFx.setScale(pulse, pulse, 1);
                 }
             }
         }
