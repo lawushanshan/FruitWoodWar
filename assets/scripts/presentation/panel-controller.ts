@@ -797,8 +797,8 @@ export class PanelController {
         ut.contentSize = new Size(280, 180);
         ut.anchorPoint = new Vec2(0.5, 0.5);
 
-        // 选中描边（阵营色 2px 细边，紧贴牌面 z=-1；默认隐藏）
-        const border = this.spriteFactory.createColorNode(color.clone(), 284, 184);
+        // 选中背景（固定绿色，不随阵营变化；紧贴牌面 z=-1，木纹透出绿色底色；默认隐藏）
+        const border = this.spriteFactory.createColorNode(new Color(72, 199, 96), 284, 184);
         border.name = 'SelBorder';
         border.parent = btn;
         border.setPosition(0, 0, -1);
@@ -807,11 +807,11 @@ export class PanelController {
         // 底板
         this.makePanelBg(btn, 'ui/ui_panel_dark', 280, 180, new Color(46, 65, 82), 28);
 
-        // 阵营名（阵营主题色）+ 被动描述
+        // 阵营名（阵营主题色）+ 被动描述（近白高亮 + 15px，提升深色木纹底板上的可读性）
         const nameL = this.makeLabel(name, 0, 52, color, btn, 28);
         nameL.node.getComponent(UITransform)!.contentSize = new Size(260, 36);
-        const passL = this.makeLabel(passive, 0, 2, new Color(199, 214, 228), btn, 14);
-        passL.node.getComponent(UITransform)!.contentSize = new Size(256, 20);
+        const passL = this.makeLabel(passive, 0, 2, new Color(235, 242, 248), btn, 15);
+        passL.node.getComponent(UITransform)!.contentSize = new Size(256, 22);
 
         // 底部提示（未选中时引导）
         const hint = this.makeLabel('点击选择', 0, -62, new Color(130, 150, 168), btn, 13);
