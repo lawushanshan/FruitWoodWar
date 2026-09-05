@@ -1,5 +1,8 @@
 /**
  * 卡牌配置（M1 镜像旧灰盒数值；部分卡牌效果为简化版，M3 逐项对齐描述）
+ *
+ * v1.8：新增中立卡池（NEUTRAL_CARDS）——全阵营通用的机制卡（双刃剑/干扰/防御/补兵），
+ * 不绑定阵营风味；抽卡时每个三选一槽位有概率从中立池混入（见 card-system.drawOffers）。
  */
 
 import type { CardConfig, FactionId } from '../core/types';
@@ -57,3 +60,19 @@ export const CARD_CONFIG: Record<FactionId, CardConfig[]> = {
         { id: 'lastRoar', name: '最后的怒吼', icon: '🐾', desc: '献祭全部己方单位，每个对全场敌人造成100伤害', rarity: 'legendary' },
     ],
 };
+
+/**
+ * 中立卡池（v1.8，设计见 01-总纲 §10.7）：全阵营通用机制卡，无阵营风味。
+ * 双刃剑（高收益+明确代价）：血量典当 / 战争债券
+ * 干扰（削弱敌方生产/属性）：工厂瘫痪 / 士气打击
+ * 防御：全线戒备；补兵：紧急征兵
+ * 只做稀有/史诗两档（传说档保留给阵营招牌卡）。
+ */
+export const NEUTRAL_CARDS: CardConfig[] = [
+    { id: 'bloodPawn', name: '血量典当', icon: '🩸', desc: '获得260金币，水晶损失12%血量（保底5%）', rarity: 'rare' },
+    { id: 'warBond', name: '战争债券', icon: '🧾', desc: '获得150金币，60秒后偿还250金币（不足部分以水晶血量抵债）', rarity: 'epic' },
+    { id: 'sabotage', name: '工厂瘫痪', icon: '🔧', desc: '随机1座敌方工厂停业10秒', rarity: 'epic' },
+    { id: 'fullAlert', name: '全线戒备', icon: '🛡️', desc: '水晶受伤减少40%，持续15秒', rarity: 'rare' },
+    { id: 'muster', name: '紧急征兵', icon: '📢', desc: '召唤2个随机兵种的一级兵', rarity: 'rare' },
+    { id: 'demoralize', name: '士气打击', icon: '📉', desc: '敌方全体攻击降低25%，持续5秒', rarity: 'epic' },
+];

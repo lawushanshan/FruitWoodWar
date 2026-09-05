@@ -382,6 +382,10 @@ function attack(state: GameState, attacker: UnitState, target: AttackTarget, ran
     } else if (kind === 'crystal') {
         // 攻城全额（含 ×15），非攻城 ×0.75
         dmg *= attacker.type === 'siege' ? GAME_CONFIG.siegeVsBuildingMult : GAME_CONFIG.crystalDamageReduce;
+        // 中立卡"全线戒备"：限时水晶减伤（按防御方边生效；同卡一局至多一张，多张理论连乘）
+        for (const tb of state.tempBuffs) {
+            if (tb.side === target.side && tb.type === 'crystalDamageReduce') dmg *= tb.mult;
+        }
     } else {
         // 工厂 / 防御塔：攻城 ×15
         dmg *= attacker.type === 'siege' ? GAME_CONFIG.siegeVsBuildingMult : 1;

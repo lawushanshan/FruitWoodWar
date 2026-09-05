@@ -7,9 +7,10 @@
  * / 被动触发（反伤、狼群、流血、死亡爆炸、处决、击杀回血）。
  */
 
-import { CARD_CONFIG } from '../../config/card-config';
+import { CARD_CONFIG, NEUTRAL_CARDS } from '../../config/card-config';
 import { FACTION_CONFIG } from '../../config/faction-config';
 import { GAME_CONFIG } from '../../config/game-config';
+import { UNIT_TYPES } from '../../config/unit-config';
 import { makeUnit } from './spawn-system';
 import type { CardConfig, CardRarity, CommandResult, GameState, TempBuff } from '../types';
 import type { RandomSource } from '../random';
@@ -20,6 +21,12 @@ const RAIN_INTERVAL = 5;
 const RAIN_DAMAGE = 100;
 /** 果雨持续到对局结束（用大数表示"永久"） */
 const RAIN_DURATION = 9999;
+/** 中立卡混入概率：每个三选一槽位有 25% 概率优先取中立卡（01-总纲 §10.7） */
+const NEUTRAL_SLOT_CHANCE = 0.25;
+/** 战争债券：60 秒后偿还金额（金） */
+const WAR_BOND_REPAY = 250;
+/** 战争债券：偿还不足时，每差 10 金水晶损失 1% 最大血量 */
+const WAR_BOND_PER_GOLD_PCT = 0.001;
 
 /**
  * 每轮抽卡的稀有度轮换表（按触发顺序）：
@@ -61,19 +68,38 @@ export function drawOffers(state: GameState, random: RandomSource): void {
     // 当前轮次对应的稀有度（drawCount 显式计数，超出表长时循环取模）
     const roundIndex = state.cards.drawCount % ROUND_RARITY.length;
     const rarity = ROUND_RARITY[roundIndex];
+    // 单机解锁过滤：cardUnlocks 非 null 时锁定的卡不进池（联机恒 null，双端一致）
+    const unlockedOk = (id: string) => state.cardUnlocks === null || state.cardUnlocks.includes(id);
     const seen = new Set<string>();
-    const pool = candidates
+    const makePool = (cards: CardConfig[]) => cards
         .filter(c => {
-            // 去重：同阵营重复 id 跳过；展示过/选过的卡永久移出卡池；只保留当前轮稀有度
+            // 去重：同 id 跳过；展示过/选过的卡永久移出卡池；只保留当前轮稀有度；解锁过滤
             if (seen.has(c.id) || state.cards.usedCardIds.includes(c.id)) return false;
             if (c.rarity !== rarity) return false;
+            if (!unlockedOk(c.id)) return false;
             seen.add(c.id);
             return true;
         })
         .sort((a, b) => (a.id < b.id ? -1 : 1));
+    const factionPool = makePool(candidates);
+    // 中立池：全阵营通用机制卡（v1.8）；v1 只做稀有/史诗两档，其余稀有度池自然为空（回退阵营池）
+    const neutralPool = makePool(NEUTRAL_CARDS);
     const offers: CardConfig[] = [];
-    for (let i = 0; i < 3 && pool.length > 0; i++) {
-        offers.push(pool.splice(random.int(pool.length), 1)[0]);
+    for (let i = 0; i < 3; i++) {
+        let picked: CardConfig | undefined;
+        // 中立槽位：25% 概率优先取中立卡（短路保证：中立池空时不消耗随机数，确定性序列稳定）
+        if (neutralPool.length > 0 && random.next() < NEUTRAL_SLOT_CHANCE) {
+            picked = neutralPool.splice(random.int(neutralPool.length), 1)[0];
+        }
+        // 回退 1：中立未命中 → 阵营池
+        if (!picked && factionPool.length > 0) {
+            picked = factionPool.splice(random.int(factionPool.length), 1)[0];
+        }
+        // 回退 2（对称）：阵营池已空但中立池还有 → 中立池兜底，保证两池合计充足时仍是完整三选一
+        if (!picked && neutralPool.length > 0) {
+            picked = neutralPool.splice(random.int(neutralPool.length), 1)[0];
+        }
+        if (picked) offers.push(picked);
     }
     // 展示即弃：本轮展示过的卡（含未被选中的）在后续游戏中不得再次出现
     for (const c of offers) {
@@ -273,6 +299,45 @@ function applyCardEffect(state: GameState, cardId: string, spawnRandom: RandomSo
             });
             break;
         }
+        // ================= 中立池（v1.8，全阵营通用机制卡，01-总纲 §10.7） =================
+        case 'bloodPawn': { // 血量典当：+260 金，水晶当前血量 -12%（保底不低于最大血量 5%，禁止选卡瞬间自杀）
+            state.gold[side] += 260;
+            const rc = state.crystals.find(c => c.side === side);
+            if (rc) {
+                rc.hp = Math.max(rc.hp * 0.88, rc.maxHp * 0.05);
+            }
+            break;
+        }
+        case 'warBond': { // 战争债券：+150 金，60 秒后偿还 250 金（不足部分以水晶血量抵债，见 stepTempBuffs 结算）
+            state.gold[side] += 150;
+            state.tempBuffs.push({ side, type: 'debt', mult: 0, damage: WAR_BOND_REPAY, interval: 0, tickTimer: 0, dur: 60 });
+            break;
+        }
+        case 'sabotage': { // 工厂瘫痪：随机 1 座敌方兵工厂停业 10 秒（出兵倒计时冻结；目标经注入随机源保证帧同步确定性）
+            const enemySide = side === 'red' ? 'blue' : 'red';
+            const factories = state.buildings.filter(b => b.side === enemySide && b.kind !== 'academy');
+            if (factories.length > 0) {
+                factories[spawnRandom.int(factories.length)].disabledUntil = state.time + 10;
+            }
+            break;
+        }
+        case 'fullAlert': // 全线戒备：己方水晶 15 秒内受伤 -40%（结算点在 combat-system 水晶伤害分支）
+            state.tempBuffs.push(tempBuff(side, 'crystalDamageReduce', 0.6, 15));
+            break;
+        case 'muster': { // 紧急征兵：立即召唤 2 个随机兵种的一级兵（位置/兵种均走注入随机源）
+            for (let i = 0; i < 2; i++) {
+                const unitType = UNIT_TYPES[spawnRandom.int(UNIT_TYPES.length)];
+                const u = makeUnit(state, side, unitType, 1,
+                    (side === 'red' ? -1 : 1) * (250 + spawnRandom.range(0, 150)),
+                    -50 + spawnRandom.range(-40, 40),
+                    spawnRandom);
+                state.units.push(u);
+            }
+            break;
+        }
+        case 'demoralize': // 士气打击：敌方全体攻击 -25% 持续 5 秒（复用 atkMult 临时 buff，按敌方边生效）
+            state.tempBuffs.push(tempBuff(side === 'red' ? 'blue' : 'red', 'atkMult', 0.75, 5));
+            break;
         default:
             // 不应到达：所有卡牌已有专属分支
             buff.atk *= 1.1;
@@ -306,6 +371,23 @@ export function stepTempBuffs(state: GameState, dt: number, random: RandomSource
                 const enemies = state.units.filter(u => u.side !== tb.side && u.hp > 0);
                 if (enemies.length > 0) {
                     enemies[random.int(enemies.length)].hp -= tb.damage;
+                }
+            }
+        }
+
+        // 战争债券：到期一次性结算（金币优先偿还，不足部分按每 10 金 = 水晶 1% 最大血量抵债）
+        if (tb.type === 'debt' && tb.dur <= 0) {
+            const owed = tb.damage;
+            const gold = state.gold[tb.side];
+            if (gold >= owed) {
+                state.gold[tb.side] = gold - owed;
+            } else {
+                const deficit = owed - gold;
+                state.gold[tb.side] = 0;
+                const c = state.crystals.find(cr => cr.side === tb.side);
+                if (c) {
+                    // 抵债扣血由 stepVictory 统一做归零判定，这里只负责扣减（钳位防负数污染表现层血条）
+                    c.hp = Math.max(0, c.hp - c.maxHp * deficit * WAR_BOND_PER_GOLD_PCT);
                 }
             }
         }

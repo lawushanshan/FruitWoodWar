@@ -23,6 +23,8 @@ export function stepSpawners(state: GameState, dt: number, random: RandomSource)
     for (const b of state.buildings) {
         // 战争学院不是兵工厂（unitType 为 null 且 kind=academy），不出兵
         if (b.kind === 'academy') continue;
+        // 工厂瘫痪（中立卡）：停业期间出兵倒计时冻结不出兵
+        if (b.disabledUntil !== undefined && state.time < b.disabledUntil) continue;
         b.waveTimer -= dt;
         if (b.waveTimer <= 0) {
             spawnWave(state, b, random);

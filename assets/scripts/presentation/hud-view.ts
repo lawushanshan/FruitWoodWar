@@ -93,6 +93,11 @@ export class HudView {
     /** 决战时刻启动横幅是否已播放（5:00 提示一次） */
     private suddenDeathShown = false;
 
+    /** 战争债券到期预警是否已播放（每笔债务提示一次；债务结算后复位，支持下一笔） */
+    private debtWarnShown = false;
+    /** 上一帧是否存在未结算的战争债券（消失沿检测：true→false 即已结算） */
+    private hadDebt = false;
+
     /** 上次可视高度（用于检测屏幕变化） */
     private lastVisibleHeight: number = 0;
 
@@ -378,6 +383,20 @@ export class HudView {
         if (!this.suddenDeathShown && state.time >= GAME_CONFIG.suddenDeathTime) {
             this.suddenDeathShown = true;
             this.showBanner('💥 决战时刻！水晶开始崩解', new Color(255, 112, 67));
+        }
+        // 战争债券提示（中立卡双刃剑）：到期前 10 秒预警一次；债务消失（已结算）时提示结果。
+        // 预警让玩家有机会攒钱避债，结算横幅让"水晶抵债掉血"可归因
+        const debt = state.tempBuffs.find(tb => tb.type === 'debt' && tb.side === ps);
+        if (debt) {
+            if (!this.debtWarnShown && debt.dur <= 10) {
+                this.debtWarnShown = true;
+                this.showBanner(`⚠️ 战争债券即将到期：偿还${debt.damage}金币`, new Color(255, 202, 40));
+            }
+            this.hadDebt = true;
+        } else if (this.hadDebt) {
+            this.hadDebt = false;
+            this.debtWarnShown = false;
+            this.showBanner('🧾 战争债券已结算', new Color(150, 200, 255));
         }
         if (this.popLabel) {
             const pop = state.units.filter(u => u.side === ps).length;

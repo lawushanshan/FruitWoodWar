@@ -172,6 +172,12 @@ export interface BuildingState {
     level: 1 | 2 | 3;
     /** 建筑类别标记：工厂无此字段；学院为可被拆除的实体建筑 */
     kind?: 'academy';
+    /**
+     * 停业截止时间（对局秒；中立卡"工厂瘫痪"）。
+     * state.time < 该值时工厂出兵倒计时冻结不出兵；undefined/0 表示正常营业。
+     * 可选字段：旧存档/测试手写对象无此字段时按正常营业处理。
+     */
+    disabledUntil?: number;
 }
 
 /** 防御塔运行时状态 */
@@ -249,8 +255,11 @@ export interface SideBuffs {
 /** 临时 buff（限时效果，统一由引擎按帧驱动） */
 export interface TempBuff {
     side: Side;
-    /** 攻速倍增 / 攻击倍增 / 速度倍增 / 持续回血 / 周期性果雨 */
-    type: 'attackSpeedMult' | 'atkMult' | 'speedMult' | 'regen' | 'rain';
+    /**
+     * 攻速倍增 / 攻击倍增 / 速度倍增 / 持续回血 / 周期性果雨
+     * / 水晶减伤（全线戒备：mult 为受伤倍率） / 债务（战争债券：到期一次性结算，damage 为偿还金额）
+     */
+    type: 'attackSpeedMult' | 'atkMult' | 'speedMult' | 'regen' | 'rain' | 'crystalDamageReduce' | 'debt';
     /** 倍率（mult 类） */
     mult: number;
     /** 周期效果的伤害值（rain） */
@@ -348,6 +357,12 @@ export interface GameState {
     /** 绝地反击状态 */
     comeback: Record<Side, ComebackState>;
     cards: CardChoiceState;
+    /**
+     * 单机模式下的卡牌解锁集（局外解锁系统）：
+     * null = 不过滤（联机统一标准池，遵守 06-联机 §2.3 S6 双端一致约束）；
+     * 非 null = 只允许列表内的卡进入抽卡池（单机按玩家解锁进度过滤）。
+     */
+    cardUnlocks: string[] | null;
     stats: MatchStats;
     /** AI 决策记忆 */
     aiMemory: AiMemory;
@@ -392,4 +407,9 @@ export interface StartOptions {
     playerSide?: Side;
     /** 是否启用蓝方 AI（联机对战为 false，蓝方由远端玩家控制） */
     aiEnabled?: boolean;
+    /**
+     * 单机卡牌解锁集（局外解锁系统）：不传/传 null = 不过滤（联机必须如此，
+     * 保证双端卡池一致）；传数组 = 抽卡只从该集合出（单机按解锁进度过滤）
+     */
+    cardUnlocks?: string[] | null;
 }

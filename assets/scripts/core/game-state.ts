@@ -88,6 +88,8 @@ export function createInitialState(options: StartOptions): GameState {
         shieldLayers: { red: 0, blue: 0 },
         comeback: { red: { streak: 0, active: false }, blue: { streak: 0, active: false } },
         cards: { offers: [], triggeredWaves: { 5: false, 10: false, 15: false }, usedCardIds: [], chosenCardIds: [], drawCount: 0 },
+        // 卡牌解锁集：null = 不过滤（联机/默认全量池）；单机开局由表现层按局外解锁进度注入
+        cardUnlocks: options.cardUnlocks ?? null,
         stats: { kills: { red: 0, blue: 0 }, result: null },
         aiMemory: { playerCompSnapshot: emptyComp() },
         nextId: 1,

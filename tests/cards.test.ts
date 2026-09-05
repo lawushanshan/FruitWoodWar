@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { CARD_CONFIG } from '../assets/scripts/config/card-config';
+import { CARD_CONFIG, NEUTRAL_CARDS } from '../assets/scripts/config/card-config';
 import type { CardConfig } from '../assets/scripts/core/types';
 import { makeEngine, makeUnit, runSeconds, writableState } from './helpers';
 
@@ -16,6 +16,11 @@ function forceChooseCard(engine: ReturnType<typeof makeEngine>, card: CardConfig
 
 function findCard(faction: 'fruit' | 'wood' | 'animal', id: string): CardConfig {
     return CARD_CONFIG[faction].find(c => c.id === id)!;
+}
+
+/** 中立卡查找（中立池不属于任何阵营） */
+function findNeutral(id: string): CardConfig {
+    return NEUTRAL_CARDS.find(c => c.id === id)!;
 }
 
 describe('卡牌系统', () => {
@@ -355,7 +360,9 @@ describe('卡牌效果补全（v1.6.3 覆盖剩余 11 张）', () => {
         const engine = makeEngine();
         engine.reset({ playerFaction: 'wood' });
         const s = writableState(engine);
-        const used = CARD_CONFIG.wood.slice(0, 7).map(c => c.id); // 已展示弃置 7 张
+        // 已展示弃置 7 张 wood 卡 + 3 张中立稀有卡（排掉混池随机性，保证断言确定性：
+        // 中立池空时该轮 offers 只能来自 wood 阵营池剩余的 2 张稀有卡）
+        const used = [...CARD_CONFIG.wood.slice(0, 7).map(c => c.id), 'bloodPawn', 'fullAlert', 'muster'];
         s.cards.usedCardIds = used;
         s.wave = 10;
         s.cards.triggeredWaves[10] = false;
@@ -496,5 +503,229 @@ describe('卡牌效果补全（v1.6.3 覆盖剩余 11 张）', () => {
         for (const u of s.units.filter(u => u.side === 'blue')) {
             expect(u.hp).toBe(150 - 300);
         }
+    });
+});
+
+// ==================== 中立卡池（v1.8：双刃剑与干扰卡，01-总纲 §10.7） ====================
+
+describe('中立卡池', () => {
+    it('配置：6 张中立卡齐全，稀有度分布为稀有×3 + 史诗×3', () => {
+        expect(NEUTRAL_CARDS.length).toBe(6);
+        expect(NEUTRAL_CARDS.filter(c => c.rarity === 'rare').length).toBe(3);
+        expect(NEUTRAL_CARDS.filter(c => c.rarity === 'epic').length).toBe(3);
+        // 中立卡 id 不得与阵营卡冲突（drawOffers 依赖 id 全局唯一去重）
+        const factionIds = new Set(Object.values(CARD_CONFIG).flat().map(c => c.id));
+        for (const c of NEUTRAL_CARDS) {
+            expect(factionIds.has(c.id)).toBe(false);
+        }
+    });
+
+    it('血量典当：+260 金，水晶当前血量 -12%', () => {
+        const engine = makeEngine();
+        const s = writableState(engine);
+        clearBattlefieldForCards(s);
+        s.gold.red = 100;
+        s.crystals.find(c => c.side === 'red')!.hp = 4000;
+        forceChooseCard(engine, findNeutral('bloodPawn'));
+        expect(s.gold.red).toBe(360);
+        expect(s.crystals.find(c => c.side === 'red')!.hp).toBeCloseTo(3520, 5); // 4000 × 0.88
+    });
+
+    it('血量典当：低血量保底不低于最大血量 5%（禁止选卡瞬间自杀）', () => {
+        const engine = makeEngine();
+        const s = writableState(engine);
+        clearBattlefieldForCards(s);
+        s.crystals.find(c => c.side === 'red')!.hp = 100;
+        forceChooseCard(engine, findNeutral('bloodPawn'));
+        // 100 × 0.88 = 88 < 200（5% 保底）→ 取保底 200
+        expect(s.crystals.find(c => c.side === 'red')!.hp).toBeCloseTo(200, 5);
+    });
+
+    it('战争债券：+150 金并挂 60 秒债务；到期金币足够则直接扣款', () => {
+        const engine = makeEngine();
+        const s = writableState(engine);
+        clearBattlefieldForCards(s);
+        // 冻结工资与卡牌触发，隔离 60 秒推进期间的干扰
+        s.disableCards = true;
+        s.salaryTimer.red = 9999;
+        s.salaryTimer.blue = 9999;
+        s.gold.red = 50;
+        forceChooseCard(engine, findNeutral('warBond'));
+        expect(s.gold.red).toBe(200);
+        expect(s.tempBuffs.some(tb => tb.type === 'debt' && tb.damage === 250 && tb.dur === 60)).toBe(true);
+        s.gold.red = 400;
+        runSeconds(engine, 60.2);
+        expect(s.tempBuffs.some(tb => tb.type === 'debt')).toBe(false);
+        expect(s.gold.red).toBe(400 - 250);
+    });
+
+    it('战争债券：到期金币不足时差额以水晶血量抵债（每差 10 金 = 1% 最大血量）', () => {
+        const engine = makeEngine();
+        const s = writableState(engine);
+        clearBattlefieldForCards(s);
+        s.disableCards = true;
+        s.salaryTimer.red = 9999;
+        s.salaryTimer.blue = 9999;
+        forceChooseCard(engine, findNeutral('warBond'));
+        s.gold.red = 100; // 差 150 金 → 水晶 -15% × 4000 = 600
+        runSeconds(engine, 60.2);
+        expect(s.gold.red).toBe(0);
+        expect(s.crystals.find(c => c.side === 'red')!.hp).toBeCloseTo(3400, 5);
+    });
+
+    it('工厂瘫痪：随机 1 座敌方工厂停业 10 秒，学院不受影响', () => {
+        const engine = makeEngine();
+        const s = writableState(engine);
+        clearBattlefieldForCards(s);
+        const timeBefore = s.time;
+        s.buildings.push(
+            { id: 'f-blue-1', side: 'blue', unitType: 'tank', x: 400, y: -50, hp: 800, maxHp: 800, waveTimer: 99, level: 1 },
+            { id: 'f-blue-2', side: 'blue', unitType: 'ranged', x: 420, y: 50, hp: 800, maxHp: 800, waveTimer: 99, level: 1 },
+            { id: 'a-blue', side: 'blue', unitType: null, x: 440, y: -150, hp: 800, maxHp: 800, waveTimer: 99, level: 1, kind: 'academy' },
+        );
+        forceChooseCard(engine, findNeutral('sabotage'));
+        const disabled = s.buildings.filter(b => b.disabledUntil !== undefined);
+        expect(disabled.length).toBe(1); // 恰好 1 座
+        expect(disabled[0].side).toBe('blue');
+        expect(disabled[0].kind ?? 'factory').toBe('factory'); // 学院不可被瘫痪
+        expect(disabled[0].disabledUntil).toBeCloseTo(timeBefore + 10, 5);
+    });
+
+    it('工厂瘫痪：停业期间出兵倒计时冻结，到期自动恢复', () => {
+        const engine = makeEngine();
+        const s = writableState(engine);
+        clearBattlefieldForCards(s);
+        const factory = { id: 'f-blue-1', side: 'blue', unitType: 'tank', x: 400, y: -50, hp: 800, maxHp: 800, waveTimer: 0.001, level: 1 } as const;
+        s.buildings.push({ ...factory });
+        // 红方选卡瘫痪蓝方工厂
+        forceChooseCard(engine, findNeutral('sabotage'));
+        expect(s.units.length).toBe(0); // 停业中：倒计时冻结，不出兵
+        expect(s.buildings[0].waveTimer).toBeCloseTo(0.001, 6);
+        // 到期（人为把停业时间拨回过去）→ 倒计时恢复推进并正常出兵
+        s.buildings[0].disabledUntil = s.time - 0.001;
+        engine.step(0.01);
+        engine.step(0.01);
+        // 停业解除后 0.001 的倒计时立刻走完 → 出兵并把倒计时重置为阵营间隔（wood 20s）
+        expect(s.units.filter(u => u.side === 'blue').length).toBeGreaterThan(0);
+        expect(s.buildings[0].waveTimer).toBeGreaterThan(1);
+    });
+
+    it('全线戒备：水晶受伤 -40%（结算验证：同一攻击 75 → 45）', () => {
+        // 无 buff 基准：非攻城打水晶 ×0.75 → 100 攻击造成 75 伤害
+        const base = makeEngine();
+        {
+            const s = writableState(base);
+            clearBattlefieldForCards(s);
+            s.towers = []; // 拆掉红方基地塔，水晶才可被攻击
+            s.units = [makeUnit({ side: 'blue', id: 'b1', type: 'tank', x: -444, y: 0, atk: 100, range: 55, speed: 0, atkSpeed: 1, atkCd: 0 })];
+            base.step(1 / 60);
+            expect(s.crystals.find(c => c.side === 'red')!.hp).toBeCloseTo(4000 - 75, 5);
+        }
+        // 有 buff：75 × 0.6 = 45
+        const engine = makeEngine();
+        const s = writableState(engine);
+        clearBattlefieldForCards(s);
+        s.towers = [];
+        forceChooseCard(engine, findNeutral('fullAlert'));
+        expect(s.tempBuffs.some(tb => tb.type === 'crystalDamageReduce' && tb.side === 'red' && tb.mult === 0.6)).toBe(true);
+        s.units = [makeUnit({ side: 'blue', id: 'b1', type: 'tank', x: -444, y: 0, atk: 100, range: 55, speed: 0, atkSpeed: 1, atkCd: 0 })];
+        engine.step(1 / 60);
+        expect(s.crystals.find(c => c.side === 'red')!.hp).toBeCloseTo(4000 - 45, 5);
+    });
+
+    it('紧急征兵：立即召唤 2 个随机兵种的一级兵（位置经注入随机源）', () => {
+        const engine = makeEngine();
+        const s = writableState(engine);
+        clearBattlefieldForCards(s);
+        s.units = [];
+        forceChooseCard(engine, findNeutral('muster'));
+        expect(s.units.length).toBe(2);
+        for (const u of s.units) {
+            expect(u.side).toBe('red');
+            expect(u.level).toBe(1);
+            expect(['tank', 'ranged', 'aoe', 'rush', 'siege']).toContain(u.type);
+        }
+    });
+
+    it('士气打击：敌方全体攻击 -25% 持续 5 秒（按敌方边结算，到期消失）', async () => {
+        const { effectiveAtkMult } = await import('../assets/scripts/core/systems/combat-system');
+        const engine = makeEngine();
+        const s = writableState(engine);
+        clearBattlefieldForCards(s);
+        s.disableCards = true;
+        forceChooseCard(engine, findNeutral('demoralize'));
+        expect(s.tempBuffs.some(tb => tb.type === 'atkMult' && tb.side === 'blue' && tb.mult === 0.75)).toBe(true);
+        expect(effectiveAtkMult(s, 'blue')).toBeCloseTo(0.75, 5); // 敌方攻击被压
+        expect(effectiveAtkMult(s, 'red')).toBeCloseTo(1, 5);    // 己方不受影响
+        runSeconds(engine, 5.1);
+        expect(s.tempBuffs.some(tb => tb.type === 'atkMult' && tb.side === 'blue')).toBe(false);
+        expect(effectiveAtkMult(s, 'blue')).toBeCloseTo(1, 5);
+    });
+});
+
+describe('中立卡池混入与解锁过滤', () => {
+    it('混入：阵营稀有卡耗尽时，三选一全部来自中立池（对称回退）', async () => {
+        const { drawOffers } = await import('../assets/scripts/core/systems/card-system');
+        const engine = makeEngine();
+        const s = writableState(engine);
+        // fruit 全部 5 张稀有卡标记为已展示 → 阵营池空，只能出中立稀有 3 张
+        s.cards.usedCardIds = CARD_CONFIG.fruit.filter(c => c.rarity === 'rare').map(c => c.id);
+        drawOffers(s, engine.random);
+        expect(s.cards.offers.length).toBe(3);
+        const neutralRareIds = NEUTRAL_CARDS.filter(c => c.rarity === 'rare').map(c => c.id);
+        for (const c of s.cards.offers) {
+            expect(neutralRareIds).toContain(c.id);
+        }
+    });
+
+    it('混入：传说轮中立池为空（v1 中立只做稀有/史诗），offers 全为阵营传说卡', async () => {
+        const { triggerCardChoiceIfDue } = await import('../assets/scripts/core/systems/card-system');
+        const engine = makeEngine();
+        const s = writableState(engine);
+        s.wave = 5;
+        s.cards.drawCount = 2; // 第 3 轮 → 传说
+        expect(triggerCardChoiceIfDue(s, engine.random)).toBe(true);
+        for (const c of s.cards.offers) {
+            expect(c.rarity).toBe('legendary');
+            expect(NEUTRAL_CARDS.some(n => n.id === c.id)).toBe(false);
+        }
+    });
+
+    it('确定性：同种子同状态两次抽卡结果完全一致（联机双端一致前提）', () => {
+        const a = makeEngine(42);
+        const b = makeEngine(42);
+        a.debugTriggerCardChoice();
+        b.debugTriggerCardChoice();
+        expect(a.state.cards.offers.map(c => c.id)).toEqual(b.state.cards.offers.map(c => c.id));
+        // 再抽一轮（史诗）仍然一致
+        a.execute({ type: 'choose-card', cardId: a.state.cards.offers[0].id });
+        b.execute({ type: 'choose-card', cardId: b.state.cards.offers[0].id });
+        a.debugTriggerCardChoice();
+        b.debugTriggerCardChoice();
+        expect(a.state.cards.offers.map(c => c.id)).toEqual(b.state.cards.offers.map(c => c.id));
+    });
+
+    it('解锁过滤：cardUnlocks 非 null 时锁定卡不进池，null 时全量', async () => {
+        const { drawOffers } = await import('../assets/scripts/core/systems/card-system');
+        const engine = makeEngine();
+        const s = writableState(engine);
+        // 只解锁 4 张 fruit 稀有基础卡：harvest（锁定）与全部中立卡不得出现
+        s.cardUnlocks = ['heal', 'splash', 'shield', 'forest'];
+        drawOffers(s, engine.random);
+        expect(s.cards.offers.length).toBe(3);
+        for (const c of s.cards.offers) {
+            expect(c.id).not.toBe('harvest');
+            expect(NEUTRAL_CARDS.some(n => n.id === c.id)).toBe(false);
+        }
+        // null = 不过滤（联机口径）：harvest 可出现（多次抽样验证可达性）
+        s.cardUnlocks = null;
+        s.cards.usedCardIds = [];
+        s.cards.drawCount = 0;
+        let seenHarvest = false;
+        for (let i = 0; i < 40 && !seenHarvest; i++) {
+            drawOffers(s, engine.random);
+            seenHarvest = s.cards.offers.some(c => c.id === 'harvest') || seenHarvest;
+        }
+        expect(seenHarvest).toBe(true);
     });
 });

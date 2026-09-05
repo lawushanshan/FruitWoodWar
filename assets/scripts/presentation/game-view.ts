@@ -351,6 +351,19 @@ export class GameView {
                     label.color = new Color(255, 215, 94);
                     label.lineHeight = 12;
                     badge.setPosition(0, 28, 0);
+                    // 停业角标（中立卡"工厂瘫痪"）：💤 提示该工厂正被瘫痪不出兵
+                    const disabled = new Node('DisabledBadge');
+                    disabled.layer = node.layer;
+                    disabled.parent = node;
+                    const dUt = disabled.addComponent(UITransform);
+                    dUt.contentSize = new Size(60, 16);
+                    const dLabel = disabled.addComponent(Label);
+                    dLabel.string = '💤停业';
+                    dLabel.fontSize = 12;
+                    dLabel.lineHeight = 12;
+                    dLabel.color = new Color(255, 120, 120);
+                    disabled.setPosition(0, -28, 0);
+                    disabled.active = false;
                 }
                 this.buildingNodes.set(b.id, node);
                 // 建筑出生弹入：落地弹一下，强化"刚建成"的反馈
@@ -365,6 +378,11 @@ export class GameView {
             if (badge) {
                 const label = badge.getComponent(Label);
                 if (label) label.string = b.level === 2 ? '★' : b.level === 3 ? '★★' : '';
+            }
+            // 停业角标：中立卡"工厂瘫痪"生效期间显示（每帧按 disabledUntil 判定，自动恢复隐藏）
+            const disabledBadge = node.getChildByName('DisabledBadge');
+            if (disabledBadge) {
+                disabledBadge.active = b.disabledUntil !== undefined && state.time < b.disabledUntil;
             }
         }
         this.cleanupDead(aliveIds, this.buildingNodes, 'building');

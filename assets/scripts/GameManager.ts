@@ -34,6 +34,11 @@ import { quoteBuild } from './core/systems/building-system';
 import { BUILD_GRID } from './config/build-grid';
 import { MAP_LAYOUT } from './config/map-layout';
 import { saveFromState } from './core/save-system';
+import {
+    loadProfile, saveProfile, recordCardUse, recordMatchEnd,
+    unlockedCardIds, cardUnlockRequirement,
+} from './core/unlock-system';
+import type { PlayerProfile } from './core/unlock-system';
 import { AdManager } from './platform/ad-manager';
 import { NetworkClient } from './network/network-client';
 import { SeededRandomSource } from './core/random';
@@ -75,6 +80,12 @@ export class GameManager extends Component {
     private prevPhase: Phase = 'idle';
     /** 固定逻辑步长累加器（联机 P0-S1） */
     private logicAccumulator = 0;
+
+    // ---- 局外进度（解锁循环） ----
+    /** 玩家局外档案：胜场/用卡计数，驱动单机卡池过滤与新解锁提示（联机不受影响） */
+    private profile: PlayerProfile = loadProfile();
+    /** 本局胜负是否已计入档案（复活广告重赛会二次 onGameEnd，防止重复计胜场） */
+    private matchRecorded = false;
 
     // ---- 联机对战（P1） ----
     private net: NetworkClient | null = null;
@@ -676,6 +687,21 @@ export class GameManager extends Component {
             );
             if (isNewBest) this.panels.showToast('🏆 新纪录！');
         }
+
+        // 局外解锁循环：登记胜负 → 胜场跨过稀有度门槛时解锁新卡并提示（01-总纲 §10.6/§10.7）。
+        // 复活广告重赛会再次 onGameEnd，用 matchRecorded 保证一局只计一次
+        if (!this.online && !this.matchRecorded) {
+            this.matchRecorded = true;
+            const newUnlocks = recordMatchEnd(this.profile, won);
+            saveProfile(this.profile);
+            if (newUnlocks.length > 0) {
+                // 逐张提示（单局最多解锁一档的一批卡）；文案带解锁条件方便玩家理解规则
+                for (const id of newUnlocks) {
+                    const req = cardUnlockRequirement(id);
+                    this.panels.showToast(`🔓 解锁新卡：${id}（${req}胜达成）`);
+                }
+            }
+        }
     }
 
     // ==================== 网格放置模式（v0.5.0） ====================
@@ -1058,6 +1084,9 @@ export class GameManager extends Component {
         if (result.ok) {
             this.panels.showToast('卡牌生效！');
             this.audio.play('build');
+            // 局外档案：登记用卡次数（为未来"使用次数解锁"积累数据；同卡一局至多一次）
+            recordCardUse(this.profile, cardId);
+            saveProfile(this.profile);
         }
     }
 
@@ -1112,10 +1141,15 @@ export class GameManager extends Component {
         this.deathEffect.clear();
         this.battleEffects.clear();
         this.tutorial.dispose();
+        // 局外解锁：单机卡池按玩家解锁进度过滤（档案开局重读一次，吃到上一局的胜负结果）；
+        // 联机走 setupOnlineEngine，不传 cardUnlocks（恒全量池，双端一致约束 S6）
+        this.profile = loadProfile();
+        this.matchRecorded = false;
         this.engine.reset({
             playerFaction: this.panels.getSelectedFaction(),
             difficulty: this.panels.getSelectedDifficulty(),
             doubleSalary,
+            cardUnlocks: unlockedCardIds(this.profile),
         });
 
         // 开局后重置广告计数（本局的观看记录已随引擎状态生效）
