@@ -821,3 +821,4 @@ export class GameView {
         map.clear();
     }
 }
+// [rebuild-touch] 预览编译缓存修复标记
