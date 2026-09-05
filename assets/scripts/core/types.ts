@@ -242,6 +242,8 @@ export interface SideBuffs {
     bleed: number;
     /** 死亡爆炸伤害（适者生存） */
     deathExplode: number;
+    /** 击杀赏金倍率（经济类卡牌：>1 时击杀单位获得的金币按此倍率放大） */
+    bountyMult: number;
 }
 
 /** 临时 buff（限时效果，统一由引擎按帧驱动） */

@@ -361,8 +361,8 @@ describe('卡牌效果补全（v1.6.3 覆盖剩余 11 张）', () => {
         s.cards.triggeredWaves[10] = false;
         const triggered = triggerCardChoiceIfDue(s, engine.random);
         expect(triggered).toBe(true);
-        // 第 1 轮抽稀有卡：wood 共 4 张 rare，其中 3 张已弃置 → 只剩 1 张可抽
-        expect(s.cards.offers.length).toBe(1);
+        // 第 1 轮抽稀有卡：wood 共 5 张 rare（含新增经济卡），其中 3 张已弃置 → 剩 2 张可抽
+        expect(s.cards.offers.length).toBe(2);
         // 注意：used 与 state.cards.usedCardIds 同引用（展示即弃会向其追加），断言用快照
         for (const c of s.cards.offers) {
             expect(CARD_CONFIG.wood.slice(0, 7).map(x => x.id)).not.toContain(c.id);
@@ -435,5 +435,66 @@ describe('卡牌效果补全（v1.6.3 覆盖剩余 11 张）', () => {
         const secondPick = s.cards.offers[0].id;
         engine.execute({ type: 'choose-card', cardId: secondPick });
         expect(s.cards.chosenCardIds).toEqual([shown[0], secondPick]);
+    });
+
+    // ================= 新增三类卡牌（经济 / 召唤 / 同归于尽）：三阵营同模板平衡 =================
+
+    it.each([
+        ['fruit', 'harvest'],
+        ['wood', 'acorn'],
+        ['animal', 'hoard'],
+    ] as const)('经济类（%s/%s）：+200 金，击杀赏金 +30%% 永久', (faction, id) => {
+        const engine = makeEngine();
+        engine.reset({ playerFaction: faction });
+        const s = writableState(engine);
+        const goldBefore = s.gold.red;
+        forceChooseCard(engine, findCard(faction, id));
+        expect(s.gold.red).toBe(goldBefore + 200);
+        expect(s.buffs.red.bountyMult).toBeCloseTo(1.3, 5);
+    });
+
+    it.each([
+        ['fruit', 'swarm', 'ranged'],
+        ['wood', 'vineGuard', 'tank'],
+        ['animal', 'boarRush', 'rush'],
+    ] as const)('召唤类（%s/%s）：召唤 4 个一级兵（%s）', (faction, id, unitType) => {
+        const engine = makeEngine();
+        engine.reset({ playerFaction: faction });
+        const s = writableState(engine);
+        const before = s.units.length;
+        forceChooseCard(engine, findCard(faction, id));
+        const added = s.units.slice(before);
+        expect(added.length).toBe(4);
+        for (const u of added) {
+            expect(u.type).toBe(unitType);
+            expect(u.level).toBe(1);
+            expect(u.side).toBe('red');
+        }
+    });
+
+    it.each([
+        ['fruit', 'coreBlast'],
+        ['wood', 'forestWail'],
+        ['animal', 'lastRoar'],
+    ] as const)('同归于尽（%s/%s）：己方全灭，全场敌人按己方单位数×100 扣血', (faction, id) => {
+        const engine = makeEngine();
+        engine.reset({ playerFaction: faction });
+        const s = writableState(engine);
+        s.units = [];
+        // 造 3 个己方 + 2 个敌方（字段对齐 spawn-system.makeUnit）
+        for (let i = 0; i < 3; i++) {
+            s.units.push({ id: 'mine' + i, side: 'red', type: 'tank', level: 1, x: -300 + i * 20, y: 0, hp: 400, maxHp: 400, atk: 15, speed: 50, range: 50, atkSpeed: 1, atkCd: 0, firstStrikeDone: true, shield: 0, stunDur: 0, slowMult: 1, slowDur: 0, bleedDps: 0, bleedDur: 0 });
+        }
+        for (let i = 0; i < 2; i++) {
+            s.units.push({ id: 'foe' + i, side: 'blue', type: 'ranged', level: 1, x: 300 + i * 20, y: 0, hp: 150, maxHp: 150, atk: 25, speed: 50, range: 200, atkSpeed: 1, atkCd: 0, firstStrikeDone: true, shield: 0, stunDur: 0, slowMult: 1, slowDur: 0, bleedDps: 0, bleedDur: 0 });
+        }
+        forceChooseCard(engine, findCard(faction, id));
+        // 己方 3 个全部阵亡，敌方各扣 3×100=300（150 血已死透为负值）
+        for (const u of s.units.filter(u => u.side === 'red')) {
+            expect(u.hp).toBe(0);
+        }
+        for (const u of s.units.filter(u => u.side === 'blue')) {
+            expect(u.hp).toBe(150 - 300);
+        }
     });
 });

@@ -234,6 +234,45 @@ function applyCardEffect(state: GameState, cardId: string, spawnRandom: RandomSo
         case 'survival': // 死亡时对周围敌人造成 150 伤害
             buff.deathExplode = 150;
             break;
+        // ================= 新增：经济类（三阵营同模板：+200 金 / 击杀赏金 +30% 永久） =================
+        case 'harvest':
+        case 'acorn':
+        case 'hoard': {
+            state.gold[side] += 200;
+            buff.bountyMult *= 1.3;
+            break;
+        }
+        // ================= 新增：召唤类（三阵营同模板：召唤 4 个一级兵，兵种带阵营风味） =================
+        case 'swarm':      // 蜂群出击：4 远程
+        case 'vineGuard':  // 藤蔓卫士：4 坦克
+        case 'boarRush': { // 野猪突袭：4 冲锋
+            const summonType = cardId === 'swarm' ? 'ranged' : cardId === 'vineGuard' ? 'tank' : 'rush';
+            for (let i = 0; i < 4; i++) {
+                // 复用 makeUnit：一级属性 × 阵营修正 × 己方血量 buff，位置经注入随机源保证帧同步确定性
+                const u = makeUnit(state, side, summonType, 1,
+                    (side === 'red' ? -1 : 1) * (250 + spawnRandom.range(0, 150)),
+                    -50 + spawnRandom.range(-40, 40),
+                    spawnRandom);
+                state.units.push(u);
+            }
+            break;
+        }
+        // ================= 新增：特殊类·同归于尽（三阵营同模板：献祭全部己方单位，每个对全场敌人 100 伤害） =================
+        case 'coreBlast':
+        case 'forestWail':
+        case 'lastRoar': {
+            const sacrifices = myUnits().filter(u => u.hp > 0);
+            const totalDamage = sacrifices.length * 100;
+            if (totalDamage > 0) {
+                enemyUnits().forEach(u => {
+                    u.hp -= totalDamage;
+                });
+            }
+            sacrifices.forEach(u => {
+                u.hp = 0; // 己方单位全部阵亡（走引擎正常死亡清理流程）
+            });
+            break;
+        }
         default:
             // 不应到达：所有卡牌已有专属分支
             buff.atk *= 1.1;

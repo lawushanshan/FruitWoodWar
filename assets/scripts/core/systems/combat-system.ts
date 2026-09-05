@@ -466,8 +466,9 @@ function attack(state: GameState, attacker: UnitState, target: AttackTarget, ran
             attacker.hp = Math.min(attacker.maxHp, attacker.hp + attacker.maxHp * lifeOnKill);
         }
         if (unitTarget) {
-            // 击杀赏金：兵种赏金 × 精英倍率
-            state.gold[attacker.side] += Math.round(UNIT_CONFIG[unitTarget.type].bounty * eliteBountyMult(unitTarget.level));
+            // 击杀赏金：兵种赏金 × 精英倍率 × 经济卡赏金倍率
+            state.gold[attacker.side] += Math.round(
+                UNIT_CONFIG[unitTarget.type].bounty * eliteBountyMult(unitTarget.level) * state.buffs[attacker.side].bountyMult);
         } else if (kind === 'building') {
             // 拆厂赏金：+50 金
             state.gold[attacker.side] += GAME_CONFIG.razeBounty;
@@ -514,8 +515,9 @@ function updateTower(state: GameState, t: TowerState, dt: number, fx: FxEvent[])
         fx.push({ type: 'tower', x: target.x, y: target.y, sx: t.x, sy: t.y, radius: splashConf.splashRadius, side: t.side });
         if (hpBefore > 0 && target.hp <= 0) {
             state.stats.kills[t.side]++;
-            // 塔击杀同样发放击杀赏金（含精英倍率）
-            state.gold[t.side] += Math.round(UNIT_CONFIG[target.type].bounty * eliteBountyMult(target.level));
+            // 塔击杀同样发放击杀赏金（含精英倍率与经济卡赏金倍率）
+            state.gold[t.side] += Math.round(
+                UNIT_CONFIG[target.type].bounty * eliteBountyMult(target.level) * state.buffs[t.side].bountyMult);
         }
     }
 }

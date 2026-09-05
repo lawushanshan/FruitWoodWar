@@ -34,6 +34,7 @@ function defaultBuffs(): SideBuffs {
         packBonus: 0,
         bleed: 0,
         deathExplode: 0,
+        bountyMult: 1,
     };
 }
 

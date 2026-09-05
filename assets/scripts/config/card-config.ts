@@ -15,6 +15,12 @@ export const CARD_CONFIG: Record<FactionId, CardConfig[]> = {
         { id: 'shield', name: '果皮护盾', icon: '🛡️', desc: '全体获得150护盾', rarity: 'rare' },
         { id: 'regen', name: '光合再生', icon: '🌱', desc: '10秒内持续回血', rarity: 'epic' },
         { id: 'rain', name: '果雨纷飞', icon: '🌧️', desc: '每5秒对随机敌人造成100伤害', rarity: 'legendary' },
+        // ==== 经济类（稀有）：三阵营同模板——+200金 / 击杀赏金+30%永久 ====
+        { id: 'harvest', name: '丰收庆典', icon: '🍯', desc: '获得200金币，击杀赏金+30%永久', rarity: 'rare' },
+        // ==== 召唤类（史诗）：三阵营同模板——召唤4个一级兵（兵种带阵营风味） ====
+        { id: 'swarm', name: '蜂群出击', icon: '🐝', desc: '召唤4只一级远程兵', rarity: 'epic' },
+        // ==== 特殊类（传说）：三阵营同模板——同归于尽 ====
+        { id: 'coreBlast', name: '果核爆裂', icon: '💣', desc: '献祭全部己方单位，每个对全场敌人造成100伤害', rarity: 'legendary' },
     ],
     wood: [
         { id: 'rootNet', name: '根系网络', icon: '🌿', desc: '敌人减速40%持续8秒', rarity: 'rare' },
@@ -26,6 +32,12 @@ export const CARD_CONFIG: Record<FactionId, CardConfig[]> = {
         { id: 'thorn', name: '荆棘之甲', icon: '🌵', desc: '受击反弹20%伤害', rarity: 'rare' },
         { id: 'growth', name: '自然生长', icon: '🌱', desc: '出兵速度+30%永久', rarity: 'legendary' },
         { id: 'forest', name: '森林守护', icon: '🌲', desc: '水晶回血500', rarity: 'rare' },
+        // ==== 经济类（稀有）：三阵营同模板——+200金 / 击杀赏金+30%永久 ====
+        { id: 'acorn', name: '古树馈赠', icon: '🌰', desc: '获得200金币，击杀赏金+30%永久', rarity: 'rare' },
+        // ==== 召唤类（史诗）：三阵营同模板——召唤4个一级兵（兵种带阵营风味） ====
+        { id: 'vineGuard', name: '藤蔓卫士', icon: '🍃', desc: '召唤4个一级坦克', rarity: 'epic' },
+        // ==== 特殊类（传说）：三阵营同模板——同归于尽 ====
+        { id: 'forestWail', name: '森林悲鸣', icon: '🍄', desc: '献祭全部己方单位，每个对全场敌人造成100伤害', rarity: 'legendary' },
     ],
     animal: [
         { id: 'crit', name: '致命一击', icon: '🎯', desc: '全体暴击率+30%', rarity: 'rare' },
@@ -37,5 +49,11 @@ export const CARD_CONFIG: Record<FactionId, CardConfig[]> = {
         { id: 'stampede', name: '兽群奔腾', icon: '🦬', desc: '全体加速50%持续10秒', rarity: 'rare' },
         { id: 'claw', name: '利爪撕裂', icon: '🦁', desc: '攻击附带流血效果', rarity: 'legendary' },
         { id: 'survival', name: '适者生存', icon: '🧬', desc: '死亡时对周围造成伤害', rarity: 'epic' },
+        // ==== 经济类（稀有）：三阵营同模板——+200金 / 击杀赏金+30%永久 ====
+        { id: 'hoard', name: '战利品囤积', icon: '🦴', desc: '获得200金币，击杀赏金+30%永久', rarity: 'rare' },
+        // ==== 召唤类（史诗）：三阵营同模板——召唤4个一级兵（兵种带阵营风味） ====
+        { id: 'boarRush', name: '野猪突袭', icon: '🐗', desc: '召唤4只一级冲锋兵', rarity: 'epic' },
+        // ==== 特殊类（传说）：三阵营同模板——同归于尽 ====
+        { id: 'lastRoar', name: '最后的怒吼', icon: '🐾', desc: '献祭全部己方单位，每个对全场敌人造成100伤害', rarity: 'legendary' },
     ],
 };
