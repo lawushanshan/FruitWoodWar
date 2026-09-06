@@ -9,3 +9,11 @@
 - 偿还技术债务 D4（04-架构设计 §11）：新增 tests/architecture.test.ts 架构守卫 2 条用例——①递归扫描 core/** 断言零 `from 'cc'` 导入（核心层保持纯 Node 可运行）②GameManager.ts 行数 ≤1500 上限（随 D1 拆分逐次收紧）；同时删除 GameManager.ts 头注释后的 1 行装饰性空行（1501→1500 行，零行为影响）使守卫基线成立
 - 验证：vitest 全量 20 个测试文件 180 条用例全部通过（含新增 2 条守卫用例）
 - 架构评估——新增兵种适配度：数值型变体兵种成本低（UnitType 联合一加，TS exhaustive 检查强制补全全部 Record<UnitType,...> 配置点，core 逻辑零改动，仅 ai-system 克制反查 switch 必改）；新机制兵种受 combat-system 3 处 type === 硬编码阻塞（rush 首击/siege 对建筑 ×15/siege 索敌特判）。据此登记技术债务 D5：兵种机制字段化（UnitConfig 可选字段 firstStrikeMult?/vsBuildingMult?/detectByRange?，combat-system 读字段而非判类型），触发条件 = 首个新机制兵种立项时先偿还；修改了 DOCS/04-架构设计.md（§11 新增 D5 + D4 标注已偿还 b1c0cc4）、DOCS/03-开发落地路线图.md（技术债务待办条目补 D5）
+- 新增"指挥官档案"局外进度界面（v1.8.1，D2 债务触发式偿还第一刀）：
+  - 抽取 presentation/ui-kit.ts 共享 UI 基础设施（九宫格面板底板含预载升级槽位/统一按钮/标签工厂/贴图图标/星级行，201 行），PanelController 原私有方法改一行委托（类内几十处调用零改动），panel-controller 1086→962 行止住膨胀；新面板不再进 panel-controller
+  - 新建 presentation/profile-panel.ts 档案面板：战绩摘要（胜/负/收集 X/42）+ 四页签卡牌图鉴（三阵营+中立卡池，各显示组内进度 N/12 或 N/6）+ 6 列网格小卡（立绘/名称/稀有度色条）；锁定卡整卡置灰 opacity 130 + 🔒 角标 + "胜 N 场解锁"条件文案；卡序按稀有度升序与抽卡轮进一致；core 零改动（复用 unlock-system 既有 API）
+  - 开始面板新增"📋 指挥官档案"入口（与双倍工资并排），GameManager 加 onProfileClick/Close/Tab 三个一行转发；预载完成回调补 profilePanel.refreshPanels() 使底板升级九宫格贴图
+  - GameManager 精简头注释与一处两行 handler 保持 1499 行（守卫上限 1500 内）
+- 实机验证（Cocos 预览运行时节点探针，逐项确认）：档案面板默认隐藏、开始面板按钮文案/点击音+业务双 handler 正确；打开后 StartPanel 隐藏 ProfilePanel 激活；战绩"胜 0 · 负 1 · 卡牌收集 27/42"与 localStorage 档案一致；四页签"9/12×3 + 0/6"进度正确；锁定卡（丰收庆典/血量典当）显示 🔒+"胜 1 场解锁"；切中立页网格正确重建为 6 张；关闭后恢复开始面板；Cell 底板为 ui_ui_panel_card_panel 九宫格贴图（refreshPanels 升级生效）
+- ⚠️ 过程障碍：①"文件回滚幽灵"再现——GameManager 的 profilePanel 创建语句两次被吃（import 一次、new+create 一次），按"写入后立即 grep 验证+git add 固化"对抗恢复；②切页签后旧格子销毁存在延迟窗口（预览页签后台 RAF 暂停时 destroy 挂起到下一渲染帧），终态正确无残留，非 bug
+- 验证：vitest 全量 20 文件 180 条用例通过（含架构守卫：GameManager 1499≤1500、core 零 cc 导入）

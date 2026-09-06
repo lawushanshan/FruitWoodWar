@@ -1,15 +1,8 @@
 /**
  * GameManager —— 表现层适配器（架构回归版，v1.1.0）
- *
  * 职责：Cocos 生命周期编排 + 模块装配 + 事件路由 + 网格放置模式 + 表现效果。
  * 所有游戏规则由 core/GameEngine 执行，本文件不直接修改游戏数据。
  * 视觉由 GameView / HudView / PanelController 负责，本类只做装配与转发。
- *
- * v1.1.0 合并远程单体演进：
- * - 建造升级为网格 + 预览交互（v0.5.0）：格点吸附、红绿反馈、网格底图、ESC 取消
- * - 帧异常隔离：gameStep 内异常跳帧，不冻结胜负判定与渲染
- * - 卡牌选择倒计时：超时自动选第一张，防止选卡暂停导致假死
- * - 点击己方工厂打开升级面板（星标 / 学院提示提前 / 满级隐藏）
  */
 import {
     _decorator, Component, Node, Color, UITransform, Size, Vec2, Vec3,
@@ -21,6 +14,7 @@ import { ArtLibrary } from './presentation/art-library';
 import { GameView } from './presentation/game-view';
 import { HudView } from './presentation/hud-view';
 import { PanelController } from './presentation/panel-controller';
+import { ProfilePanel } from './presentation/profile-panel';
 import { FloatingText } from './presentation/floating-text';
 import { DeathEffect } from './presentation/death-effect';
 import { AudioManager } from './presentation/audio-manager';
@@ -101,6 +95,7 @@ export class GameManager extends Component {
     private gameView!: GameView;
     private hudView!: HudView;
     private panels!: PanelController;
+    private profilePanel!: ProfilePanel;
     private spriteFactory!: ColorSpriteFactory;
     /** 美术资源库（M3：Q 版立绘/地图底图，预载完成后生效） */
     private artLibrary: ArtLibrary = new ArtLibrary();
@@ -263,6 +258,7 @@ export class GameManager extends Component {
             this.hudView?.refreshIcons();
             // 预载完成后把面板里已按纯色兜底创建的底板升级为九宫格贴图
             this.panels?.refreshPanels();
+            this.profilePanel?.refreshPanels();
         });
 
         // 河（楚河汉界）：沿 y 轴贯穿全场，唯一通道是中央道路（桥）
@@ -319,6 +315,8 @@ export class GameManager extends Component {
         this.entityInfo = new EntityInfoPanel(uiContainer, this.gameContainer, sf, this.artLibrary, this.node);
         this.hudView.create();
         this.panels.create();
+        this.profilePanel = new ProfilePanel(uiContainer, sf, this.node, this.artLibrary);
+        this.profilePanel.create();
 
         // 战场触摸事件（网格放置 + 点建筑升级）
         this.gameContainer.on(Node.EventType.TOUCH_START, this.onGameTouchStart, this);
@@ -1095,12 +1093,13 @@ export class GameManager extends Component {
     }
 
     /** 卡牌详情面板关闭按钮 */
-    onCloseCardHistoryClick(_event: Event) {
-        this.panels.hideCardHistory();
-    }
+    onCloseCardHistoryClick(_event: Event) { this.panels.hideCardHistory(); }
 
     onFactionClick(_event: Event, faction: string) { this.panels.onFactionClick(_event, faction); }
     onDiffClick(_event: Event) { this.panels.onDiffClick(_event); }
+    onProfileClick(_event: Event) { this.panels.hideStart(); this.profilePanel.show(); }
+    onProfileCloseClick(_event: Event) { this.profilePanel.hide(); this.panels.showStart(); }
+    onProfileTabClick(_event: Event, tab: string) { this.profilePanel.onTabClick(tab); }
 
     /** 双倍工资按钮点击（观看广告后本局工资翻倍，标志由 AdManager 记录，开局时传入引擎） */
     async onDoubleSalaryClick(_event: Event) {
