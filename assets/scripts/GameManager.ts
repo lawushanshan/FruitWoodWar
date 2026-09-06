@@ -11,7 +11,6 @@
  * - 卡牌选择倒计时：超时自动选第一张，防止选卡暂停导致假死
  * - 点击己方工厂打开升级面板（星标 / 学院提示提前 / 满级隐藏）
  */
-
 import {
     _decorator, Component, Node, Color, UITransform, Size, Vec2, Vec3,
     Camera, EventTouch, EventMouse, Input, input, Layers, director, Sprite, sys,
