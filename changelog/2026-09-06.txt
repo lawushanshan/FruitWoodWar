@@ -1,0 +1,2 @@
+- 架构复查：确认 core/ 零 cc 依赖、系统粒度健康，债务集中在表现层与装配层
+- DOCS/04-架构设计.md 新增 §11 技术债务登记（D1 GameManager 超重 / D2 panel-controller 拥挤 / D3 hud&game-view 暂缓 / D4 架构守卫测试），含各债务偿还方案与触发式偿还策略
