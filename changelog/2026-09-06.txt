@@ -17,3 +17,7 @@
 - 实机验证（Cocos 预览运行时节点探针，逐项确认）：档案面板默认隐藏、开始面板按钮文案/点击音+业务双 handler 正确；打开后 StartPanel 隐藏 ProfilePanel 激活；战绩"胜 0 · 负 1 · 卡牌收集 27/42"与 localStorage 档案一致；四页签"9/12×3 + 0/6"进度正确；锁定卡（丰收庆典/血量典当）显示 🔒+"胜 1 场解锁"；切中立页网格正确重建为 6 张；关闭后恢复开始面板；Cell 底板为 ui_ui_panel_card_panel 九宫格贴图（refreshPanels 升级生效）
 - ⚠️ 过程障碍：①"文件回滚幽灵"再现——GameManager 的 profilePanel 创建语句两次被吃（import 一次、new+create 一次），按"写入后立即 grep 验证+git add 固化"对抗恢复；②切页签后旧格子销毁存在延迟窗口（预览页签后台 RAF 暂停时 destroy 挂起到下一渲染帧），终态正确无残留，非 bug
 - 验证：vitest 全量 20 文件 180 条用例通过（含架构守卫：GameManager 1499≤1500、core 零 cc 导入）
+- 视觉修复（Cocos MCP 多模态截图复检发现）：档案面板锁定卡整卡 UIOpacity 130 导致"胜 N 场解锁"条件文字与 🔒 一并压暗几乎不可读——改为仅压暗底板/立绘/名称/稀有度四类子元素（各挂 UIOpacity 130，UIOpacity 逐层相乘故不可挂整卡），锁角标与解锁条件文字保持全亮并提亮为 rgba(185,200,215)；修改了 profile-panel.ts（createCardCell 锁定分支重写）
+- 过程障碍：profile-panel.ts 缺 .meta（前轮直接 Write 创建未被编辑器收录）导致改动后 touch/reimport 均无法触发重编译、预览一直跑旧 bundle——用 assetAdvanced_asset_system refresh 刷新 asset-db 生成 meta 后编译恢复
+- 实机复检（Cocos 预览 + 浏览器截图逐页签）：运行时探针确认锁定卡根节点无 UIOpacity、底板/emoji/名称/稀有度=130、🔒与条件文字全亮；水果/绿木/动物/中立四页签截图复检锁定卡可读性良好、页签高亮态正确、关闭后正常恢复开始面板；边缘列被裁确认为预览窗格居中裁剪伪影（canvas 1280 宽>窗格 863）非布局 bug
+- 美术待办追加：动物庄园"适者生存"卡立绘自带不透明绿色底块，与紫底金框卡面不搭，素材迭代时需去底

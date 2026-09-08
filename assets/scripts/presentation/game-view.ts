@@ -124,6 +124,15 @@ export class GameView {
     /** 对象池 */
     private pool: NodePool = new NodePool();
 
+    /**
+     * 建筑角标覆盖层（用户需求：星标/停业角标易被相邻贴图遮挡）。
+     * 挂 container 末尾并每帧保持置顶，星标（Lv2 ★ / Lv3 ★★）与"💤停业"
+     * 渲染在所有实体贴图之上，永不被后建的建筑/单位立绘盖住。
+     */
+    private badgeLayer: Node | null = null;
+    /** 建筑 id → 角标节点（挂在 badgeLayer 上，跟随建筑位置） */
+    private buildingBadges: Map<string, Node> = new Map();
+
     private container: Node;
     private spriteFactory: ColorSpriteFactory;
     /** 美术资源库（可选：未注入或资源缺失时全部走灰盒兜底） */
@@ -138,6 +147,8 @@ export class GameView {
     /** 每帧调用：从 GameState 同步所有实体的视觉（dt 用于单位偏移平滑与程序动画） */
     sync(state: GameState, dt: number = 1 / 60, interpolate: boolean = false) {
         this.animTime += dt;
+        // 角标覆盖层保持置顶（新实体 append 后可能排到它前面）
+        this.ensureBadgeLayer();
         // 出生弹入动画（建筑/塔/水晶）
         this.tickSpawnAnims(dt);
         // 水晶
@@ -160,7 +171,30 @@ export class GameView {
         this.unitRenderPos.clear();
         this.unitAnim.clear();
         this.spawnAnims.clear();
+        // 角标覆盖层：清空全部建筑角标（层节点保留复用）
+        if (this.badgeLayer?.isValid) {
+            for (const child of [...this.badgeLayer.children]) {
+                if (child.isValid) child.destroy();
+            }
+        }
+        this.buildingBadges.clear();
         this.pool.clearAll();
+    }
+
+    /** 懒创建建筑角标覆盖层并保持在 container 末尾（渲染顺序最顶，不被任何贴图遮挡） */
+    private ensureBadgeLayer(): Node {
+        if (!this.badgeLayer || !this.badgeLayer.isValid) {
+            const n = new Node('BuildingBadgeLayer');
+            n.layer = this.container.layer;
+            n.parent = this.container;
+            this.badgeLayer = n;
+        }
+        // 已在末尾则跳过（每帧调用的高频路径，避免无谓的兄弟重排）
+        const siblings = this.container.children;
+        if (siblings[siblings.length - 1] !== this.badgeLayer) {
+            this.badgeLayer.setSiblingIndex(siblings.length - 1);
+        }
+        return this.badgeLayer;
     }
 
     /**
@@ -338,32 +372,9 @@ export class GameView {
                     }
                 }
                 node.parent = this.container;
-                // 工厂挂星标子节点（Lv2 ★ / Lv3 ★★）
+                // 工厂角标挂置顶覆盖层（星标/停业不再被相邻建筑或单位贴图遮挡）
                 if (b.kind !== 'academy') {
-                    const badge = new Node('StarBadge');
-                    badge.layer = node.layer;
-                    badge.parent = node;
-                    const ut = badge.addComponent(UITransform);
-                    ut.contentSize = new Size(40, 14);
-                    const label = badge.addComponent(Label);
-                    label.string = '';
-                    label.fontSize = 12;
-                    label.color = new Color(255, 215, 94);
-                    label.lineHeight = 12;
-                    badge.setPosition(0, 28, 0);
-                    // 停业角标（中立卡"工厂瘫痪"）：💤 提示该工厂正被瘫痪不出兵
-                    const disabled = new Node('DisabledBadge');
-                    disabled.layer = node.layer;
-                    disabled.parent = node;
-                    const dUt = disabled.addComponent(UITransform);
-                    dUt.contentSize = new Size(60, 16);
-                    const dLabel = disabled.addComponent(Label);
-                    dLabel.string = '💤停业';
-                    dLabel.fontSize = 12;
-                    dLabel.lineHeight = 12;
-                    dLabel.color = new Color(255, 120, 120);
-                    disabled.setPosition(0, -28, 0);
-                    disabled.active = false;
+                    this.createBuildingBadge(b.id);
                 }
                 this.buildingNodes.set(b.id, node);
                 // 建筑出生弹入：落地弹一下，强化"刚建成"的反馈
@@ -373,19 +384,76 @@ export class GameView {
             }
             node.setPosition(b.x, b.y, 0);
             this.updateStructureHpBar(node, b.hp, b.maxHp);
-            // 工厂等级用星标区分（v0.5：建筑不再随等级变大，避免视觉挤压）
-            const badge = node.getChildByName('StarBadge');
-            if (badge) {
-                const label = badge.getComponent(Label);
-                if (label) label.string = b.level === 2 ? '★' : b.level === 3 ? '★★' : '';
-            }
-            // 停业角标：中立卡"工厂瘫痪"生效期间显示（每帧按 disabledUntil 判定，自动恢复隐藏）
-            const disabledBadge = node.getChildByName('DisabledBadge');
-            if (disabledBadge) {
-                disabledBadge.active = b.disabledUntil !== undefined && state.time < b.disabledUntil;
+            // 工厂角标（置顶层）：星标区分等级、停业按 disabledUntil 判定，每帧跟随建筑位置
+            const badgeNode = b.kind === 'academy'
+                ? null : (this.buildingBadges.get(b.id) ?? this.createBuildingBadge(b.id));
+            if (badgeNode) {
+                badgeNode.setPosition(b.x, b.y + 36, 0);
+                const starLabel = badgeNode.getChildByName('StarLabel')?.getComponent(Label);
+                if (starLabel) starLabel.string = b.level === 2 ? '★' : b.level === 3 ? '★★' : '';
+                const starBg = badgeNode.getChildByName('StarBg');
+                if (starBg) starBg.active = b.level > 1;
+                // 停业角标：中立卡"工厂瘫痪"生效期间显示（自动恢复隐藏）
+                const disabledActive = b.disabledUntil !== undefined && state.time < b.disabledUntil;
+                const disBg = badgeNode.getChildByName('DisBg');
+                if (disBg) disBg.active = disabledActive;
+                const disLabel = badgeNode.getChildByName('DisabledLabel');
+                if (disLabel) disLabel.active = disabledActive;
             }
         }
         this.cleanupDead(aliveIds, this.buildingNodes, 'building');
+        // 角标挂在覆盖层上，不随建筑节点销毁，需随建筑死亡单独清理
+        for (const [id, badgeNode] of this.buildingBadges) {
+            if (!aliveIds.has(id)) {
+                if (badgeNode.isValid) badgeNode.destroy();
+                this.buildingBadges.delete(id);
+            }
+        }
+    }
+
+    /** 创建建筑角标（挂置顶覆盖层）：上=星标衬底胶囊+金星（Lv2 ★ / Lv3 ★★），下=停业红标 */
+    private createBuildingBadge(buildingId: string): Node {
+        const badge = new Node('BuildingBadge_' + buildingId);
+        badge.layer = this.container.layer;
+        badge.parent = this.ensureBadgeLayer();
+
+        // 星标：深色半透明衬底胶囊 + 金字（衬底保证在任何贴图上都可读）
+        const starBg = this.spriteFactory.createColorNode(new Color(10, 16, 22, 175), 40, 15);
+        starBg.name = 'StarBg';
+        starBg.parent = badge;
+        starBg.setPosition(0, 8, 0);
+        starBg.active = false;
+        const star = new Node('StarLabel');
+        star.layer = badge.layer;
+        star.parent = badge;
+        star.addComponent(UITransform).contentSize = new Size(40, 14);
+        const sLabel = star.addComponent(Label);
+        sLabel.string = '';
+        sLabel.fontSize = 13;
+        sLabel.lineHeight = 13;
+        sLabel.color = new Color(255, 215, 94);
+        star.setPosition(0, 8, 0);
+
+        // 停业角标（中立卡"工厂瘫痪"）：💤 提示该工厂正被瘫痪不出兵
+        const disBg = this.spriteFactory.createColorNode(new Color(30, 8, 8, 190), 58, 15);
+        disBg.name = 'DisBg';
+        disBg.parent = badge;
+        disBg.setPosition(0, -8, 0);
+        disBg.active = false;
+        const dis = new Node('DisabledLabel');
+        dis.layer = badge.layer;
+        dis.parent = badge;
+        dis.addComponent(UITransform).contentSize = new Size(58, 14);
+        const dLabel = dis.addComponent(Label);
+        dLabel.string = '💤停业';
+        dLabel.fontSize = 12;
+        dLabel.lineHeight = 12;
+        dLabel.color = new Color(255, 120, 120);
+        dis.setPosition(0, -8, 0);
+        dis.active = false;
+
+        this.buildingBadges.set(buildingId, badge);
+        return badge;
     }
 
     private syncTowers(state: GameState) {
@@ -787,9 +855,12 @@ export class GameView {
         let text = '';
         if (u.stunDur > 0) text += '💫';
         else if (u.slowDur > 0) text += '🐌';
-        // 星级与等级一致：二级=★★、三级=★★★（与信息面板口径统一）
+        // 星级与等级一致：二级=★★、三级=★★★（卡片召唤专属，与信息面板口径统一）
         if (u.level === 2) text += '★★';
         else if (u.level === 3) text += '★★★';
+        // 工厂兵（等级恒 1）：属性档位用"中/高"单字角标区分（Lv2/Lv3 厂出品）
+        else if (u.statLevel === 2) text += '中';
+        else if (u.statLevel === 3) text += '高';
         label.string = text;
         badge.active = text.length > 0;
     }

@@ -80,6 +80,8 @@ export function makeUnit(
         side,
         type: unitType,
         level,
+        // 属性档位：显示层据此给工厂兵加"中级/高级"前缀（卡片召唤与 level 一致）
+        statLevel,
         // 出生点：工厂前方 40px + 随机散布（兵线宽 3.3 格，有纵向纵深）
         x: x + (side === 'red' ? 40 : -40) + random.range(0, 30),
         y: y + random.range(-30, 30),

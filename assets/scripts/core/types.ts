@@ -128,8 +128,13 @@ export interface UnitState {
     id: string;
     side: Side;
     type: UnitType;
-    /** 精英等级（工厂 Lv2/Lv3 出的兵为 2/3，影响属性与赏金） */
+    /** 精英等级（卡片召唤单位 2/3，决定星标/赏金/体型；工厂出兵恒 1） */
     level: 1 | 2 | 3;
+    /**
+     * 属性档位：工厂出兵=工厂等级（Lv2/Lv3 属性 ×1.5/×2.2），卡片召唤=与 level 一致。
+     * 显示层据此给工厂兵加"中级/高级"前缀（undefined 视同 level，兼容旧存档/手写对象）。
+     */
+    statLevel?: 1 | 2 | 3;
     x: number;
     y: number;
     hp: number;

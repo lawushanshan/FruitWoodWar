@@ -38,7 +38,8 @@ export type EntityTarget =
  *  九宫格 ui_panel_dark 切片边框 36px：内容必须落在中央安全区（约 ±124×±72）内，
  *  否则会像 v1.8 之前那样把标题/头像压在粗木框上，视觉上像被裁切。 */
 const PANEL_W = 320;
-const PANEL_H = 216;
+/** 面板高度 v1.9：216 → 260，底部新增"生效卡牌"行（用户需求：单位面板可见卡牌效果） */
+const PANEL_H = 260;
 const PANEL_POS: [number, number] = [458, -160];
 
 const HP_GREEN = new Color(96, 220, 96);
@@ -48,6 +49,43 @@ const HP_RED = new Color(235, 90, 80);
 const AURA_GREEN = new Color(90, 220, 120);
 /** 属性数值默认色（与 statsL1b 初始色一致） */
 const STAT_DEFAULT = new Color(223, 233, 240);
+
+/** 持续生效类卡牌的短文案（用户需求：单位面板可见卡牌是否生效）。
+ *  一次性卡（治疗/召唤/献祭/金币类即时结算）与作用于水晶/工厂的卡不列，
+ *  只列会持续影响单位属性的；临时卡按 tempBuffs 实时剩余时间判定。 */
+const CARD_EFFECT_TEXTS: Record<string, string> = {
+    // 水果王国
+    atkUp: '🌺攻+25%', splash: '💥溅射', fruitRage: '🔥攻+35%攻速+20%',
+    // 绿木林
+    hpUp: '🌳血+30%', bark: '🪵减伤20%', thorn: '🌵反伤20%',
+    // 动物庄园
+    crit: '🎯暴击+30%', bloodlust: '🩸击杀回血', frenzy: '💢攻+40%攻速+30%',
+    pack: '🐺狼群', predator: '🦅处决', claw: '🦁流血', survival: '🧬亡爆',
+    // 经济类（三阵营同模板）
+    harvest: '🍯赏金+30%', acorn: '🌰赏金+30%', hoard: '🦴赏金+30%',
+};
+
+/** 收集当前对该边持续生效的卡牌/临时增益短文案（chosenCardIds 只登记玩家方，敌方不可见） */
+function activeCardTexts(state: GameState, side: Side): string[] {
+    if (side !== state.playerSide) return [];
+    const texts: string[] = [];
+    // 永久增益：选了即一直生效
+    for (const id of state.cards.chosenCardIds) {
+        const t = CARD_EFFECT_TEXTS[id];
+        if (t) texts.push(t);
+    }
+    // 临时增益：tempBuffs 中仍存活的按剩余秒展示（rain 为持续全场的效果单独展示）
+    for (const tb of state.tempBuffs) {
+        if (tb.side !== side || tb.dur <= 0) continue;
+        const remain = Math.ceil(tb.dur);
+        if (tb.type === 'attackSpeedMult' && tb.mult > 1) texts.push(`☀️攻速×${tb.mult}(${remain}s)`);
+        else if (tb.type === 'atkMult') texts.push(`📢攻${tb.mult > 1 ? '+' : '-'}${Math.round(Math.abs(tb.mult - 1) * 100)}%(${remain}s)`);
+        else if (tb.type === 'speedMult') texts.push(`🦬加速(${remain}s)`);
+        else if (tb.type === 'regen') texts.push(`🌱回血(${remain}s)`);
+        else if (tb.type === 'rain') texts.push('🌧️果雨');
+    }
+    return texts;
+}
 
 export class EntityInfoPanel {
 
@@ -73,6 +111,8 @@ export class EntityInfoPanel {
     private statsL2a: Label | null = null;
     private statsL2b: Label | null = null;
     private fxLabel: Label | null = null;
+    /** 生效卡牌行（单位专属）：显示当前持续生效的卡牌增益短文案 */
+    private cardsLabel: Label | null = null;
     /** 选中圈 Graphics 绘制器（空心红环，替代旧版实心压扁圆） */
     private ringG: Graphics | null = null;
 
@@ -190,10 +230,11 @@ export class EntityInfoPanel {
             const u = state.units.find(e => e.id === t.id);
             if (!u) return;
             const fac = state.factions[u.side];
-            // 单位星级与等级一致：二级=★★、三级=★★★（"绿木林"召唤的二级树人也按此显示）
+            // 工厂兵等级恒 1 级：属性档位(Lv2/Lv3 厂)用"中级/高级"前缀区分，★ 星标只属于卡片召唤单位
+            const grade = u.level === 1 ? (u.statLevel === 3 ? '高级' : u.statLevel === 2 ? '中级' : '') : '';
             const stars = u.level === 3 ? ' ★★★' : u.level === 2 ? ' ★★' : '';
             this.setPortrait(`units/u_${fac}_${u.type}`, UNIT_CONFIG[u.type].icon);
-            this.nameLabel.string = UNIT_NAMES[fac][u.type] + stars;
+            this.nameLabel.string = grade + UNIT_NAMES[fac][u.type] + stars;
             this.nameLabel.color = Color.WHITE;
             if (this.sideLabel) {
                 this.sideLabel.string = (u.side === 'red' ? '红方·' : '蓝方·') + FACTION_CONFIG[fac].name
@@ -212,6 +253,14 @@ export class EntityInfoPanel {
             this.setStats2('射程', `${Math.round(u.range)}`, '移速', `${Math.round(u.speed)}`);
             // 特效行：有 buff 时显示 buff；否则 AOE 兵种显示"范围攻击"特性（用户需求：面板说明补范围攻击）
             this.setFx(u, UNIT_CONFIG[u.type].splashRadius > 0 ? '💥 范围攻击：溅射周围敌人 50% 伤害' : '无特殊状态');
+            // 生效卡牌行：己方单位显示当前持续生效的卡牌增益（最多 4 项，超出折叠计数）
+            if (this.cardsLabel) {
+                const cards = activeCardTexts(state, u.side);
+                this.cardsLabel.string = cards.length > 0
+                    ? '🃏 ' + cards.slice(0, 4).join(' ') + (cards.length > 4 ? ` +${cards.length - 4}` : '')
+                    : '';
+                this.cardsLabel.node.active = cards.length > 0;
+            }
             // 攻击距离蓝色阴影圈：仅单位显示，射程变化时重画
             if (this.rangeRing) {
                 this.rangeRing.active = true;
@@ -241,6 +290,7 @@ export class EntityInfoPanel {
             }
             this.setStats2('提示', b.side === state.playerSide && isFactory ? '点击己方工厂可升级' : '被拆后停止产出', '', '');
             if (this.fxLabel) { this.fxLabel.string = ''; this.fxLabel.node.active = false; }
+            if (this.cardsLabel) this.cardsLabel.node.active = false;
         } else if (t.kind === 'tower') {
             const w = state.towers.find(e => e.id === t.id);
             if (!w) return;
@@ -262,6 +312,7 @@ export class EntityInfoPanel {
                 this.updateRangeRingGeometry(w.range);
             }
             if (this.fxLabel) { this.fxLabel.string = ''; this.fxLabel.node.active = false; }
+            if (this.cardsLabel) this.cardsLabel.node.active = false;
         } else {
             const c = state.crystals.find(e => e.side === t.side);
             if (!c) return;
@@ -276,6 +327,7 @@ export class EntityInfoPanel {
             this.setStats('目标', '水晶被拆即失败', '', '');
             this.setStats2('口号', c.side === state.playerSide ? '守住你的水晶！' : '推平它！', '', '');
             if (this.fxLabel) { this.fxLabel.string = ''; this.fxLabel.node.active = false; }
+            if (this.cardsLabel) this.cardsLabel.node.active = false;
         }
     }
 
@@ -396,7 +448,10 @@ export class EntityInfoPanel {
         this.statsL2b = this.mkLabel(panel, '', 13, 20, new Color(190, 205, 218), 105, -46, 'right');
 
         // 特效行（居中）
-        this.fxLabel = this.mkLabel(panel, '', 12, 16, new Color(130, 150, 168), 0, -70, 'center');
+        this.fxLabel = this.mkLabel(panel, '', 12, 16, new Color(130, 150, 168), 0, -66, 'center');
+
+        // 生效卡牌行（单位专属：显示当前对该方持续生效的卡牌增益，一眼确认卡牌已生效）
+        this.cardsLabel = this.mkLabel(panel, '', 11, 14, new Color(255, 224, 138), 0, -86, 'center');
 
         this.panel = panel;
 
