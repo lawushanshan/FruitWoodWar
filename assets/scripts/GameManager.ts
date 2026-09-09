@@ -1100,10 +1100,7 @@ export class GameManager extends Component {
     onProfileClick(_event: Event) { this.panels.hideStart(); this.profilePanel.show(); }
     onProfileCloseClick(_event: Event) { this.profilePanel.hide(); this.panels.showStart(); }
     onProfileTabClick(_event: Event, tab: string) { this.profilePanel.onTabClick(tab); }
-    /** 图鉴卡格点击（路由到档案面板：选中高亮 + 弹大卡详情） */
-    onProfileCardClick(_event: Event, cardId: string) { this.profilePanel.onCardClick(cardId); }
-    /** 大卡详情遮罩点击（关闭详情弹窗） */
-    onProfileCardClose() { this.profilePanel.closeDetail(); }
+    onProfileCardClick(_event: Event, cardId: string) { this.profilePanel.onCardClick(cardId); } // 图鉴卡格点击→选中高亮+弹大卡详情
 
     /** 双倍工资按钮点击（观看广告后本局工资翻倍，标志由 AdManager 记录，开局时传入引擎） */
     async onDoubleSalaryClick(_event: Event) {

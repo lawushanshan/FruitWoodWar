@@ -20,8 +20,8 @@ import { GAME_CONFIG } from '../config/game-config';
 import { effectiveAttackSpeedMult, auraCovers } from '../core/systems/combat-system';
 import type { GameState, FactionId, UnitType, Side } from '../core/types';
 
-/** 15 兵种 Q 版专名（表现层专属；来自 01 玩法总纲 §4 兵种表） */
-const UNIT_NAMES: Record<FactionId, Record<UnitType, string>> = {
+/** 15 兵种 Q 版专名（表现层专属；来自 01 玩法总纲 §4 兵种表；档案兵种图鉴共用） */
+export const UNIT_NAMES: Record<FactionId, Record<UnitType, string>> = {
     fruit: { tank: '西瓜壮汉', ranged: '香蕉神箭手', aoe: '榴莲炸弹人', rush: '草莓疾风兵', siege: '椰子投石车' },
     wood: { tank: '老橡树守卫', ranged: '蒲公英射手', aoe: '毒蘑菇术士', rush: '竹笋突击兵', siege: '南瓜重锤车' },
     animal: { tank: '犀牛铁卫', ranged: '松鼠弹弓手', aoe: '猫头鹰星术师', rush: '猎豹斥候', siege: '大象破城槌' },

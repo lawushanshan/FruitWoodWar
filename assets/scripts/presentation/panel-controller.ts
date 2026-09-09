@@ -889,14 +889,14 @@ export class PanelController {
         const accentOpacity = accent.getComponent(UIOpacity) ?? accent.addComponent(UIOpacity);
         accentOpacity.opacity = 255;
 
-        // 卡牌立绘（缺失时回退 emoji 图标；卡牌加宽后 110→120 保持占比）
+        // 卡牌立绘（素材已转透明底直接印卡面，缺失时回退 emoji 图标；y=60 避开顶部装饰）
         const artNode = this.art?.createSpriteNode(
             `cards/card_${CARD_FACTION[card.id]}_${card.id}`, 120, 120) ?? null;
         if (artNode) {
-            artNode.setPosition(0, 66, 0);
+            artNode.setPosition(0, 60, 0);
             artNode.parent = node;
         } else {
-            this.makeLabel(card.icon, 0, 62, Color.WHITE, node, 42);
+            this.makeLabel(card.icon, 0, 60, Color.WHITE, node, 42);
         }
 
         // 名称
