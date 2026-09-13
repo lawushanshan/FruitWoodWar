@@ -28,7 +28,7 @@ export interface PanelBgSlot {
 
 /** 卡牌稀有度配色（表现层专属，不进入配置） */
 export const RARITY_COLORS: Record<string, Color> = {
-    rare: new Color(123, 79, 184),
+    rare: new Color(64, 156, 255), // 天蓝色：原紫色与紫色卡底冲突，改为高对比蓝
     epic: new Color(212, 116, 26),
     legendary: new Color(255, 215, 94),
 };

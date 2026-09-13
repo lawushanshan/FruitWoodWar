@@ -882,16 +882,12 @@ export class PanelController {
         // 背景（卡牌底板九宫格；v1.8 移除纯色稀有度外框，观感更干净）
         const bg = this.makePanelBg(node, 'ui/ui_panel_card', 260, 260, new Color(30, 42, 54));
 
-        // 稀有度底部分隔色条（200×6 不透明，增强稀有度辨识度）
-        const accent = this.spriteFactory.createColorNode(rarityColor.clone(), 200, 6);
-        accent.parent = node;
-        accent.setPosition(0, -108, 0);
-        const accentOpacity = accent.getComponent(UIOpacity) ?? accent.addComponent(UIOpacity);
-        accentOpacity.opacity = 255;
-
         // 卡牌立绘（素材已转透明底直接印卡面，缺失时回退 emoji 图标；y=60 避开顶部装饰）
-        const artNode = this.art?.createSpriteNode(
-            `cards/card_${CARD_FACTION[card.id]}_${card.id}`, 120, 120) ?? null;
+        // 阵营卡用 card_{fac}_{id}；中立卡无阵营归属、固定用 card_neutral_{id}
+        const artPath = CARD_FACTION[card.id]
+            ? `cards/card_${CARD_FACTION[card.id]}_${card.id}`
+            : `cards/card_neutral_${card.id}`;
+        const artNode = this.art?.createSpriteNode(artPath, 120, 120) ?? null;
         if (artNode) {
             artNode.setPosition(0, 60, 0);
             artNode.parent = node;
@@ -918,17 +914,17 @@ export class PanelController {
         desc.horizontalAlign = HorizontalTextAlignment.CENTER;
         dUt.anchorPoint = new Vec2(0.5, 1); // 顶部锚点：多行向下延展
         dUt.setContentSize(224, 17); // 换行限宽（卡牌 260 留边距），再设一次确保生效
-        descNode.setPosition(0, -24, 0); // 名称下方起始；最长描述 2 行底缘约 -58，远离色条(-110)
+        descNode.setPosition(0, -24, 0); // 名称下方起始；最长描述 2 行底缘约 -58，远离稀有度胶囊(-84)
 
-        // 稀有度标签：底部色条下方居中，加衬底胶囊 + 加大字号（13→16）增强辨识度
+        // 稀有度标签：胶囊位于紫区下沿（不压金框），衬底 + 加大字号（13→16）增强辨识度
         const rarNames: Record<string, string> = { rare: '稀有', epic: '史诗', legendary: '传说' };
         // 衬底胶囊：稀有度色低透明度打底，把文字从卡底板里衬出来
         const chip = this.spriteFactory.createColorNode(rarityColor.clone(), 64, 26, 'rect');
         chip.parent = node;
-        chip.setPosition(0, -127, 0);
+        chip.setPosition(0, -84, 0);
         const chipOpacity = chip.getComponent(UIOpacity) ?? chip.addComponent(UIOpacity);
         chipOpacity.opacity = 64;
-        this.makeLabel(rarNames[card.rarity] || '普通', 0, -127, Color.WHITE, node, 16);
+        this.makeLabel(rarNames[card.rarity] || '普通', 0, -84, Color.WHITE, node, 16);
 
         // 点击
         const button = node.addComponent(Button);

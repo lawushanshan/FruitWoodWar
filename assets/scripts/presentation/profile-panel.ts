@@ -49,6 +49,12 @@ const CARD_FACTION: Record<string, FactionId> = (() => {
     return map;
 })();
 
+/** 卡 id → 立绘资源路径：阵营卡 card_{fac}_{id}；中立卡无阵营归属、固定 card_neutral_{id} */
+function cardArtPath(cardId: string, faction: FactionId | null): string {
+    const fac = faction ?? CARD_FACTION[cardId];
+    return fac ? `cards/card_${fac}_${cardId}` : `cards/card_neutral_${cardId}`;
+}
+
 /** 图鉴网格：4 列 × 2 行，卡 210×230（8 张/页；12 张组分两页翻页浏览） */
 const GRID_COLS = 4;
 const GRID_COL_STEP = 280;
@@ -380,10 +386,7 @@ export class ProfilePanel {
         const bgNode = this.ui.makePanelBg(node, 'ui/ui_panel_card', GRID_CARD_W, GRID_CARD_H, new Color(30, 42, 54));
 
         // ---- 立绘（上部）：素材已转透明底，直接印在卡面上 ----
-        const artFaction = faction ?? CARD_FACTION[card.id] ?? null;
-        const artNode = artFaction
-            ? this.art?.createSpriteNode(`cards/card_${artFaction}_${card.id}`, 88, 88) ?? null
-            : null;
+        const artNode = this.art?.createSpriteNode(cardArtPath(card.id, faction), 88, 88) ?? null;
         let iconLabel: Label | null = null;
         if (artNode) {
             artNode.setPosition(0, 48, 0);
@@ -398,28 +401,23 @@ export class ProfilePanel {
         // ---- 稀有度（纯色文字，紧跟名称） ----
         const rarityLabel = this.ui.makeLabel(RARITY_NAMES[card.rarity] ?? '普通', 0, -48, rarityColor.clone(), node, 12);
 
-        // ---- 描述（RESIZE_HEIGHT 自适应行数：先设 overflow 再定尺寸，换行才生效） ----
+        // ---- 描述（固定 2 行区域 + SHRINK 自动缩字：先设 overflow 再定尺寸，超长文案缩字不压色条） ----
         if (unlocked) {
             const descNode = new Node('CellDesc');
             descNode.layer = this.gmNode.layer;
             descNode.parent = node;
             const dUt = descNode.addComponent(UITransform);
             const desc = descNode.addComponent(Label);
-            desc.overflow = Label.Overflow.RESIZE_HEIGHT;
+            desc.overflow = Label.Overflow.SHRINK; // 超过 2 行自动缩小字号，杜绝长描述压住色条
             desc.string = card.desc;
             desc.fontSize = 10;
             desc.lineHeight = 13;
             desc.color = new Color(192, 210, 224);
             desc.horizontalAlign = HorizontalTextAlignment.CENTER;
-            dUt.anchorPoint = new Vec2(0.5, 1); // 顶锚：内容向下自然生长，多行不挤压色条
-            dUt.setContentSize(150, 13); // 限宽 150（卡加宽后紫色区内余量充足，不压金边）
-            descNode.setPosition(0, -62, 0); // 区域从 -62 向下，与色条(-96)留白
+            dUt.anchorPoint = new Vec2(0.5, 0.5); // 固定尺寸区域，中心锚点
+            dUt.setContentSize(150, 26); // 固定 2 行高（13×2），再设一次确保生效
+            descNode.setPosition(0, -75, 0); // 区域中心（-62~-88），底部留白
         }
-
-        // ---- 稀有度色条（卡底座位置，宽 150 收进紫色区内不压金边） ----
-        const accent = this.spriteFactory.createColorNode(rarityColor.clone(), 150, 4);
-        accent.parent = node;
-        accent.setPosition(0, -96, 0);
 
         // 整卡可点（GameManager 路由 onProfileCardClick）：选中高亮 + 弹大卡详情，按下微缩反馈
         const btn = node.addComponent(Button);
@@ -490,10 +488,7 @@ export class ProfilePanel {
         const rarityColor = RARITY_COLORS[card.rarity] ?? new Color(100, 100, 100);
 
         // ---- 立绘（上部）：素材已转透明底，直接印在卡面上，无需深色垫板 ----
-        const artFaction = faction ?? CARD_FACTION[card.id] ?? null;
-        const artNode = artFaction
-            ? this.art?.createSpriteNode(`cards/card_${artFaction}_${card.id}`, 120, 120) ?? null
-            : null;
+        const artNode = this.art?.createSpriteNode(cardArtPath(card.id, faction), 120, 120) ?? null;
         if (artNode) {
             artNode.setPosition(0, 60, 0);
             artNode.parent = node;
@@ -525,17 +520,13 @@ export class ProfilePanel {
         dUt.setContentSize(224, 17); // 先定 overflow 再设尺寸，换行才生效
         descNode.setPosition(0, -22, 0);
 
-        // 稀有度色条 + 稀有度胶囊（白字标稀有度）
-        const accent = this.spriteFactory.createColorNode(rarityColor.clone(), 200, 6);
-        accent.parent = node;
-        accent.setPosition(0, -108, 0);
-
+        // 稀有度胶囊（白字标稀有度）：位于紫区下沿，不压底部金框
         const pill = this.spriteFactory.createColorNode(rarityColor.clone(), 64, 26);
         pill.parent = node;
-        pill.setPosition(0, -127, 0);
+        pill.setPosition(0, -84, 0);
         const pillOp = pill.getComponent(UIOpacity) ?? pill.addComponent(UIOpacity);
         pillOp.opacity = 72;
-        this.ui.makeLabel(RARITY_NAMES[card.rarity] ?? '普通', 0, -127, Color.WHITE, node, 16);
+        this.ui.makeLabel(RARITY_NAMES[card.rarity] ?? '普通', 0, -84, Color.WHITE, node, 16);
 
         // 锁定态压暗底板/立绘（解锁条件已全亮展示在描述区）
         if (!unlocked) {
@@ -643,11 +634,6 @@ export class ProfilePanel {
         aUt.setContentSize(200, 13);
         abilNode.setPosition(0, -72, 0);
 
-        // 底部阵营色条
-        const accent = this.spriteFactory.createColorNode(facColor.clone(), 180, 4);
-        accent.parent = node;
-        accent.setPosition(0, -126, 0);
-
         // 整卡可点（复用卡牌图鉴的 onProfileCardClick 路由，u: 前缀区分兵种）
         const btn = node.addComponent(Button);
         btn.transition = Button.Transition.SCALE;
@@ -702,11 +688,6 @@ export class ProfilePanel {
             new Color(223, 233, 240), node, 11);
         this.ui.makeLabel(`射程 ${base.range} · 移速 ${speed} · 价 ${price}`, 0, -52,
             new Color(223, 233, 240), node, 11);
-
-        // 阵营色条分隔
-        const accent = this.spriteFactory.createColorNode(facColor.clone(), 200, 5);
-        accent.parent = node;
-        accent.setPosition(0, -70, 0);
 
         // 定位 + 特效详述（RESIZE_HEIGHT 自适应：先设 overflow 再定尺寸）
         const descNode = new Node('UnitDesc');

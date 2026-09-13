@@ -22,7 +22,7 @@
 import {
     Node, UITransform, Size, Vec2, Sprite, SpriteFrame, ImageAsset, resources,
 } from 'cc';
-import { CARD_CONFIG } from '../config/card-config';
+import { CARD_CONFIG, NEUTRAL_CARDS } from '../config/card-config';
 import type { FactionId } from '../core/types';
 
 /** 阵营 id（与 08 指南命名规范一致） */
@@ -41,12 +41,14 @@ const UI_NAMES = [
 const BUILD_ICONS = ['tank', 'ranged', 'aoe', 'rush', 'siege', 'academy', 'aura'] as const;
 const UI_PANEL_BTN = ['panel_dark', 'panel_light', 'panel_card', 'btn_green', 'btn_blue'] as const;
 
-/** 卡牌立绘路径（CARD_CONFIG 自动同步，新增卡牌无需改这里） */
+/** 卡牌立绘路径（CARD_CONFIG/NEUTRAL_CARDS 自动同步，新增卡牌无需改这里） */
 function cardPaths(): string[] {
     const paths: string[] = [];
     for (const faction of Object.keys(CARD_CONFIG) as FactionId[]) {
         for (const c of CARD_CONFIG[faction]) paths.push(`art/cards/card_${faction}_${c.id}`);
     }
+    // 中立卡立绘（无阵营前缀，统一 card_neutral_ 前缀）
+    for (const c of NEUTRAL_CARDS) paths.push(`art/cards/card_neutral_${c.id}`);
     return paths;
 }
 

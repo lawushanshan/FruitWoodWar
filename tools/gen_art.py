@@ -133,7 +133,7 @@ FACTION = {
 
 S1 = (1328, 1328)   # 1:1 标清档
 S169 = (1664, 936)  # 16:9 标清档
-S34 = (1104, 1472)  # 3:4 自定义（卡牌，宽高乘积在允许范围内）
+S34 = (1728, 2304)  # 3:4 二K档（卡牌，即梦4.0官方推荐宽高，宽高乘积在允许范围内）
 
 # 每条任务：文件名 -> (分类, 提示词, 宽高, 参考图阵营或 None)
 # 参考图：生成时自动读取 tools/anchor_{阵营}.png（全家福，由 M3.0 手动生成）
@@ -262,8 +262,15 @@ CARDS = {
     "card_animal_survival": ("animal", "Q版卡通游戏卡牌插画，画面正中央是一个发光的金色魔法阵，魔法阵由多个同心圆环和古代符文组成，金色光芒从阵中心向外辐射，粗黑描边，平涂上色，竖版构图，纯绿色背景，无文字无水印"),
     # === 动物庄园·新增（经济/召唤/同归于尽） ===
     "card_animal_hoard": ("animal", "Q版卡通游戏卡牌插画，画面正中央是一堆金色的动物骨头与金币堆成的小山，最顶端一根大骨头发着金色光芒，金币散落四周，金棕色暖光氛围，画面中没有任何角色人物动物生物，粗黑描边，平涂上色，明亮糖果色，竖版构图，纯绿色背景，无文字无水印"),
-    "card_animal_boarRush": ("animal", "Q版卡通游戏卡牌插画，画面中只有地面上多道深深的野猪蹄印印痕向远处延伸，蹄印间黄褐色尘土飞扬，尘土带呈冲刺流动感，画面中没有任何角色人物动物生物，纯场景，粗黑描边，平涂上色，明亮糖果色，竖版构图，纯绿色背景，无文字无水印"),
+    "card_animal_boarRush": ("animal", "Q版卡通游戏卡牌插画，画面中只有四枚发光的金色野猪蹄印悬浮在空中，从左下向右上排成一条冲刺轨迹，蹄印带橙黄色能量光尾，周围飘散细小的金色光点，纯效果特写，没有地面没有天空没有场景背景，画面中没有任何角色人物动物生物，粗黑描边，平涂上色，明亮糖果色，竖版构图，纯绿色背景，无文字无水印"),
     "card_animal_lastRoar": ("animal", "Q版卡通游戏卡牌插画，画面正中央是一个巨大的发光爪印印记烙在地面上，金红色冲击波从爪印中心向外爆发扩散，能量裂纹向四周延伸，纯效果特写，画面中没有任何角色人物动物生物，粗黑描边，平涂上色，明亮糖果色，竖版构图，纯绿色背景，无文字无水印"),
+    # === 中立卡（无阵营，统一纯文生图，需同时加入下方 NO_ANCHOR_CARDS） ===
+    "card_neutral_bloodPawn": (None, "Q版卡通游戏卡牌插画，画面正中央是一座小型木质典当行柜台，柜台上堆着一小堆闪闪发光的金币，金币堆旁立着一颗晶莹的紫红色水晶，水晶底部渗出一颗饱满的红色发光液滴正向下滴落，金红对比色调，画面中没有任何角色人物动物生物，粗黑描边，平涂上色，明亮糖果色，竖版构图，纯绿色背景，无文字无水印"),
+    "card_neutral_warBond": (None, "Q版卡通游戏卡牌插画，画面正中央是一张卷起的羊皮债券票据，票据用麻绳捆扎并盖着一枚红色火漆印章，票据表面只有空白格纹和印章图案没有任何文字，票据旁散落着几枚闪闪发光的金币，一枚金币悬浮在票据上方散发金色光芒，画面中没有任何角色人物动物生物，粗黑描边，平涂上色，明亮糖果色，竖版构图，纯绿色背景，无文字无水印"),
+    "card_neutral_sabotage": (None, "Q版卡通游戏卡牌插画，画面正中央是一组卡住停转的深灰色工业齿轮，一把大扳手卡在齿轮之间，齿轮上缠绕着粗壮的铁链并挂着一把黄铜挂锁，齿轮缝隙间迸出灰色烟雾和小电火花，画面中没有任何角色人物动物生物，粗黑描边，平涂上色，明亮糖果色，竖版构图，纯绿色背景，无文字无水印"),
+    "card_neutral_fullAlert": (None, "Q版卡通游戏卡牌插画，画面正中央是一面立式的蓝色半透明能量护盾，护盾呈弧形屏障立于地面，表面有六边形能量纹路流动发光，护盾后方若隐若现一颗悬浮的蓝紫色水晶，蓝色光点环绕护盾，画面中没有任何角色人物动物生物，粗黑描边，平涂上色，明亮糖果色，竖版构图，纯绿色背景，无文字无水印"),
+    "card_neutral_muster": (None, "Q版卡通游戏卡牌插画，画面正中央是一把金色黄铜军用号角，号角喇叭口向外喷发出金色光芒和小星星，号角旁立着一面飘扬的红色三角小旗，金色光点向四周飞散，画面中没有任何角色人物动物生物，粗黑描边，平涂上色，明亮糖果色，竖版构图，纯绿色背景，无文字无水印"),
+    "card_neutral_demoralize": (None, "Q版卡通游戏卡牌插画，画面正中央是一把断裂生锈的灰色长剑斜插在地面，剑身上方悬着一个巨大的深红色向下箭头，箭头散发压抑的暗红色光晕，灰色阴云在剑柄周围低垂，画面中没有任何角色人物动物生物，粗黑描边，平涂上色，明亮糖果色，竖版构图，纯绿色背景，无文字无水印"),
 }
 
 # 分组：group -> {文件名: (目标目录, 完整提示词, 宽高, 参考图阵营)}
@@ -304,6 +311,9 @@ def build_tasks():
         "card_fruit_harvest", "card_fruit_swarm", "card_fruit_coreBlast",
         "card_wood_acorn", "card_wood_vineGuard", "card_wood_forestWail",
         "card_animal_hoard", "card_animal_boarRush", "card_animal_lastRoar",
+        # 中立卡：无阵营参考图概念，统一纯文生图
+        "card_neutral_bloodPawn", "card_neutral_warBond", "card_neutral_sabotage",
+        "card_neutral_fullAlert", "card_neutral_muster", "card_neutral_demoralize",
     }
     for name, (fac, p) in CARDS.items():
         if name in NO_ANCHOR_CARDS:
@@ -330,13 +340,14 @@ GROUPS = {
 }
 
 
-# ==================== 即梦 API 客户端（Seedream 4.6） ====================
-# 官方文档：https://www.volcengine.com/docs/85621/2275082
-# req_key 统一：jimeng_seedream46_cvtob（文生图+图生图通用，传binary_data_base64自动切换图生图模式）
-# scale：整数 1~100，越大越听文本指令（默认50）
+# ==================== 即梦 API 客户端（即梦AI-图片生成4.0） ====================
+# 官方文档：https://www.volcengine.com/docs/85621/1817045
+# req_key 统一：jimeng_t2i_v40（4.6 额度用完后切换；接口仍为 CVSync2AsyncSubmitTask/GetResult，
+#   文生图+图生图通用，传图片输入自动切换图生图模式）
+# scale：浮点 0~1，越大越听文本指令（默认0.5，与4.6的整数1~100语义不同）
 # force_single=True：强制单图输出，避免并排多角色污染
 
-REQ_KEY_46 = "jimeng_seedream46_cvtob"
+REQ_KEY = "jimeng_t2i_v40"
 
 
 class Jimeng:
@@ -380,29 +391,29 @@ class Jimeng:
         raise RuntimeError("轮询超时（%ds）task_id=%s" % (timeout_s, task_id))
 
     def text2img(self, prompt: str, w: int, h: int) -> list:
-        """Seedream 4.6 文生图：统一 req_key，force_single强制单图"""
+        """即梦4.0 文生图：统一 req_key，force_single强制单图"""
         body = {
-            "req_key": REQ_KEY_46,
+            "req_key": REQ_KEY,
             "prompt": prompt,
             "force_single": True,
             "width": w, "height": h,
         }
-        return self._poll(REQ_KEY_46, self._submit(body))
+        return self._poll(REQ_KEY, self._submit(body))
 
-    def img2img(self, prompt: str, image_path: str, w: int, h: int, scale: int = 75) -> list:
-        """Seedream 4.6 图生图（智能参考）：统一 req_key，scale整数1~100，force_single强制单图
-        scale=75：文本指令权重高（保证单角色），同时保留参考图画风"""
+    def img2img(self, prompt: str, image_path: str, w: int, h: int, scale: float = 0.75) -> list:
+        """即梦4.0 图生图（智能参考）：统一 req_key，scale浮点0~1，force_single强制单图
+        scale=0.75：文本指令权重高（保证单角色），同时保留参考图画风"""
         with open(image_path, "rb") as f:
             b64 = base64.b64encode(f.read()).decode()
         body = {
-            "req_key": REQ_KEY_46,
+            "req_key": REQ_KEY,
             "binary_data_base64": [b64],  # 传图即自动切图生图模式
             "prompt": prompt,
             "force_single": True,  # 关键：强制只出1张单图
-            "scale": scale,        # 文本影响程度：75%听文本，25%看参考图
+            "scale": scale,        # 文本影响程度：0.75 听文本，0.25 看参考图
             "width": w, "height": h,
         }
-        return self._poll(REQ_KEY_46, self._submit(body))
+        return self._poll(REQ_KEY, self._submit(body))
 
 
 def anchor_path(fac: str) -> str:
@@ -457,7 +468,7 @@ def cmd_run(targets, shots, no_anchor):
         print("没有可执行的任务。")
         return
 
-    print("将生成 %d 个任务 × %d 候选 = %d 次调用（0.2 元/张，免费额度 200 次）\n"
+    print("将生成 %d 个任务 × %d 候选 = %d 次调用（即梦4.0，费用以火山控制台为准）\n"
           % (len(names), shots, len(names) * shots))
 
     ok, fail = 0, 0
