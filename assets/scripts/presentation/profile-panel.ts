@@ -481,19 +481,19 @@ export class ProfilePanel {
         const node = new Node('DetailCard_' + card.id);
         node.layer = this.gmNode.layer;
         const ut = node.addComponent(UITransform);
-        ut.contentSize = new Size(260, 260);
+        ut.contentSize = new Size(320, 300);
         ut.anchorPoint = new Vec2(0.5, 0.5);
 
-        const bgNode = this.ui.makePanelBg(node, 'ui/ui_panel_card', 260, 260, new Color(30, 42, 54));
+        const bgNode = this.ui.makePanelBg(node, 'ui/ui_panel_card', 320, 300, new Color(30, 42, 54));
         const rarityColor = RARITY_COLORS[card.rarity] ?? new Color(100, 100, 100);
 
         // ---- 立绘（上部）：素材已转透明底，直接印在卡面上，无需深色垫板 ----
-        const artNode = this.art?.createSpriteNode(cardArtPath(card.id, faction), 120, 120) ?? null;
+        const artNode = this.art?.createSpriteNode(cardArtPath(card.id, faction), 132, 132) ?? null;
         if (artNode) {
-            artNode.setPosition(0, 60, 0);
+            artNode.setPosition(0, 72, 0);
             artNode.parent = node;
         } else {
-            this.ui.makeLabel(card.icon, 0, 60, Color.WHITE, node, 56);
+            this.ui.makeLabel(card.icon, 0, 72, Color.WHITE, node, 62);
         }
 
         // 锁定卡：立绘位置盖大锁（信息不剧透），解锁后正常展示
@@ -502,7 +502,7 @@ export class ProfilePanel {
         }
 
         // 名称
-        this.ui.makeLabel(card.name, 0, 2, Color.WHITE, node, 20);
+        this.ui.makeLabel(card.name, 0, 4, Color.WHITE, node, 23);
 
         // 描述：锁定卡不剧透描述，显示解锁条件；RESIZE_HEIGHT 自适应行数
         const descNode = new Node('DetailDesc');
@@ -512,21 +512,21 @@ export class ProfilePanel {
         const desc = descNode.addComponent(Label);
         desc.overflow = Label.Overflow.RESIZE_HEIGHT;
         desc.string = unlocked ? card.desc : `胜 ${cardUnlockRequirement(card.id)} 场解锁`;
-        desc.fontSize = 12;
-        desc.lineHeight = 17;
+        desc.fontSize = 15;
+        desc.lineHeight = 20;
         desc.color = new Color(192, 210, 224);
         desc.horizontalAlign = HorizontalTextAlignment.CENTER;
         dUt.anchorPoint = new Vec2(0.5, 1); // 顶锚：内容向下自然生长
-        dUt.setContentSize(224, 17); // 先定 overflow 再设尺寸，换行才生效
-        descNode.setPosition(0, -22, 0);
+        dUt.setContentSize(278, 20); // 手机横屏下提升可读性
+        descNode.setPosition(0, -28, 0);
 
         // 稀有度胶囊（白字标稀有度）：位于紫区下沿，不压底部金框
-        const pill = this.spriteFactory.createColorNode(rarityColor.clone(), 64, 26);
+        const pill = this.spriteFactory.createColorNode(rarityColor.clone(), 72, 28);
         pill.parent = node;
-        pill.setPosition(0, -84, 0);
+        pill.setPosition(0, -104, 0);
         const pillOp = pill.getComponent(UIOpacity) ?? pill.addComponent(UIOpacity);
         pillOp.opacity = 72;
-        this.ui.makeLabel(RARITY_NAMES[card.rarity] ?? '普通', 0, -84, Color.WHITE, node, 16);
+        this.ui.makeLabel(RARITY_NAMES[card.rarity] ?? '普通', 0, -104, Color.WHITE, node, 18);
 
         // 锁定态压暗底板/立绘（解锁条件已全亮展示在描述区）
         if (!unlocked) {
@@ -657,37 +657,37 @@ export class ProfilePanel {
         const node = new Node(`UnitDetail_${fac}_${type}`);
         node.layer = this.gmNode.layer;
         const ut = node.addComponent(UITransform);
-        ut.contentSize = new Size(260, 340);
+        ut.contentSize = new Size(320, 380);
         ut.anchorPoint = new Vec2(0.5, 0.5);
 
         const fc = FACTION_CONFIG[fac];
         const base = UNIT_CONFIG[type];
         const facColor = FACTION_RGB[fac];
 
-        this.ui.makePanelBg(node, 'ui/ui_panel_card', 260, 340, new Color(30, 42, 54));
+        this.ui.makePanelBg(node, 'ui/ui_panel_card', 320, 380, new Color(30, 42, 54));
 
         // 立绘（透明底直接印卡面，无需深色垫板，位置微降避开顶部画框装饰）
-        const artNode = this.art?.createSpriteNode(`units/u_${fac}_${type}`, 120, 120) ?? null;
+        const artNode = this.art?.createSpriteNode(`units/u_${fac}_${type}`, 132, 132) ?? null;
         if (artNode) {
-            artNode.setPosition(0, 88, 0);
+            artNode.setPosition(0, 110, 0);
             artNode.parent = node;
         } else {
-            this.ui.makeLabel(base.icon, 0, 88, Color.WHITE, node, 56);
+            this.ui.makeLabel(base.icon, 0, 110, Color.WHITE, node, 62);
         }
 
         // 名称 + 定位副题
-        this.ui.makeLabel(UNIT_NAMES[fac][type], 0, 2, Color.WHITE, node, 20);
-        this.ui.makeLabel(`${base.icon}${base.name} · ${fc.name}`, 0, -18, facColor, node, 12);
+        this.ui.makeLabel(UNIT_NAMES[fac][type], 0, 8, Color.WHITE, node, 23);
+        this.ui.makeLabel(`${base.icon}${base.name} · ${fc.name}`, 0, -18, facColor, node, 14);
 
         // 属性两行（Lv1 实际值；拆短行宽防溢出 260 卡面）
         const hp = Math.round(base.hp * fc.hpMult);
         const atk = Math.round(base.atk * fc.atkMult);
         const speed = Math.round(base.speed * fc.speedMult);
         const price = Math.round(base.cost * fc.priceMult);
-        this.ui.makeLabel(`血 ${hp} · 攻 ${atk} · 攻速 ${base.atkSpeed}/秒`, 0, -36,
-            new Color(223, 233, 240), node, 11);
-        this.ui.makeLabel(`射程 ${base.range} · 移速 ${speed} · 价 ${price}`, 0, -52,
-            new Color(223, 233, 240), node, 11);
+        this.ui.makeLabel(`血 ${hp} · 攻 ${atk} · 攻速 ${base.atkSpeed}/秒`, 0, -42,
+            new Color(223, 233, 240), node, 13);
+        this.ui.makeLabel(`射程 ${base.range} · 移速 ${speed} · 价 ${price}`, 0, -62,
+            new Color(223, 233, 240), node, 13);
 
         // 定位 + 特效详述（RESIZE_HEIGHT 自适应：先设 overflow 再定尺寸）
         const descNode = new Node('UnitDesc');
@@ -697,16 +697,16 @@ export class ProfilePanel {
         const desc = descNode.addComponent(Label);
         desc.overflow = Label.Overflow.RESIZE_HEIGHT;
         desc.string = `${ROLE_DESC[type]}\n${UNIT_DETAIL[type]}`;
-        desc.fontSize = 12;
-        desc.lineHeight = 17;
+        desc.fontSize = 14;
+        desc.lineHeight = 20;
         desc.color = new Color(192, 210, 224);
         desc.horizontalAlign = HorizontalTextAlignment.CENTER;
         dUt.anchorPoint = new Vec2(0.5, 1); // 顶锚：内容向下自然生长
-        dUt.setContentSize(224, 17);
-        descNode.setPosition(0, -84, 0);
+        dUt.setContentSize(278, 20);
+        descNode.setPosition(0, -96, 0);
 
         // 阵营被动（金色高亮，让玩家记住种族特色）
-        this.ui.makeLabel(`阵营被动 · ${fc.passive}`, 0, -148, new Color(255, 215, 94), node, 11);
+        this.ui.makeLabel(`阵营被动 · ${fc.passive}`, 0, -174, new Color(255, 215, 94), node, 13);
 
         // 空 Button 吞触摸：点击大卡本体不触发遮罩关闭
         const swallow = node.addComponent(Button);

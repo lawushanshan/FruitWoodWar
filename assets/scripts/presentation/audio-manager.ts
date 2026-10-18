@@ -17,8 +17,8 @@ export type SoundEffect = 'build' | 'coin' | 'kill' | 'victory' | 'defeat' | 'at
 
 /** 高频音效最小播放间隔（毫秒）：战斗事件密集，限流避免嘈杂与性能浪费 */
 const THROTTLE_MS: Partial<Record<SoundEffect, number>> = {
-    attack: 80,
-    hit: 80,
+    attack: 100,
+    hit: 100,
 };
 
 export class AudioManager {
@@ -97,35 +97,35 @@ export class AudioManager {
     /** 建造：上升音阶 + 短促 */
     private playBuild() {
         this.playTone(440, 0.08, 'square');
-        setTimeout(() => this.playTone(660, 0.08, 'square'), 80);
-        setTimeout(() => this.playTone(880, 0.1, 'square'), 160);
+        this.scheduleTone(660, 0.08, 'square', 80);
+        this.scheduleTone(880, 0.1, 'square', 160);
     }
 
     /** 金币：清脆叮声 */
     private playCoin() {
         this.playTone(1200, 0.06, 'sine');
-        setTimeout(() => this.playTone(1600, 0.08, 'sine'), 60);
+        this.scheduleTone(1600, 0.08, 'sine', 60);
     }
 
     /** 击杀：短促低频 */
     private playKill() {
         this.playTone(200, 0.1, 'sawtooth');
-        setTimeout(() => this.playTone(150, 0.15, 'sawtooth'), 50);
+        this.scheduleTone(150, 0.15, 'sawtooth', 50);
     }
 
     /** 胜利：上升和弦 */
     private playVictory() {
         this.playTone(523, 0.15, 'sine'); // C5
-        setTimeout(() => this.playTone(659, 0.15, 'sine'), 150); // E5
-        setTimeout(() => this.playTone(784, 0.2, 'sine'), 300); // G5
-        setTimeout(() => this.playTone(1047, 0.3, 'sine'), 450); // C6
+        this.scheduleTone(659, 0.15, 'sine', 150); // E5
+        this.scheduleTone(784, 0.2, 'sine', 300); // G5
+        this.scheduleTone(1047, 0.3, 'sine', 450); // C6
     }
 
     /** 失败：下降音阶 */
     private playDefeat() {
         this.playTone(440, 0.2, 'sawtooth');
-        setTimeout(() => this.playTone(330, 0.2, 'sawtooth'), 200);
-        setTimeout(() => this.playTone(220, 0.3, 'sawtooth'), 400);
+        this.scheduleTone(330, 0.2, 'sawtooth', 200);
+        this.scheduleTone(220, 0.3, 'sawtooth', 400);
     }
 
     /** 攻击：极短促噪声 */
@@ -141,8 +141,8 @@ export class AudioManager {
     /** 升级：明亮上升 */
     private playUpgrade() {
         this.playTone(600, 0.1, 'sine');
-        setTimeout(() => this.playTone(800, 0.1, 'sine'), 100);
-        setTimeout(() => this.playTone(1200, 0.15, 'sine'), 200);
+        this.scheduleTone(800, 0.1, 'sine', 100);
+        this.scheduleTone(1200, 0.15, 'sine', 200);
     }
 
     /** 按钮点击：极短清脆 tick（所有 UI 按钮统一的操作确认音） */
@@ -154,7 +154,7 @@ export class AudioManager {
 
     /** 播放单个音调 */
     private playTone(freq: number, duration: number, type: OscillatorType) {
-        if (!this.ctx || !this.masterGain) return;
+        if (!this.ctx || !this.masterGain || this.muted) return;
         try {
             const osc = this.ctx.createOscillator();
             const gain = this.ctx.createGain();
@@ -169,5 +169,9 @@ export class AudioManager {
         } catch {
             // 静默降级
         }
+    }
+
+    private scheduleTone(freq: number, duration: number, type: OscillatorType, delayMs: number) {
+        setTimeout(() => this.playTone(freq, duration, type), delayMs);
     }
 }

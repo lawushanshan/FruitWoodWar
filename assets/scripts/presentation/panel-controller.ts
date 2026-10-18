@@ -17,12 +17,16 @@ import { ArtLibrary } from './art-library';
 import { UiKit, RARITY_COLORS } from './ui-kit';
 import { FACTION_CONFIG, FACTION_IDS } from '../config/faction-config';
 import { BUILDING_CONFIG } from '../config/building-config';
-import { CARD_CONFIG } from '../config/card-config';
+import { CARD_CONFIG, NEUTRAL_CARDS } from '../config/card-config';
 import { getCardPanelSubtitle } from '../core/systems/card-system';
 import type { CardConfig, Difficulty, FactionId, GameState } from '../core/types';
 
 /** 卡牌选择倒计时（秒）：超时自动选第一张，防止选卡暂停导致游戏假死 */
 const CARD_CHOICE_TIMEOUT_S = 15;
+
+function upgradePrice(level: 1 | 2 | 3): number | null {
+    return level === 1 ? 150 : level === 2 ? 300 : null;
+}
 
 /** 卡牌 id → 阵营映射（卡牌立绘路径 cards/card_{faction}_{id}.png 用） */
 const CARD_FACTION: Record<string, FactionId> = (() => {
@@ -154,7 +158,7 @@ export class PanelController {
         state.cards.offers.forEach((card, i) => {
             const cardNode = this.createCardNode(card, i);
             cardNode.parent = this.cardPanel;
-            cardNode.setPosition(-290 + i * 290, 0, 0);
+            cardNode.setPosition(-330 + i * 330, 0, 0);
             cardNode.setScale(0, 0, 0);
             tween(cardNode)
                 .delay(i * 0.07)
@@ -241,7 +245,7 @@ export class PanelController {
         const seconds = Math.floor(result.duration % 60);
         this.endStatsLabel.string =
             (won ? '🎉 胜利！' : '😢 失败\n') +
-            '击杀：' + state.stats.kills.red + '\n' +
+            '击杀：' + state.stats.kills[state.playerSide] + '\n' +
             '剩余金币：' + result.playerGold + '\n' +
             '用时：' + minutes + ':' + (seconds < 10 ? '0' : '') + seconds + '\n' +
             '波次：第 ' + state.wave + ' 波';
@@ -441,12 +445,14 @@ export class PanelController {
                 (b.level === 3 ? '（已满级）' : '');
         }
         if (this.upgradeCostLabel) {
+            const price = upgradePrice(b.level);
+            const affordable = price === null || state.gold[state.playerSide] >= price;
             this.upgradeCostLabel.string =
-                b.level === 1 ? '升级费用：150 金（→Lv2★）'
+                b.level === 1 ? `升级费用：150 金（→Lv2★）${affordable ? '' : ' · 金币不足'}`
                 : b.level === 2
                     ? (state.academyLevel[state.playerSide] < 1
                         ? '需先建造「战争学院」\n才能升到 Lv3'
-                        : '升级费用：300 金（→Lv3★★）')
+                        : `升级费用：300 金（→Lv3★★）${affordable ? '' : ' · 金币不足'}`)
                     : '已升至最高级，不再升级';
         }
         // 学院缺失提示独立小字行（原来拼在大标题后把文字顶出面板）
@@ -460,7 +466,8 @@ export class PanelController {
         if (this.upgradeBtnNode) {
             // 满级隐藏；无学院置灰并显示锁定角标
             this.upgradeBtnNode.active = b.level < 3;
-            const locked = b.level === 2 && state.academyLevel[state.playerSide] < 1;
+            const locked = (b.level === 2 && state.academyLevel[state.playerSide] < 1)
+                || (upgradePrice(b.level) !== null && state.gold[state.playerSide] < upgradePrice(b.level)!);
             const lock = this.upgradeBtnNode.getChildByName('LockIcon');
             if (lock) lock.active = locked;
             const bg = this.upgradeBtnNode.getChildByName('BtnBg');
@@ -493,7 +500,7 @@ export class PanelController {
             const c = list.find(x => x.id === id);
             if (c) return c;
         }
-        return null;
+        return NEUTRAL_CARDS.find(x => x.id === id) ?? null;
     }
 
     /** 显示本局已抽卡牌详情（名称 + 描述），点顶部 🃏 图标行打开 */
@@ -515,8 +522,8 @@ export class PanelController {
                     this.makeLabel(c.desc, 60, y, new Color(159, 180, 196), this.cardHistoryContent, 14);
                 });
             }
-            // 对手卡牌说明（当前设计：卡牌只作用于玩家方；联机模式卡牌整体禁用）
-            const oppNote = state.aiEnabled ? '对手（AI）没有卡牌' : '联机模式：卡牌已禁用';
+            // 对手卡牌说明：单机由玩家单独选卡；联机卡牌由双方锁步执行。
+            const oppNote = state.aiEnabled ? '对手（AI）没有卡牌' : '联机卡牌：双方按帧同步';
             this.makeLabel(oppNote, 0, -240, new Color(120, 140, 160), this.cardHistoryContent, 13);
         }
         if (this.cardHistoryPanel) this.cardHistoryPanel.active = true;
@@ -874,29 +881,29 @@ export class PanelController {
         const node = new Node('Card_' + index);
         node.layer = this.gmNode.layer;
         const ut = node.addComponent(UITransform);
-        ut.contentSize = new Size(260, 260);
+        ut.contentSize = new Size(300, 300);
         ut.anchorPoint = new Vec2(0.5, 0.5);
 
         const rarityColor = RARITY_COLORS[card.rarity] || new Color(100, 100, 100);
 
         // 背景（卡牌底板九宫格；v1.8 移除纯色稀有度外框，观感更干净）
-        const bg = this.makePanelBg(node, 'ui/ui_panel_card', 260, 260, new Color(30, 42, 54));
+        const bg = this.makePanelBg(node, 'ui/ui_panel_card', 300, 300, new Color(30, 42, 54));
 
         // 卡牌立绘（素材已转透明底直接印卡面，缺失时回退 emoji 图标；y=60 避开顶部装饰）
         // 阵营卡用 card_{fac}_{id}；中立卡无阵营归属、固定用 card_neutral_{id}
         const artPath = CARD_FACTION[card.id]
             ? `cards/card_${CARD_FACTION[card.id]}_${card.id}`
             : `cards/card_neutral_${card.id}`;
-        const artNode = this.art?.createSpriteNode(artPath, 120, 120) ?? null;
+        const artNode = this.art?.createSpriteNode(artPath, 132, 132) ?? null;
         if (artNode) {
-            artNode.setPosition(0, 60, 0);
+            artNode.setPosition(0, 70, 0);
             artNode.parent = node;
         } else {
-            this.makeLabel(card.icon, 0, 60, Color.WHITE, node, 42);
+            this.makeLabel(card.icon, 0, 70, Color.WHITE, node, 46);
         }
 
         // 名称
-        this.makeLabel(card.name, 0, 4, Color.WHITE, node, 20);
+        this.makeLabel(card.name, 0, 2, Color.WHITE, node, 22);
 
         // 描述：固定宽度自动换行 + 水平居中（提亮一档，与深底对比更清晰）
         // 注意顺序：必须先设 overflow 再写 contentSize——若 Label 以默认 NONE 模式渲染过一帧，
@@ -908,23 +915,23 @@ export class PanelController {
         const desc = descNode.addComponent(Label);
         desc.overflow = Label.Overflow.RESIZE_HEIGHT; // 限宽自动换行、高度自适应
         desc.string = card.desc;
-        desc.fontSize = 12;
-        desc.lineHeight = 17;
+        desc.fontSize = 14;
+        desc.lineHeight = 19;
         desc.color = new Color(192, 210, 224);
         desc.horizontalAlign = HorizontalTextAlignment.CENTER;
         dUt.anchorPoint = new Vec2(0.5, 1); // 顶部锚点：多行向下延展
-        dUt.setContentSize(224, 17); // 换行限宽（卡牌 260 留边距），再设一次确保生效
-        descNode.setPosition(0, -24, 0); // 名称下方起始；最长描述 2 行底缘约 -58，远离稀有度胶囊(-84)
+        dUt.setContentSize(260, 19); // 换行限宽，手机横屏下保留可读字号
+        descNode.setPosition(0, -34, 0);
 
         // 稀有度标签：胶囊位于紫区下沿（不压金框），衬底 + 加大字号（13→16）增强辨识度
         const rarNames: Record<string, string> = { rare: '稀有', epic: '史诗', legendary: '传说' };
         // 衬底胶囊：稀有度色低透明度打底，把文字从卡底板里衬出来
-        const chip = this.spriteFactory.createColorNode(rarityColor.clone(), 64, 26, 'rect');
+        const chip = this.spriteFactory.createColorNode(rarityColor.clone(), 72, 28, 'rect');
         chip.parent = node;
-        chip.setPosition(0, -84, 0);
+        chip.setPosition(0, -108, 0);
         const chipOpacity = chip.getComponent(UIOpacity) ?? chip.addComponent(UIOpacity);
         chipOpacity.opacity = 64;
-        this.makeLabel(rarNames[card.rarity] || '普通', 0, -84, Color.WHITE, node, 16);
+        this.makeLabel(rarNames[card.rarity] || '普通', 0, -108, Color.WHITE, node, 18);
 
         // 点击
         const button = node.addComponent(Button);

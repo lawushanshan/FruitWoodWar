@@ -971,11 +971,13 @@ export class GameManager extends Component {
 
     /** UI 按钮统一点击音：所有 Button 的 clickEvents 首位共享此 handler，按下即有确认反馈 */
     onUiClick(_event: Event) {
+        this.audio.init();
         this.audio.play('click');
     }
 
     /** 音效开关点击：切换静音并持久化偏好 */
     onMuteClick(_event: Event) {
+        this.audio.init();
         const muted = !this.audio.isMuted();
         this.audio.setMuted(muted);
         try {

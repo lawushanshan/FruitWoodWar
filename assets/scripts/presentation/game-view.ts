@@ -605,11 +605,11 @@ export class GameView {
                     const blend = anim.walkBlend;
                     anim.walkBlend += ((moving ? 1 : 0) - blend) * Math.min(1, dt * 8);
 
-                    // 步频匹配移速（游戏动画最佳实践：脚步动画节奏应与位移速度成正比，
-                    // 否则慢单位"滑步"、快单位"慢动作滑冰"）：siege 25 → 3.5Hz，rush 100 → 9Hz
-                    const speed = UNIT_CONFIG[u.type].speed;
-                    const freq = Math.min(10, Math.max(3.5, speed * 0.09));
-                    const bounceH = Math.min(3.4, Math.max(2, speed / 30)); // 弹跳高度随移速微调
+                    // 频率使用单位实际速度（含阵营修正），并限制上限，避免冲锋兵高频抖动。
+                    // 视觉步频不需要复刻每个逻辑位移，只需让快慢单位有明显差别。
+                    const speed = u.speed;
+                    const freq = Math.min(6.5, Math.max(2.5, speed * 0.045));
+                    const bounceH = Math.min(3.1, Math.max(1.8, speed / 36));
 
                     // 行走分量：弹跳 + 前倾 4° + 步幅滚动 ±2.5° + 挤压拉伸
                     const tw = this.animTime * Math.PI * 2 * freq + anim.phase;
