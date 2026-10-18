@@ -10,14 +10,17 @@
 
 import {
     Node, Label, Color, UITransform, Size, Vec2, Vec3, Button, EventHandler, view,
-    HorizontalTextAlignment, UIOpacity, tween, Tween,
+    HorizontalTextAlignment, UIOpacity, tween, Tween, Sprite,
 } from 'cc';
 import { ColorSpriteFactory } from './color-sprite-factory';
 import { ArtLibrary } from './art-library';
 import { setUniformScale } from './scale-helper';
 import { GAME_CONFIG } from '../config/game-config';
-import { BUILDING_CONFIG, BUILDING_IDS, auraCostInState, buildingCostInState, researchCost, shieldCost } from '../config/building-config';
-import { CARD_CONFIG } from '../config/card-config';
+import { BUILDING_CONFIG, BUILDING_IDS, auraCostInState, buildingCostInState, researchCost, shieldCost, upgradeCost } from '../config/building-config';
+import { makeUpgradeCommand } from '../input/game-commands';
+import { CARD_CONFIG, NEUTRAL_CARDS } from '../config/card-config';
+import { quoteBuild } from '../core/systems/building-system';
+import { UiKit } from './ui-kit';
 import type { BuildingItemId, GameState } from '../core/types';
 
 /** 图标槽：登记一个可升级的图标位置（emoji → 贴图） */
@@ -56,6 +59,14 @@ export class HudView {
     // ---- 建造栏 ----
     private buildBar: Node | null = null;
     private topBar: Node | null = null;
+    private buildPages = new Map<string, Node>();
+    private pageButtons = new Map<string, Node>();
+    private buildButtons = new Map<BuildingItemId, Node>();
+    private selectedBuild: BuildingItemId | null = null;
+    private actionButtons = new Map<string, { bg: Sprite; cost: Label }>();
+    private placementBar: Node | null = null;
+    private placementLabel: Label | null = null;
+    private placementCancel: Node | null = null;
     /** 建筑按钮价格标签（按 BuildingItemId 索引） */
     private buildCostLabels: Map<BuildingItemId, Label> = new Map();
     /** 建筑按钮同类已建数量标签（价格递增可视化） */
@@ -100,6 +111,7 @@ export class HudView {
 
     /** 上次可视高度（用于检测屏幕变化） */
     private lastVisibleHeight: number = 0;
+    private lastVisibleWidth = 0;
 
     private container: Node;
     private spriteFactory: ColorSpriteFactory;
@@ -169,6 +181,7 @@ export class HudView {
         this.createCardHistory();
         this.createOnlineBadge();
         this.createWaveBanner();
+        this.checkResponsiveLayout();
     }
 
     /** 联机身份标识 + ping 指示（顶部栏下方左侧；仅联机对局显示） */
@@ -331,6 +344,7 @@ export class HudView {
     update(state: GameState) {
         // 检测屏幕尺寸变化，调整布局
         this.checkResponsiveLayout();
+        this.updatePrices(state);
 
         // 已选中卡牌图标（数量变化时才重建，避免每帧拼字符串；只显示选中的，不含展示未选的）
         const used = state.cards.chosenCardIds;
@@ -341,7 +355,7 @@ export class HudView {
                     const c = list.find(x => x.id === id);
                     if (c) return c.icon;
                 }
-                return '';
+                return NEUTRAL_CARDS.find(c => c.id === id)?.icon ?? '';
             });
             this.cardHistoryLabel.string = used.length > 0 ? '🃏 ' + icons.join(' ') + '（点击查看）' : '';
         }
@@ -448,6 +462,12 @@ export class HudView {
             const label = this.buildCostLabels.get(id);
             const conf = BUILDING_CONFIG[id];
             if (!label || !conf) continue;
+            const quote = quoteBuild(state, side, id);
+            label.color = quote.ok ? new Color(255, 215, 94) : new Color(255, 135, 120);
+            const btn = this.buildButtons.get(id);
+            const bg = btn?.getChildByName('BuildButtonBg')?.getComponent(Sprite);
+            if (bg) bg.color = id === this.selectedBuild ? new Color(43, 120, 86)
+                : quote.ok ? new Color(46, 65, 82) : new Color(35, 42, 49);
 
             if (conf.kind === 'factory') {
                 // 工厂：显示实际下一座价格（含同类递增，与建造判定一致）
@@ -501,6 +521,22 @@ export class HudView {
             } else {
                 this.shieldCostLabel.string = shieldCost(state.shieldLayers[side]) + '金';
             }
+        }
+        const upgrade = makeUpgradeCommand(state);
+        const target = upgrade?.type === 'upgrade' ? state.buildings.find(b => b.id === upgrade.buildingId) : null;
+        const cost = target ? upgradeCost(target.level) : null;
+        const needAcademy = target?.level === 2 && state.academyLevel[side] < 1;
+        const upgradeLabel = this.actionButtons.get('onUpgradeClick')?.cost;
+        if (upgradeLabel) upgradeLabel.string = !target ? '暂无可升级工厂' : needAcademy ? '需学院1' : cost + '金';
+        const myCrystal = state.crystals.find(c => c.side === side);
+        const enabled: Record<string, boolean> = {
+            onUpgradeClick: cost !== null && !needAcademy && state.gold[side] >= cost,
+            onResearchClick: state.academyLevel[side] >= 2 && state.gold[side] >= researchCost(state.researchLayers[side]),
+            onShieldClick: !!myCrystal && myCrystal.shieldDur <= 0 && state.gold[side] >= shieldCost(state.shieldLayers[side]),
+        };
+        for (const [handler, button] of this.actionButtons) {
+            button.bg.color = enabled[handler] ? new Color(60, 82, 60) : new Color(35, 42, 49);
+            button.cost.color = enabled[handler] ? new Color(255, 215, 94) : new Color(255, 135, 120);
         }
     }
 
@@ -629,8 +665,9 @@ export class HudView {
         const visWidth = view.getVisibleSize().width;
 
         // 只在尺寸变化时重新计算
-        if (visHeight === this.lastVisibleHeight) return;
+        if (visHeight === this.lastVisibleHeight && visWidth === this.lastVisibleWidth) return;
         this.lastVisibleHeight = visHeight;
+        this.lastVisibleWidth = visWidth;
 
         const aspectRatio = visWidth / visHeight;
         const isNarrow = aspectRatio < 16 / 9;
@@ -683,37 +720,92 @@ export class HudView {
         bg.parent = this.buildBar;
         bg.setPosition(0, 48, 0);
 
-        // 10 个按钮（7 建筑 + 3 操作）等间距水平居中：
-        // 首个中心 = -(N-1)/2 × gap，按钮整体关于屏幕中轴对称（v1.4.2 布局修正）
-        const startX = -((BUILDING_IDS.length + 3 - 1) / 2) * 96;
-        const gap = 96;
+        const ui = new UiKit(this.spriteFactory, this.gmNode, this.art);
+        for (const [key, title] of [['factory', '兵工厂'], ['support', '科技 / 防御']]) {
+            const page = new Node('BuildPage_' + key);
+            page.layer = this.gmNode.layer;
+            page.parent = this.buildBar;
+            this.buildPages.set(key, page);
+            const tab = ui.makeButton('BuildTab_' + key, title, 170, 40, 'onBuildPageClick', '',
+                new Color(48, 65, 76), 20, key);
+            tab.parent = this.buildBar;
+            tab.setPosition(-520, key === 'factory' ? 72 : 26);
+            this.pageButtons.set(key, tab);
+        }
+        const startX = -290;
+        const gap = 180;
 
         // 7 种建筑按钮
         BUILDING_IDS.forEach((id, i) => {
             const conf = BUILDING_CONFIG[id];
             const btn = this.createBuildButton(conf.icon, conf.name, conf.cost, id);
-            btn.parent = this.buildBar;
-            btn.setPosition(startX + i * gap, 48, 0);
+            btn.parent = this.buildPages.get(i < 5 ? 'factory' : 'support')!;
+            btn.setPosition(startX + (i < 5 ? i : i - 5) * gap, 48, 0);
+            this.buildButtons.set(id, btn);
         });
 
         // 操作按钮：升级工厂 / 全军强化 / 水晶护盾
         const upgradeBtn = this.createActionButton('ui/ico_up', '⬆️', '升级工厂', '150金', 'onUpgradeClick');
-        upgradeBtn.parent = this.buildBar;
-        upgradeBtn.setPosition(startX + BUILDING_IDS.length * gap, 48, 0);
+        upgradeBtn.parent = this.buildPages.get('support')!;
+        upgradeBtn.setPosition(startX + 2 * gap, 48, 0);
 
         const researchBtn = this.createActionButton('ui/ico_research', '🔬', '全军强化', '400金', 'onResearchClick');
-        researchBtn.parent = this.buildBar;
-        researchBtn.setPosition(startX + (BUILDING_IDS.length + 1) * gap, 48, 0);
+        researchBtn.parent = this.buildPages.get('support')!;
+        researchBtn.setPosition(startX + 3 * gap, 48, 0);
         // 记录科研价格标签
         const costNode = researchBtn.children[researchBtn.children.length - 1];
         this.researchCostLabel = costNode.getComponent(Label);
 
         const shieldBtn = this.createActionButton('ui/ico_shield', '🛡️', '水晶护盾', '300金', 'onShieldClick');
-        shieldBtn.parent = this.buildBar;
-        shieldBtn.setPosition(startX + (BUILDING_IDS.length + 2) * gap, 48, 0);
+        shieldBtn.parent = this.buildPages.get('support')!;
+        shieldBtn.setPosition(startX + 4 * gap, 48, 0);
         // 记录护盾价格标签
         const sCostNode = shieldBtn.children[shieldBtn.children.length - 1];
         this.shieldCostLabel = sCostNode.getComponent(Label);
+        this.placementBar = this.spriteFactory.createColorNode(new Color(18, 34, 30, 235), 960, 32);
+        this.placementBar.name = 'PlacementInstructions';
+        this.placementBar.parent = this.buildBar;
+        // 放在状态栏下方的空隙，不遮住最底一排建造格。
+        this.placementBar.setPosition(0, 660);
+        this.placementLabel = this.makeLabel('', -80, 0, new Color(200, 255, 215), this.placementBar, 21);
+        this.placementLabel.node.getComponent(UITransform)!.contentSize = new Size(740, 30);
+        const cancel = ui.makeButton('CancelBuild', '取消建造', 110, 84, 'onCancelBuildClick', '',
+            new Color(110, 55, 48), 20);
+        cancel.parent = this.buildBar;
+        cancel.setPosition(565, 48);
+        this.placementCancel = cancel;
+        this.setPlacement(null);
+        this.setBuildPage('factory');
+    }
+
+    setBuildPage(page: 'factory' | 'support') {
+        for (const [key, node] of this.buildPages) node.active = key === page;
+        for (const [key, node] of this.pageButtons) {
+            const label = node.getChildByName('BtnLabel')?.getComponent(Label);
+            if (label) label.color = key === page ? new Color(160, 255, 185) : Color.WHITE;
+        }
+    }
+
+    setPlacement(item: BuildingItemId | null, requireHold = false, cost?: number) {
+        this.selectedBuild = item;
+        if (this.cardHistoryLabel) this.cardHistoryLabel.node.active = item === null;
+        if (this.placementBar) this.placementBar.active = item !== null;
+        if (this.placementCancel) this.placementCancel.active = item !== null;
+        if (item && this.placementLabel) this.placementLabel.string = BUILDING_CONFIG[item].name
+            + (cost === undefined ? '' : ` · ${cost}金`) + ' · '
+            + (requireHold ? '按住绿色网格片刻，松手建造' : '点击绿色网格建造 · 右键 / ESC 取消');
+    }
+
+    resetMatch() {
+        this.setPlacement(null);
+        this.setBuildPage('factory');
+        this.lastWave = 0;
+        this.lastCardCount = -1;
+        this.suddenWarnShown = this.suddenDeathShown = this.debtWarnShown = this.hadDebt = false;
+        this.lastGold = this.lastPop = this.lastKills = -1;
+        this.goldTintUntil = -1;
+        if (this.goldLabel) this.goldLabel.color = TOP_LABEL_BASE.gold.clone();
+        if (this.waveBanner) { Tween.stopAllByTarget(this.waveBanner); this.waveBanner.active = false; }
     }
 
     // ==================== 按钮创建辅助 ====================
@@ -723,30 +815,31 @@ export class HudView {
         const btn = new Node('BuildBtn_' + id);
         btn.layer = this.gmNode.layer;
         const ut = btn.addComponent(UITransform);
-        ut.contentSize = new Size(90, 84);
+        ut.contentSize = new Size(160, 84);
         ut.anchorPoint = new Vec2(0.5, 0.5);
 
-        const bg = this.spriteFactory.createColorNode(new Color(46, 65, 82), 90, 84);
+        const bg = this.spriteFactory.createColorNode(new Color(46, 65, 82), 160, 84);
+        bg.name = 'BuildButtonBg';
         bg.parent = btn;
 
         // 图标（美术贴图优先，emoji 兜底）
         this.makeIcon(btn, 'ui/ico_build_' + id, icon, 0, 26, 38, 20);
 
         // 名称
-        const nameLabel = this.createLabel(name, 12, new Color(223, 233, 240), new Size(80, 16));
+        const nameLabel = this.createLabel(name, 18, new Color(223, 233, 240), new Size(150, 22));
         nameLabel.node.parent = btn;
-        nameLabel.node.setPosition(0, -10, 0);
+        nameLabel.node.setPosition(0, -2, 0);
 
         // 价格
-        const costLabel = this.createLabel(cost + '金', 11, new Color(255, 215, 94), new Size(82, 14));
+        const costLabel = this.createLabel(cost + '金', 16, new Color(255, 215, 94), new Size(150, 20));
         costLabel.node.parent = btn;
-        costLabel.node.setPosition(0, -24, 0);
+        costLabel.node.setPosition(0, -22, 0);
         this.buildCostLabels.set(id, costLabel);
 
         // 同类已建数量（价格递增可视化：已建 N 座 → 下一座更贵）
-        const countLabel = this.createLabel('', 9, new Color(160, 180, 200), new Size(82, 12));
+        const countLabel = this.createLabel('', 12, new Color(160, 180, 200), new Size(150, 16));
         countLabel.node.parent = btn;
-        countLabel.node.setPosition(0, -35, 0);
+        countLabel.node.setPosition(0, -36, 0);
         this.buildCountLabels.set(id, countLabel);
 
         // 点击事件 → GameManager.onBuildClick
@@ -768,22 +861,23 @@ export class HudView {
         const btn = new Node('ActionBtn_' + handlerName);
         btn.layer = this.gmNode.layer;
         const ut = btn.addComponent(UITransform);
-        ut.contentSize = new Size(90, 84);
+        ut.contentSize = new Size(160, 84);
         ut.anchorPoint = new Vec2(0.5, 0.5);
 
-        const bg = this.spriteFactory.createColorNode(new Color(60, 82, 60), 90, 84);
+        const bg = this.spriteFactory.createColorNode(new Color(60, 82, 60), 160, 84);
         bg.parent = btn;
 
         // 图标（美术贴图优先，emoji 兜底）
         this.makeIcon(btn, artPath, icon, 0, 26, 36, 20);
 
-        const nameLabel = this.createLabel(name, 12, new Color(223, 233, 240), new Size(80, 16));
+        const nameLabel = this.createLabel(name, 18, new Color(223, 233, 240), new Size(150, 22));
         nameLabel.node.parent = btn;
-        nameLabel.node.setPosition(0, -10, 0);
+        nameLabel.node.setPosition(0, -2, 0);
 
-        const costLabel = this.createLabel(cost, 11, new Color(255, 215, 94), new Size(60, 14));
+        const costLabel = this.createLabel(cost, 16, new Color(255, 215, 94), new Size(150, 20));
         costLabel.node.parent = btn;
-        costLabel.node.setPosition(0, -24, 0);
+        costLabel.node.setPosition(0, -22, 0);
+        this.actionButtons.set(handlerName, { bg: bg.getComponent(Sprite)!, cost: costLabel });
 
         const button = btn.addComponent(Button);
         button.transition = Button.Transition.SCALE;

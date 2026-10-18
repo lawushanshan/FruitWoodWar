@@ -6,7 +6,7 @@
  */
 import {
     _decorator, Component, Node, Color, UITransform, Size, Vec2, Vec3,
-    Camera, EventTouch, EventMouse, Input, input, Layers, director, Sprite, sys,
+    Camera, EventTouch, EventMouse, Input, input, Layers, director, sys,
 } from 'cc';
 import { GameEngine } from './core/game-engine';
 import { ColorSpriteFactory, type Shape } from './presentation/color-sprite-factory';
@@ -21,6 +21,10 @@ import { AudioManager } from './presentation/audio-manager';
 import { TutorialController } from './presentation/tutorial-controller';
 import { BattleEffects } from './presentation/battle-effects';
 import { EntityInfoPanel } from './presentation/entity-info-panel';
+import { PlayReadiness } from './presentation/play-readiness';
+import { BuildPlacer } from './input/build-placer';
+import { cellIsFree, snapBuildCell } from './input/build-placement';
+import { FACTION_CONFIG } from './config/faction-config';
 import { makeBuildCommand, makeUpgradeCommand, makeResearchCommand, makeShieldCommand, makeCardCommand } from './input/game-commands';
 import { BUILDING_CONFIG } from './config/building-config';
 import { quoteBuild } from './core/systems/building-system';
@@ -109,15 +113,8 @@ export class GameManager extends Component {
     /** 游戏容器 */
     private gameContainer!: Node;
 
-    // ---- 放置模式（网格 + 预览，v0.5.0） ----
-    private pendingBuild: BuildingItemId | null = null;
-    private previewNode: Node | null = null;
-    private previewBg: Sprite | null = null;
-    /** 预览当前吸附的格点与合法性 */
-    private previewCell: { x: number; y: number } | null = null;
-    private previewValid = false;
-    /** 网格底图节点（建造模式显示） */
-    private gridOverlayNode: Node | null = null;
+    private placer!: BuildPlacer;
+    private readiness!: PlayReadiness;
 
     // ---- 移动端长按拖拽建造（v1.5.0） ----
     /** 触摸是否已按住（TOUCH_START 后为真） */
@@ -247,6 +244,7 @@ export class GameManager extends Component {
         // M3.2 地图底图：预载完成后用草地底图替换纯色背景（置于容器最底层，
         // 河/道路/桥仍由程序绘制在上层——位置必须与逻辑常量精确对齐，AI 画不准）
         this.artLibrary.preload().then(() => {
+            if (!this.isValid || !this.gameContainer.isValid) return;
             const mapNode = this.artLibrary.createSpriteNode('map/map_bg', 1280, 720);
             if (mapNode) {
                 mapNode.name = 'MapBg';
@@ -259,6 +257,7 @@ export class GameManager extends Component {
             // 预载完成后把面板里已按纯色兜底创建的底板升级为九宫格贴图
             this.panels?.refreshPanels();
             this.profilePanel?.refreshPanels();
+            this.readiness.ready = true;
         });
 
         // 河（楚河汉界）：沿 y 轴贯穿全场，唯一通道是中央道路（桥）
@@ -317,14 +316,18 @@ export class GameManager extends Component {
         this.panels.create();
         this.profilePanel = new ProfilePanel(uiContainer, sf, this.node, this.artLibrary);
         this.profilePanel.create();
+        this.placer = new BuildPlacer(this.gameContainer, sf, this.artLibrary);
+        this.readiness = new PlayReadiness(uiContainer, sf);
 
         // 战场触摸事件（网格放置 + 点建筑升级）
         this.gameContainer.on(Node.EventType.TOUCH_START, this.onGameTouchStart, this);
         this.gameContainer.on(Node.EventType.TOUCH_END, this.onGameTouch, this);
         this.gameContainer.on(Node.EventType.TOUCH_MOVE, this.onGameTouchMove, this);
+        this.gameContainer.on(Node.EventType.MOUSE_MOVE, this.onPointerMove, this);
         this.gameContainer.on(Node.EventType.TOUCH_CANCEL, this.onGameTouchCancel, this);
         // PC 右键取消建造：Node 上无稳定右键事件名，用全局 MOUSE_DOWN + getButton 判定
         input.on(Input.EventType.MOUSE_DOWN, this.onGlobalMouseDown, this);
+        input.on(Input.EventType.MOUSE_MOVE, this.onPointerMove, this);
         // ESC 取消建造模式
         input.on(Input.EventType.KEY_DOWN, this.onKeyDown, this);
     }
@@ -362,16 +365,25 @@ export class GameManager extends Component {
 
     onDestroy() {
         input.off(Input.EventType.MOUSE_DOWN, this.onGlobalMouseDown, this);
+        input.off(Input.EventType.MOUSE_MOVE, this.onPointerMove, this);
         input.off(Input.EventType.KEY_DOWN, this.onKeyDown, this);
+        this.placer?.cancel();
+        this.readiness?.dispose();
+        this.tutorial?.dispose();
         this.stopPingLoop();
     }
 
     /** 命令入口统一守卫：模拟未开始/已结束，或联机对局已被服务器判定结束 */
     private canAct(): boolean {
-        return this.engine.state.phase === 'playing' && !this.onlineEnded;
+        return this.engine.state.phase === 'playing' && !this.onlineEnded && !this.readiness.isBlocked();
     }
 
     update(dt: number) {
+        const blocked = this.readiness.update(this.online);
+        if (blocked) { this.touchHeld = false; this.touchHoldTime = 0; }
+        this.tutorial.setSuspended(blocked || this.engine.state.phase !== 'playing' || this.onlineEnded);
+        // 旋转设备时单机停止逻辑与选卡倒计时；联机绝不能改变锁步时间。
+        if (blocked && !this.online) { this.logicAccumulator = 0; return; }
         // 长按计时：触摸按住期间累计，达到阈值后松手才允许放置（移动端防误触）
         if (this.touchHeld) this.touchHoldTime += dt;
 
@@ -411,11 +423,19 @@ export class GameManager extends Component {
 
         const phase = this.engine.state.phase;
         if (phase !== this.prevPhase) {
-            if (phase === 'card-pause') this.panels.showCards(this.engine.state);
+            if (phase === 'card-pause') {
+                this.cancelPlacement();
+                this.entityInfo.hide();
+                this.panels.hideUpgrade();
+                this.tutorial.setSuspended(true);
+                this.panels.showCards(this.engine.state);
+            }
             else if (phase === 'playing' && this.prevPhase === 'card-pause') this.panels.hideCards();
             else if (phase === 'ended') {
                 // 修复 BUG：选中单位弹出的信息面板/升级面板在结算时残留 → 先统一收起
                 this.hideBattleOverlays();
+                this.gameView.sync(this.engine.state);
+                this.hudView.update(this.engine.state);
                 const canRevive = AdManager.getInstance().canWatch('revive');
                 this.panels.showEnd(this.engine.state, canRevive);
                 this.onGameEnd();
@@ -549,7 +569,7 @@ export class GameManager extends Component {
         const s = this.engine.state;
         if (!this.tutorial.isActive()) return;
 
-        const currentBuildings = s.buildings.filter(b => b.side === s.playerSide).length;
+        const currentBuildings = s.buildings.filter(b => b.side === s.playerSide && b.kind !== 'academy').length;
         if (currentBuildings > 0 && this.prevBuildings === 0) {
             this.tutorial.onFactoryBuilt();
         }
@@ -665,6 +685,8 @@ export class GameManager extends Component {
 
     /** 收起战场内浮层（实体信息面板/升级面板/卡牌面板）：弹出结算界面调用，防止面板残留遮挡 */
     private hideBattleOverlays() {
+        this.cancelPlacement();
+        this.tutorial.dispose();
         this.entityInfo.hide();
         this.panels.hideUpgrade();
         this.panels.hideCards();
@@ -715,30 +737,31 @@ export class GameManager extends Component {
             return;
         }
 
-        if (this.pendingBuild === itemId) {
+        if (this.placer.item === itemId) {
             this.cancelPlacement();
             this.panels.showToast('取消建造');
             return;
         }
 
-        this.pendingBuild = itemId;
         this.entityInfo.hide();
-        this.showPreview();
-        this.showGridOverlay();
-        const conf = BUILDING_CONFIG[itemId];
-        this.panels.showToast(`选择格子放置${conf.name}（${quote.cost}金，放错可右键/ESC 取消）`);
+        this.panels.hideUpgrade();
+        this.placer.begin(itemId, this.engine.state);
+        this.hudView.setPlacement(itemId, GameManager.REQUIRE_HOLD, quote.cost);
+        this.tutorial.onBuildSelected(GameManager.REQUIRE_HOLD);
     }
 
     /** 触摸按下：开始长按计时（移动端长按拖拽建造） */
-    private onGameTouchStart(_event: EventTouch) {
+    private onGameTouchStart(event: EventTouch) {
+        if (!this.canAct()) return;
         this.touchHeld = true;
         this.touchHoldTime = 0;
+        this.onGameTouchMove(event);
     }
 
     /** PC 全局鼠标按下：右键取消建造模式 */
     private onGlobalMouseDown(event: EventMouse) {
         if (event.getButton() === EventMouse.BUTTON_RIGHT) {
-            if (this.pendingBuild) {
+            if (this.placer.item) {
                 this.cancelPlacement();
                 this.panels.showToast('取消建造');
             }
@@ -758,22 +781,23 @@ export class GameManager extends Component {
         const localPos = this.toLocal(loc);
 
         // 建造模式：吸附格点放置
-        if (this.pendingBuild) {
+        if (this.placer.item) {
             // 移动端防误触：真实触摸设备必须长按（≥0.25s）后松手才放置；
             // PC 直接即点即放（平台判定，不依赖不可靠的事件时序）
             if (GameManager.REQUIRE_HOLD && !heldLongEnough) {
-                return; // 快速点按不放置（误触保护）
+                this.panels.showToast('按住网格片刻，松手建造');
+                return;
             }
-            const cell = this.snapToCell(localPos.x, localPos.y);
+            const cell = snapBuildCell(this.engine.state.playerSide, localPos);
             if (!cell) {
                 this.panels.showToast('请在己方建造区网格内放置');
                 return;
             }
-            if (!this.isCellFree(cell.x, cell.y)) {
+            if (!cellIsFree(this.engine.state, cell)) {
                 this.panels.showToast('该格已被占用');
                 return;
             }
-            const cmd = makeBuildCommand(this.pendingBuild, this.engine.state, cell);
+            const cmd = makeBuildCommand(this.placer.item, this.engine.state, cell);
             if (this.online) {
                 this.submitOnline(cmd);
                 this.cancelPlacement();
@@ -791,8 +815,7 @@ export class GameManager extends Component {
                 this.cancelPlacement();
             } else {
                 // 放置失败（金币不足等）：保持建造模式，玩家可换格重试
-                this.refreshGridOverlay();
-                this.updatePreviewAt(cell.x, cell.y);
+                this.placer.move(cell, this.engine.state);
             }
             return;
         }
@@ -856,10 +879,14 @@ export class GameManager extends Component {
     }
 
     private onGameTouchMove(event: EventTouch) {
-        if (!this.pendingBuild) return;
+        if (!this.placer.item || !this.canAct()) return;
         const loc = event.getUILocation();
         const localPos = this.toLocal(loc);
-        this.updatePreviewAt(localPos.x, localPos.y);
+        this.placer.move(localPos, this.engine.state);
+    }
+
+    private onPointerMove(event: EventMouse) {
+        if (this.placer.item && this.canAct()) this.placer.move(this.toLocal(event.getUILocation()), this.engine.state);
     }
 
     private onGameTouchCancel(_event: EventTouch) {
@@ -869,7 +896,7 @@ export class GameManager extends Component {
     }
 
     private onKeyDown(event: any) {
-        if (this.pendingBuild && (event?.keyCode === 27 /* ESC */ || event?.keyCode === 256)) {
+        if (this.placer.item && (event?.keyCode === 27 /* ESC */ || event?.keyCode === 256)) {
             this.cancelPlacement();
             this.panels.showToast('取消建造');
         }
@@ -881,123 +908,20 @@ export class GameManager extends Component {
         return ut.convertToNodeSpaceAR(new Vec3(loc.x, loc.y, 0));
     }
 
-    /** 本方建造格点集（蓝方用镜像网格） */
-    private myGridCells(): Array<{ x: number; y: number }> {
-        return this.online && this.mySide === 'blue' ? BUILD_GRID.mirrorCells() : BUILD_GRID.cells();
-    }
-
-    /** 最近格点吸附（超出 1.2 格距返回 null） */
-    private snapToCell(x: number, y: number): { x: number; y: number } | null {
-        let best: { x: number; y: number } | null = null;
-        let bestDist = Infinity;
-        for (const c of this.myGridCells()) {
-            const d = (c.x - x) ** 2 + (c.y - y) ** 2;
-            if (d < bestDist) { bestDist = d; best = c; }
-        }
-        if (best && bestDist <= (BUILD_GRID.cellSize * 1.2) ** 2) return best;
-        return null;
-    }
-
-    /** 格点是否空闲（无建筑/塔/水晶占位） */
-    private isCellFree(x: number, y: number): boolean {
-        const s = this.engine.state;
-        const half = BUILD_GRID.cellSize / 2;
-        for (const b of s.buildings) {
-            if (Math.abs(b.x - x) < half && Math.abs(b.y - y) < half) return false;
-        }
-        for (const t of s.towers) {
-            if (Math.abs(t.x - x) < half && Math.abs(t.y - y) < half) return false;
-        }
-        for (const c of s.crystals) {
-            if (Math.abs(c.x - x) < half && Math.abs(c.y - y) < half) return false;
-        }
-        return true;
-    }
-
-    /** 预览：半透明建筑跟随指针，红绿反馈可放/占用 */
-    private updatePreviewAt(x: number, y: number) {
-        if (!this.previewNode) return;
-        const cell = this.snapToCell(x, y);
-        if (!cell) {
-            this.previewNode.active = false;
-            this.previewCell = null;
-            return;
-        }
-        this.previewNode.active = true;
-        this.previewNode.setPosition(cell.x, cell.y, 0);
-        this.previewCell = cell;
-        this.previewValid = this.isCellFree(cell.x, cell.y);
-        if (this.previewBg) {
-            this.previewBg.color = this.previewValid
-                ? new Color(80, 220, 120, 130)
-                : new Color(220, 80, 80, 130);
-        }
-    }
-
-    private showPreview() {
-        this.clearPreview();
-        const conf = this.pendingBuild ? BUILDING_CONFIG[this.pendingBuild] : null;
-        const size = conf ? (conf.kind === 'academy' ? 46 : 40) : 40;
-        this.previewNode = this.spriteFactory.createColorNode(new Color(80, 220, 120, 130), size, size);
-        this.previewNode.name = 'BuildPreview';
-        this.previewBg = this.previewNode.getComponent(Sprite);
-        this.previewNode.parent = this.gameContainer;
-        this.previewNode.active = false;
-    }
-
-    /** 网格底图：建造模式显示空格/占用格 */
-    private showGridOverlay() {
-        this.clearGridOverlay();
-        const overlay = new Node('GridOverlay');
-        overlay.layer = this.node.layer;
-        overlay.parent = this.gameContainer;
-        this.gridOverlayNode = overlay;
-        const cells = this.myGridCells().map(c => ({ ...c }));
-        const nodeCells = new Map<string, Node>();
-        for (const c of cells) {
-            const cellNode = this.spriteFactory.createColorNode(new Color(255, 255, 255, 16), BUILD_GRID.cellSize - 6, BUILD_GRID.cellSize - 6);
-            cellNode.parent = overlay;
-            cellNode.setPosition(c.x, c.y, 0);
-            nodeCells.set(`${c.x},${c.y}`, cellNode);
-        }
-        (overlay as any).__cells = nodeCells;
-        this.refreshGridOverlay();
-    }
-
-    private refreshGridOverlay() {
-        const overlay = this.gridOverlayNode;
-        if (!overlay) return;
-        const nodeCells: Map<string, Node> = (overlay as any).__cells ?? new Map();
-        for (const [key, cellNode] of nodeCells) {
-            const [cx, cy] = key.split(',').map(Number);
-            const sp = cellNode.getComponent(Sprite);
-            if (sp) {
-                sp.color = this.isCellFree(cx, cy)
-                    ? new Color(255, 255, 255, 16)
-                    : new Color(220, 80, 80, 60);
-            }
-        }
-    }
-
     private cancelPlacement() {
-        this.pendingBuild = null;
-        this.clearPreview();
-        this.clearGridOverlay();
-    }
-
-    private clearPreview() {
-        if (this.previewNode?.isValid) this.previewNode.destroy();
-        this.previewNode = null;
-        this.previewBg = null;
-        this.previewCell = null;
-    }
-
-    private clearGridOverlay() {
-        if (this.gridOverlayNode?.isValid) this.gridOverlayNode.destroy();
-        this.gridOverlayNode = null;
+        this.placer?.cancel();
+        this.hudView.setPlacement(null);
+        this.touchHeld = false;
+        this.touchHoldTime = 0;
     }
 
     // ==================== 事件路由 ====================
+
+    onCancelBuildClick() { this.cancelPlacement(); }
+    onBuildPageClick(_event: Event, page: string) {
+        this.cancelPlacement();
+        this.hudView.setBuildPage(page === 'support' ? 'support' : 'factory');
+    }
 
     /** 升级面板按钮：升级当前指向的工厂 */
     onBuildingUpgradeClick(_event: Event) {
@@ -1120,6 +1044,7 @@ export class GameManager extends Component {
     }
 
     onStartClick(_event: Event) {
+        if (this.readiness.isBlocked()) return;
         // 初始化音频（需用户交互后才能播放）
         this.audio.init();
         // 恢复玩家音效偏好（静音开关持久化）
@@ -1140,6 +1065,7 @@ export class GameManager extends Component {
         this.deathEffect.clear();
         this.battleEffects.clear();
         this.tutorial.dispose();
+        this.hudView.resetMatch();
         // 局外解锁：单机卡池按玩家解锁进度过滤（档案开局重读一次，吃到上一局的胜负结果）；
         // 联机走 setupOnlineEngine，不传 cardUnlocks（恒全量池，双端一致约束 S6）
         this.profile = loadProfile();
@@ -1165,7 +1091,7 @@ export class GameManager extends Component {
         this.prevPhase = 'playing';
 
         this.hudView.updatePrices(this.engine.state);
-        this.panels.showToast('游戏开始！阵营：' + this.panels.getSelectedFaction());
+        this.panels.showToast('游戏开始！阵营：' + FACTION_CONFIG[this.panels.getSelectedFaction()].name);
 
         // 启动新手引导（首局玩家）
         this.tutorial.checkAndStart();
@@ -1193,6 +1119,9 @@ export class GameManager extends Component {
 
     /** 联机建局共用：同 seed 建引擎 + 重置表现层（matched 与 resume 复用） */
     private setupOnlineEngine(seed: number, side: 'red' | 'blue', myFaction: string, oppFaction: string) {
+        this.cancelPlacement();
+        this.tutorial.dispose();
+        this.hudView.resetMatch();
         this.engine = new GameEngine(new SeededRandomSource(seed));
         this.engine.reset({
             playerFaction: (side === 'red' ? myFaction : oppFaction) as never,

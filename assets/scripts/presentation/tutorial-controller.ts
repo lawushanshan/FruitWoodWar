@@ -36,7 +36,9 @@ export class TutorialController {
     private active: boolean = false;
 
     /** 引导开始时间（用于超时检测） */
-    private startTime: number = 0;
+    private elapsed = 0;
+    private remaining = 0;
+    private suspended = false;
 
     private container: Node;
     private spriteFactory: ColorSpriteFactory;
@@ -62,13 +64,26 @@ export class TutorialController {
         }
 
         this.active = true;
-        this.startTime = Date.now();
-        this.showHint('👇 点击底部「兵工厂」按钮建造第一座工厂！');
+        this.elapsed = 0;
+        this.remaining = 0;
+        this.suspended = false;
+        this.showHint('点击底部「坦克厂」，建造第一座兵工厂');
         this.step = 'build_factory';
         return true;
     }
 
     /** 玩家成功建造了第一座工厂 */
+    onBuildSelected(requireHold: boolean) {
+        if (!this.active || this.step !== 'build_factory') return;
+        this.showHint(requireHold ? '按住左侧绿色网格片刻，松手建造' : '点击左侧绿色网格放置工厂');
+    }
+
+    /** 选卡/横屏提示遮挡时保留步骤，暂停引导自身计时。 */
+    setSuspended(suspended: boolean) {
+        this.suspended = suspended;
+        if (this.hintNode) this.hintNode.active = this.active && !suspended;
+    }
+
     onFactoryBuilt() {
         if (!this.active || this.step !== 'build_factory') return;
 
@@ -84,27 +99,25 @@ export class TutorialController {
         this.step = 'done';
         this.markTutorialDone();
 
-        // 3 秒后隐藏提示
-        setTimeout(() => {
-            this.hideHint();
-            this.active = false;
-        }, 3000);
+        this.remaining = 3;
     }
 
     /** 每帧更新（检测超时） */
-    update(_dt: number) {
-        if (!this.active) return;
+    update(dt: number) {
+        if (!this.active || this.suspended) return;
+        if (this.remaining > 0) {
+            this.remaining -= dt;
+            if (this.remaining <= 0) { this.hideHint(); this.active = false; }
+            return;
+        }
 
         // 超时检测：60 秒未完成引导则提示一次后自动结束，防止提示每帧刷新卡死
-        const elapsed = (Date.now() - this.startTime) / 1000;
-        if (elapsed > 60 && this.step !== 'done') {
+        this.elapsed += dt;
+        if (this.elapsed > 60 && this.step !== 'done') {
             this.step = 'done';
-            this.showHint('💡 提示：点击底部「兵工厂」按钮建造工厂');
+            this.showHint('提示：点击「坦克厂」，再选择左侧绿色网格');
             // 3 秒后隐藏提示并结束本次引导（不标记完成，下次进入游戏重新引导）
-            setTimeout(() => {
-                this.hideHint();
-                this.active = false;
-            }, 3000);
+            this.remaining = 3;
         }
     }
 
@@ -123,6 +136,9 @@ export class TutorialController {
         this.hideHint();
         this.active = false;
         this.step = 'idle';
+        this.elapsed = 0;
+        this.remaining = 0;
+        this.suspended = false;
     }
 
     // ==================== 内部方法 ====================
@@ -155,7 +171,7 @@ export class TutorialController {
             this.hintLabel.overflow = Label.Overflow.CLAMP;
         }
 
-        this.hintNode.active = true;
+        this.hintNode.active = !this.suspended;
         this.hintNode.setPosition(0, 200, 0); // 屏幕中上方
         if (this.hintLabel) {
             this.hintLabel.string = text;
@@ -190,15 +206,17 @@ export class TutorialController {
             }
             // 手势素材原图指向右侧，旋转 125° 指向左下（提示框下方中央偏左，指向底部建造栏）
             this.handNode.angle = 125;
-            // 脉冲缩放动画
-            tween(this.handNode)
+        }
+        Tween.stopAllByTarget(this.handNode);
+        this.handNode.setScale(1, 1, 1);
+        // 重开局也重新启动脉冲动画。
+        tween(this.handNode)
                 .repeatForever(
                     tween()
                         .to(0.45, { scale: new Vec3(1.25, 1.25, 1) })
                         .to(0.45, { scale: new Vec3(1, 1, 1) })
                 )
                 .start();
-        }
         this.handNode.active = true;
         this.handNode.setPosition(-140, -60, 0);
     }

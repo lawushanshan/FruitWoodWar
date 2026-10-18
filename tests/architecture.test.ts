@@ -18,7 +18,7 @@ const CORE_DIR = join(ROOT, 'assets', 'scripts', 'core');
 const GAME_MANAGER = join(ROOT, 'assets', 'scripts', 'GameManager.ts');
 
 /** GameManager 行数上限（随 D1 拆分进度逐次收紧） */
-const GAME_MANAGER_MAX_LINES = 1500;
+const GAME_MANAGER_MAX_LINES = 1450;
 
 /** 递归收集目录下全部 .ts 文件路径 */
 function collectTsFiles(dir: string): string[] {

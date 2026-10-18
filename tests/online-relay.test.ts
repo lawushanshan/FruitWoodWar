@@ -98,9 +98,10 @@ async function serverUp(): Promise<boolean> {
 }
 
 describe('联机服务器全链路（真实 ws 中继 + 双引擎锁步）', () => {
-    it('双方持续操作 900 帧无 desync，命令双端生效', { timeout: 60_000 }, async () => {
+    it('双方持续操作 900 帧无 desync，命令双端生效', { timeout: 60_000 }, async (context) => {
         if (!(await serverUp())) {
             console.warn('跳过：ws://127.0.0.1:8100 未运行（cd server && npm start 后重试）');
+            context.skip();
             return;
         }
         const a = await makePeer();
