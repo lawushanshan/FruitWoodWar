@@ -5,15 +5,17 @@
  *  - 使用 Web Audio API 合成简单音效，无需外部音频文件
  *  - 支持：建造、金币、击杀、胜利、失败、攻击、受击
  *  - 音量控制与静音开关
- *  - 不导入 cc，可在 Node 环境运行（静默降级）
+ *  - 正式音频资源可用时走 Cocos AudioSource；资源加载失败时回退 Web Audio 合成
  *
  * 音效设计原则：
  *  - 欢快、简洁，符合 Q 版卡通风格
  *  - 每个音效时长 ≤ 0.5 秒，避免拖沓
  */
 
+import { AudioClip, AudioSource, director, Node, resources } from 'cc';
+
 /** 音效类型 */
-export type SoundEffect = 'build' | 'coin' | 'kill' | 'victory' | 'defeat' | 'attack' | 'hit' | 'upgrade' | 'click';
+export type SoundEffect = 'build' | 'coin' | 'kill' | 'victory' | 'defeat' | 'attack' | 'hit' | 'upgrade' | 'click' | 'card_confirm' | 'crystal_hit' | 'siege_impact' | 'sudden_death';
 
 /** 高频音效最小播放间隔（毫秒）：战斗事件密集，限流避免嘈杂与性能浪费 */
 const THROTTLE_MS: Partial<Record<SoundEffect, number>> = {
@@ -27,11 +29,20 @@ export class AudioManager {
     private masterGain: GainNode | null = null;
     private muted: boolean = false;
     private volume: number = 0.3;
+    private audioNode: Node | null = null;
+    private sfxSource: AudioSource | null = null;
+    private musicSource: AudioSource | null = null;
+    private clips = new Map<SoundEffect, AudioClip>();
+    private musicClip: AudioClip | null = null;
+    private musicRequested = false;
+    private nativeLoading = false;
     /** 各音效上次播放时间戳（毫秒），用于高频音效节流 */
     private lastPlayedAt: Partial<Record<SoundEffect, number>> = {};
 
     /** 初始化音频上下文（需在用户交互后调用） */
     init() {
+        this.ensureNativeSources();
+        this.loadNativePack();
         if (this.ctx) return;
         try {
             const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
@@ -47,7 +58,14 @@ export class AudioManager {
 
     /** 播放指定音效 */
     play(effect: SoundEffect) {
-        if (!this.ctx || !this.masterGain || this.muted) return;
+        if (this.muted) return;
+        const nativeClip = this.clips.get(effect);
+        if (nativeClip && this.sfxSource) {
+            this.sfxSource.volume = this.volume;
+            this.sfxSource.playOneShot(nativeClip, 1);
+            return;
+        }
+        if (!this.ctx || !this.masterGain) return;
 
         // 高频音效节流：间隔内重复触发直接丢弃（团战时攻防事件每秒可达数十次）
         const throttle = THROTTLE_MS[effect];
@@ -72,19 +90,44 @@ export class AudioManager {
             case 'hit': this.playHit(); break;
             case 'upgrade': this.playUpgrade(); break;
             case 'click': this.playClick(); break;
+            case 'card_confirm': this.playCardConfirm(); break;
+            case 'crystal_hit': this.playHit(); break;
+            case 'siege_impact': this.playHit(); break;
+            case 'sudden_death': this.playSuddenDeath(); break;
         }
+    }
+
+    playMusic() {
+        this.musicRequested = true;
+        if (!this.musicClip || !this.musicSource || this.muted) return;
+        this.musicSource.volume = this.volume * 0.22;
+        this.musicSource.clip = this.musicClip;
+        this.musicSource.loop = true;
+        this.musicSource.play();
+    }
+
+    stopMusic() {
+        this.musicRequested = false;
+        this.musicSource?.stop();
     }
 
     /** 设置音量（0~1） */
     setVolume(v: number) {
         this.volume = Math.max(0, Math.min(1, v));
         if (this.masterGain) this.masterGain.gain.value = this.muted ? 0 : this.volume;
+        if (this.sfxSource) this.sfxSource.volume = this.muted ? 0 : this.volume;
+        if (this.musicSource) this.musicSource.volume = this.muted ? 0 : this.volume * 0.22;
     }
 
     /** 静音切换 */
     setMuted(muted: boolean) {
         this.muted = muted;
         if (this.masterGain) this.masterGain.gain.value = muted ? 0 : this.volume;
+        if (this.sfxSource) this.sfxSource.volume = muted ? 0 : this.volume;
+        if (this.musicSource) {
+            this.musicSource.volume = muted ? 0 : this.volume * 0.22;
+            if (!muted && this.musicRequested) this.playMusic();
+        }
     }
 
     /** 是否静音 */
@@ -150,6 +193,18 @@ export class AudioManager {
         this.playTone(880, 0.03, 'sine');
     }
 
+    private playCardConfirm() {
+        this.playTone(392, 0.10, 'sine');
+        this.scheduleTone(587, 0.12, 'sine', 100);
+        this.scheduleTone(784, 0.15, 'sine', 220);
+    }
+
+    private playSuddenDeath() {
+        this.playTone(196, 0.18, 'sawtooth');
+        this.scheduleTone(293, 0.18, 'square', 180);
+        this.scheduleTone(392, 0.28, 'sine', 360);
+    }
+
     // ==================== 底层 ====================
 
     /** 播放单个音调 */
@@ -173,5 +228,43 @@ export class AudioManager {
 
     private scheduleTone(freq: number, duration: number, type: OscillatorType, delayMs: number) {
         setTimeout(() => this.playTone(freq, duration, type), delayMs);
+    }
+
+    private ensureNativeSources() {
+        if (this.audioNode) return;
+        const scene = director.getScene();
+        if (!scene) return;
+        this.audioNode = new Node('AudioManager');
+        this.audioNode.parent = scene;
+        this.sfxSource = this.audioNode.addComponent(AudioSource);
+        this.musicSource = this.audioNode.addComponent(AudioSource);
+        this.sfxSource.playOnAwake = false;
+        this.musicSource.playOnAwake = false;
+        this.sfxSource.volume = this.volume;
+        this.musicSource.volume = this.volume * 0.22;
+    }
+
+    private loadNativePack() {
+        if (this.nativeLoading || this.clips.size > 0) return;
+        this.nativeLoading = true;
+        const files: Array<[SoundEffect, string]> = [
+            ['click', 'audio/sfx/ui_click'], ['build', 'audio/sfx/build'], ['upgrade', 'audio/sfx/upgrade'],
+            ['coin', 'audio/sfx/coin'], ['card_confirm', 'audio/sfx/card_confirm'],
+            ['attack', 'audio/sfx/attack_light'], ['hit', 'audio/sfx/hit_heavy'],
+            ['crystal_hit', 'audio/sfx/crystal_hit'], ['siege_impact', 'audio/sfx/siege_impact'],
+            ['sudden_death', 'audio/sfx/sudden_death'],
+            ['victory', 'audio/sfx/victory'], ['defeat', 'audio/sfx/defeat'],
+        ];
+        for (const [effect, path] of files) {
+            resources.load(path, AudioClip, (err, clip) => {
+                if (!err && clip) this.clips.set(effect, clip);
+            });
+        }
+        resources.load('audio/music/battle_loop', AudioClip, (err, clip) => {
+            if (!err && clip) {
+                this.musicClip = clip;
+                if (this.musicRequested) this.playMusic();
+            }
+        });
     }
 }

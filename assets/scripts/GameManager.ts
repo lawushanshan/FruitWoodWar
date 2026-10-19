@@ -27,6 +27,7 @@ import { cellIsFree, snapBuildCell } from './input/build-placement';
 import { FACTION_CONFIG } from './config/faction-config';
 import { makeBuildCommand, makeUpgradeCommand, makeResearchCommand, makeShieldCommand, makeCardCommand } from './input/game-commands';
 import { BUILDING_CONFIG } from './config/building-config';
+import { GAME_CONFIG } from './config/game-config';
 import { quoteBuild } from './core/systems/building-system';
 import { BUILD_GRID } from './config/build-grid';
 import { MAP_LAYOUT } from './config/map-layout';
@@ -152,6 +153,7 @@ export class GameManager extends Component {
     private prevBuildingHp: Map<string, number> = new Map();
     private prevTowerHp: Map<string, number> = new Map();
     private prevBuildings: number = 0;
+    private suddenDeathSoundPlayed = false;
 
     // ==================== 生命周期 ====================
 
@@ -422,6 +424,10 @@ export class GameManager extends Component {
         // 联机模式的视觉同步照常每帧执行（模拟步进由帧消息驱动）
 
         const phase = this.engine.state.phase;
+        if (!this.suddenDeathSoundPlayed && this.engine.state.time >= GAME_CONFIG.suddenDeathTime) {
+            this.suddenDeathSoundPlayed = true;
+            this.audio.play('sudden_death');
+        }
         if (phase !== this.prevPhase) {
             if (phase === 'card-pause') {
                 this.cancelPlacement();
@@ -517,33 +523,33 @@ export class GameManager extends Component {
                         break;
                     case 'ranged':
                         // 轻快感：细箭（24px——实测 18px 在深色路带上几乎隐形）+ 小命中（飞抵后同步，箭到即中）
-                        this.battleEffects.playProjectile(sx, sy, e.x, e.y, e.side, 'fx/fx_arrow', 0.09, 24);
-                        this.battleEffects.schedule(0.09, () => {
+                        this.battleEffects.playProjectile(sx, sy, e.x, e.y, e.side, 'fx/fx_arrow', 0.15, 32);
+                        this.battleEffects.schedule(0.15, () => {
                             this.battleEffects.playImpact(e.x, e.y, e.side);
                         });
                         break;
                     case 'aoe':
                         // 法球（30px 辉光球）飞抵，落点爆光由 aoe 事件在弹道落地后补
-                        this.battleEffects.playProjectile(sx, sy, e.x, e.y, e.side, 'fx/fx_bolt', 0.22, 30);
+                        this.battleEffects.playProjectile(sx, sy, e.x, e.y, e.side, 'fx/fx_bolt', 0.26, 36);
                         break;
                     case 'siege':
                         // 笨重感：慢速巨石（40px）飞抵落点后砸出"范围冲击"——重型投石
                         // 落地应有范围表现（冲击环 + 爆闪 + 尘土碎石），与弹道同步不再提前闪
-                        this.battleEffects.playProjectile(sx, sy, e.x, e.y, e.side, 'fx/fx_boulder', 0.3, 40);
-                        this.battleEffects.schedule(0.3, () => {
+                        this.battleEffects.playProjectile(sx, sy, e.x, e.y, e.side, 'fx/fx_boulder', 0.38, 48);
+                        this.battleEffects.schedule(0.38, () => {
                             this.battleEffects.playRangeEffect(e.x, e.y, SIEGE_IMPACT_RADIUS, e.side);
                             this.battleEffects.playBoom(e.x, e.y, SIEGE_IMPACT_RADIUS * 0.7);
                             this.battleEffects.playDebrisBurst(e.x, e.y, 5);
-                            this.audio.play('hit'); // 落地重击音（与爆闪同步）
+                            this.audio.play('siege_impact'); // 落地重击音（与爆闪同步）
                         });
                         break;
                     default:
                         this.battleEffects.playImpact(e.x, e.y, e.side);
                 }
             } else if (e.type === 'aoe') {
-                // AOE 落点：等法球(0.22s)飞抵后再爆闪+范围环，保持"弹道落地才炸"的同步感。
+                // AOE 落点：等法球(0.26s)飞抵后再爆闪+范围环，保持"弹道落地才炸"的同步感。
                 // 最佳实践：亮核（爆闪 = 伤害半径×0.7）+ 细环（范围提示）两层分工，不再各自放大
-                this.battleEffects.schedule(0.22, () => {
+                this.battleEffects.schedule(0.26, () => {
                     this.battleEffects.playRangeEffect(e.x, e.y, e.radius, e.side);
                     this.battleEffects.playBoom(e.x, e.y, e.radius * 0.7);
                     this.audio.play('hit'); // 落地重击音（与爆闪同步）
@@ -662,6 +668,7 @@ export class GameManager extends Component {
                     this.crystalDmgAcc[side] += prevHp - crystal.hp;
                     if (this.crystalFxCooldown <= 0) {
                         this.battleEffects.playCrystalHit(crystal.x, crystal.y, side);
+                        this.audio.play('crystal_hit');
                         this.crystalFxCooldown = CRYSTAL_HIT_FX_COOLDOWN;
                     }
                 }
@@ -695,6 +702,7 @@ export class GameManager extends Component {
     /** 游戏结束时的表现 */
     private onGameEnd() {
         const s = this.engine.state;
+        this.audio.stopMusic();
         // 胜负按玩家所在边判定（联机时玩家可能是蓝方）
         const won = s.stats.result?.winner === s.playerSide;
         this.audio.play(won ? 'victory' : 'defeat');
@@ -1006,7 +1014,7 @@ export class GameManager extends Component {
         const result = this.engine.execute(makeCardCommand(cardId));
         if (result.ok) {
             this.panels.showToast('卡牌生效！');
-            this.audio.play('build');
+            this.audio.play('card_confirm');
             // 局外档案：登记用卡次数（为未来"使用次数解锁"积累数据；同卡一局至多一次）
             recordCardUse(this.profile, cardId);
             saveProfile(this.profile);
@@ -1049,6 +1057,7 @@ export class GameManager extends Component {
         if (this.readiness.isBlocked()) return;
         // 初始化音频（需用户交互后才能播放）
         this.audio.init();
+        this.audio.playMusic();
         // 恢复玩家音效偏好（静音开关持久化）
         this.audio.setMuted(this.readMutedPref());
         this.hudView.setMuteIcon(this.audio.isMuted());
@@ -1090,6 +1099,7 @@ export class GameManager extends Component {
         this.prevCrystalHp = { red: 0, blue: 0 };
         this.prevKills = { red: 0, blue: 0 };
         this.prevBuildings = 0;
+        this.suddenDeathSoundPlayed = false;
         this.prevPhase = 'playing';
 
         this.hudView.updatePrices(this.engine.state);
@@ -1121,10 +1131,13 @@ export class GameManager extends Component {
 
     /** 联机建局共用：同 seed 建引擎 + 重置表现层（matched 与 resume 复用） */
     private setupOnlineEngine(seed: number, side: 'red' | 'blue', myFaction: string, oppFaction: string) {
+        this.audio.init();
+        this.audio.playMusic();
         this.cancelPlacement();
         this.tutorial.dispose();
         this.hudView.resetMatch();
         this.engine = new GameEngine(new SeededRandomSource(seed));
+        this.suddenDeathSoundPlayed = false;
         this.engine.reset({
             playerFaction: (side === 'red' ? myFaction : oppFaction) as never,
             aiFaction: (side === 'red' ? oppFaction : myFaction) as never,

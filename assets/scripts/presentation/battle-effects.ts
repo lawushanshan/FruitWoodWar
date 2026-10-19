@@ -21,7 +21,7 @@ import { setUniformScale } from './scale-helper';
 import { ArtLibrary } from './art-library';
 
 /** 特效贴图显示尺寸（07 方案 §4：接入 96~128，战场显示 24~40px） */
-const FX_SIZE = { projectile: 24, ring: 40 } as const;
+const FX_SIZE = { projectile: 32, ring: 56 } as const;
 
 /** 活跃效果实例 */
 interface EffectInstance {
@@ -84,7 +84,7 @@ export class BattleEffects {
     playAttackFlash(x: number, y: number) {
         let node: Node;
         let poolKey = 'attack';
-        const fxNode = this.makeFxNode('fx/fx_star', 16, new Color(255, 250, 210, 235));
+        const fxNode = this.makeFxNode('fx/fx_star', 22, new Color(255, 250, 210, 235));
         if (fxNode) {
             node = fxNode;
             poolKey = 'fx_attack';
@@ -114,23 +114,25 @@ export class BattleEffects {
     playImpact(x: number, y: number, side: 'red' | 'blue') {
         const color = side === 'red' ? new Color(255, 90, 90, 230) : new Color(90, 140, 255, 230);
         const ring = this.pool.acquire('impact', () =>
-            this.spriteFactory.createColorNode(color, 42, 42, 'circle'),
+            this.spriteFactory.createColorNode(color, 48, 48, 'circle'),
         );
         ring.parent = this.container;
         ring.setPosition(x, y, 0);
         ring.active = true;
-        setUniformScale(ring, 0.3);
+        setUniformScale(ring, 0.25);
         const opacity = ring.getComponent(UIOpacity);
         if (opacity) opacity.opacity = 255;
 
         this.push({
             node: ring, elapsed: 0, duration: 0.25,
-            type: 'impact_ring', startX: x, startY: y, origScale: 0.3,
+            type: 'impact_ring', startX: x, startY: y, origScale: 0.25,
             dx: 0, dy: 0,
         });
 
         // 少量粒子飞散（上限判定：受 MAX_ACTIVE_EFFECTS 约束）
-        this.spawnParticles(x, y, color, 4);
+        // 亮核使用现成 fx_boom，圆环只负责告诉玩家命中位置，避免攻击像一个空心圈结束。
+        this.playBoom(x, y, 30);
+        this.spawnParticles(x, y, color, 3);
     }
 
     /**
@@ -152,7 +154,7 @@ export class BattleEffects {
             poolKey = 'fx_projectile';
         } else {
             node = this.pool.acquire('projectile', () =>
-                this.spriteFactory.createColorNode(color, 8, 8, 'circle'),
+                this.spriteFactory.createColorNode(color, 12, 12, 'circle'),
             );
         }
         node.parent = this.container;
@@ -279,8 +281,8 @@ export class BattleEffects {
 
     /** 范围溅射表现：以目标为圆心的扩散环（AOE / 防御塔溅射）；优先 fx_ring 贴图 */
     playRangeEffect(x: number, y: number, radius: number, side: 'red' | 'blue') {
-        // 环是"伤害范围"的唯一提示层：缩至 0.6× 保持克制，低透明度避免与爆闪叠加糊屏
-        const color = side === 'red' ? new Color(255, 170, 100, 140) : new Color(100, 180, 255, 140);
+        // 环是"伤害范围"的提示层：提高尺寸和透明度，让 AOE 结果在手机屏幕上可读。
+        const color = side === 'red' ? new Color(255, 170, 100, 165) : new Color(100, 180, 255, 165);
         let node: Node;
         let poolKey = 'range';
         const fxNode = this.makeFxNode('fx/fx_ring', FX_SIZE.ring, color.clone());
@@ -295,15 +297,15 @@ export class BattleEffects {
         node.parent = this.container;
         node.setPosition(x, y, 0);
         node.active = true;
-        setUniformScale(node, 0.4);
+        setUniformScale(node, 0.32);
         const opacity = node.getComponent(UIOpacity);
-        if (opacity) opacity.opacity = 90;
+        if (opacity) opacity.opacity = 125;
 
         // 目标缩放 = 基准 40px × (radius/40) × 0.6
         this.push({
             node, elapsed: 0, duration: 0.35,
             type: 'range_ring', startX: x, startY: y,
-            origScale: (radius / 40) * 0.6,
+            origScale: (radius / 56) * 0.75,
             dx: 0, dy: 0,
         }, poolKey);
     }
