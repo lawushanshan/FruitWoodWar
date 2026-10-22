@@ -65,6 +65,10 @@ function buildArtPaths(): string[] {
     paths.push('art/buildings/b_academy', 'art/buildings/b_aura', 'art/buildings/b_tower');
     // 11 特效
     for (const n of FX_NAMES) paths.push(`art/fx/fx_${n}`);
+    for (const n of ['circle_01', 'circle_03', 'smoke_03', 'smoke_06', 'star_04', 'slash_03', 'trace_01']) {
+        paths.push(`art/fx/kenney/${n}`);
+    }
+    paths.push('art/fx/boulder_clean');
     // 地图底图
     paths.push('art/map/map_bg');
     // UI 图标（预留）
